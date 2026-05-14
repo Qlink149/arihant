@@ -1,0 +1,178 @@
+{
+  "identity": {
+    "name": "E1",
+    "mission": "Create a high-end, luxury Real Estate CRM that feels like a cinematic experience, not a spreadsheet.",
+    "tone": "Premium, Intelligent, Exclusive, Trustworthy",
+    "principles": [
+      "Fusion over Imitation: Mix Fintech precision with Luxury Hotel aesthetics.",
+      "Emotion First: Every interaction should feel 'expensive'.",
+      "Content is King: Data is beautiful. Treat metrics like art.",
+      "Negative Space: Luxury breathes. Don't crowd the interface.",
+      "Contrast: Gold on Black. Sharp edges vs. Glass."
+    ]
+  },
+  "typography": {
+    "fonts": {
+      "headings": {
+        "family": "Playfair Display, serif",
+        "weights": [400, 700],
+        "usage": "Page titles, Hero sections, Key Metric numbers",
+        "letterSpacing": "tracking-tight"
+      },
+      "body": {
+        "family": "Montserrat, sans-serif",
+        "weights": [300, 400, 500, 600],
+        "usage": "UI elements, paragraphs, data labels, buttons"
+      },
+      "mono": {
+        "family": "JetBrains Mono, monospace",
+        "usage": "Code snippets, API keys, specific data IDs"
+      }
+    },
+    "scale": {
+      "h1": "text-5xl md:text-6xl font-serif tracking-tight",
+      "h2": "text-3xl md:text-4xl font-serif tracking-tight",
+      "h3": "text-2xl font-serif",
+      "body-lg": "text-lg font-sans",
+      "body-base": "text-base font-sans",
+      "caption": "text-sm text-muted-foreground uppercase tracking-wider"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": {
+        "primary": "#0A0A0A",
+        "secondary": "#1A1A1A",
+        "tertiary": "#262626"
+      },
+      "accent": {
+        "gold": "#C5A059",
+        "gold_light": "#E5C079",
+        "gold_dim": "#8A7039"
+      },
+      "text": {
+        "primary": "#EDEDED",
+        "secondary": "#A1A1AA",
+        "muted": "#52525B",
+        "inverse": "#0A0A0A"
+      },
+      "functional": {
+        "success": "#059669",
+        "warning": "#D97706",
+        "error": "#DC2626",
+        "info": "#2563EB"
+      },
+      "gradients": {
+        "gold_shine": "linear-gradient(135deg, #C5A059 0%, #E5C079 50%, #C5A059 100%)",
+        "glass_surface": "linear-gradient(180deg, rgba(26, 26, 26, 0.6) 0%, rgba(26, 26, 26, 0.4) 100%)",
+        "skyline_mask": "linear-gradient(to top, #0A0A0A 20%, transparent 100%)"
+      }
+    },
+    "rules": {
+      "dark_mode_only": true,
+      "gold_usage": "Use gold sparingly for primary actions, active states, and key metrics. Never for large backgrounds.",
+      "glassmorphism": "Use on dashboard tiles: bg-opacity-40 backdrop-blur-xl border-white/10"
+    }
+  },
+  "layout": {
+    "grid_system": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-12 gap-6",
+      "card_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+    },
+    "spacing": {
+      "section_padding": "py-12 md:py-20",
+      "container_padding": "px-6 md:px-12",
+      "card_padding": "p-6 md:p-8"
+    },
+    "containers": {
+      "max_width": "max-w-7xl mx-auto"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#C5A059] text-black hover:bg-[#E5C079] font-medium transition-all duration-300 rounded-none",
+      "secondary": "bg-transparent border border-[#C5A059] text-[#C5A059] hover:bg-[#C5A059] hover:text-black transition-all duration-300 rounded-none",
+      "ghost": "text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+    },
+    "cards": {
+      "base": "bg-[#1A1A1A] border border-white/10 rounded-lg overflow-hidden",
+      "glass": "bg-black/40 backdrop-blur-xl border border-white/10 shadow-2xl"
+    },
+    "inputs": {
+      "style": "bg-black/50 border-white/20 focus:border-[#C5A059] focus:ring-1 focus:ring-[#C5A059] text-white rounded-md h-12"
+    },
+    "navigation": {
+      "sidebar": "bg-[#0A0A0A] border-r border-white/10 w-64 fixed h-full",
+      "active_link": "text-[#C5A059] bg-[#C5A059]/10 border-r-2 border-[#C5A059]"
+    }
+  },
+  "visual_enhancers": {
+    "animation": {
+      "transition_base": "transition-all duration-300 ease-out",
+      "page_transition": "initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.5 }}",
+      "stagger_children": 0.1
+    },
+    "effects": {
+      "glow": "shadow-[0_0_20px_rgba(197,160,89,0.2)]",
+      "glass_border": "border border-white/10"
+    }
+  },
+  "images": {
+    "login_bg": {
+      "url": "https://images.unsplash.com/photo-1566393612878-2e68d73691a3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwxfHxjaGVubmFpJTIwY2l0eSUyMHNreWxpbmUlMjBuaWdodCUyMGx1eHVyeXxlbnwwfHx8fDE3NzMzMDU0MjF8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Chennai City Skyline at Night (Golden Hour) - Perfect for 'Rising Skyline' animation base.",
+      "category": "background"
+    },
+    "skyline_alt": {
+      "url": "https://images.unsplash.com/photo-1728028067500-79abbd5fc836?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHw0fHxjaGVubmFpJTIwY2l0eSUyMHNreWxpbmUlMjBuaWdodCUyMGx1eHVyeXxlbnwwfHx8fDE3NzMzMDU0MjF8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Sunset skyline, good for warmer tone variations.",
+      "category": "background"
+    },
+    "luxury_apartment": {
+      "url": "https://images.unsplash.com/photo-1763753743251-7ae80a842d5e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBsdXh1cnklMjBhcGFydG1lbnQlMjBleHRlcmlvciUyMG5pZ2h0fGVufDB8fHx8MTc3MzMwNTQyMnww&ixlib=rb-4.1.0&q=85",
+      "description": "Modern Luxury Apartment Exterior - Use for Property Cards or Digital Twin Hero.",
+      "category": "property"
+    },
+    "architectural_detail": {
+      "url": "https://images.unsplash.com/photo-1747531301740-7c84b3ecaf23?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MDV8MHwxfHNlYXJjaHwxfHxhcmNoaXRlY3R1cmFsJTIwYWJzdHJhY3QlMjBnZW9tZXRyaWMlMjBnb2xkJTIwYmxhY2t8ZW58MHx8fHwxNzczMzA1NDIzfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Geometric Gold/Black Abstract - Use for subtle backgrounds or card overlays.",
+      "category": "texture"
+    },
+    "logo": {
+      "url": "https://cdn.prod.website-files.com/677bb760b33b5fd3ff036767/677bbae243140d29ba5e1fc0_Arihant%20W%20Logo.svg",
+      "description": "Arihant Logo",
+      "category": "branding"
+    },
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1734519654307-ceb306e4073a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBpbmRpYW4lMjBjb3Jwb3JhdGUlMjB0ZWFtJTIwZGl2ZXJzZXxlbnwwfHx8fDE3NzMzMDU0MjJ8MA&ixlib=rb-4.1.0&q=85",
+        "category": "user_avatar"
+      }
+    ]
+  },
+  "specific_instructions": {
+    "login_page": {
+      "animation": "Create a 'Rising Skyline' effect: The city skyline image should translate upwards slowly (parallax) while the login form fades in. Use a gradient mask at the bottom to blend into the black background.",
+      "style": "Minimalist. Centered glassmorphism card on a rich photographic background."
+    },
+    "dashboard": {
+      "style": "Glassmorphism tiles. Use Recharts with custom tooltips (dark bg, gold text).",
+      "charts": "Line charts should have a gradient fill (Gold to Transparent). Donut charts should use Gold and Dark Grey."
+    },
+    "digital_twin": {
+      "style": "Sci-fi/Luxury hybrid. 'Data DNA' grid should look like a high-tech HUD (Heads Up Display) but elegant.",
+      "ai_persona": "Use a subtle glowing border effect to signify AI intelligence."
+    }
+  },
+  "universal_guidelines": {
+    "testing": "All interactive elements MUST have a `data-testid` attribute.",
+    "accessibility": "Ensure gold text is readable on black. If contrast is low, increase font weight or use a lighter gold (#E5C079).",
+    "motion": "Use `framer-motion` for all entrance animations. No static page loads.",
+    "components": "Use Shadcn components but STRIP the default 'zinc' styling. Replace with black/gold palette.",
+    "icons": "Use `lucide-react` with stroke-width 1.5 for elegance."
+  },
+  "tech_stack": {
+    "frontend": "React, Tailwind CSS, Framer Motion, Recharts, Lucide React",
+    "backend": "FastAPI, MongoDB"
+  }
+}

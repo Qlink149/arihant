@@ -1,0 +1,113 @@
+# IDE and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.settings/
+.classpath
+
+# System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment and Credential Files (CRITICAL: Do not push these)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
+*.env
+.credentials
+credentials.json
+*token.json*
+*.pem
+*.key
+.credentials
+
+# Dependencies (Recursively ignores node_modules and venv in all subfolders)
+node_modules/
+**/node_modules/
+venv/
+**/venv/
+.venv/
+**/.venv/
+env/
+**/env/
+ENV/
+.pnp
+.pnp.js
+.yarn/
+
+# Python (Backend)
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.tox/
+.coverage
+.cache/
+nosetests.xml
+coverage.xml
+*.protodevel
+backend_test.py
+
+# Frontend (Node/React/Next.js)
+/frontend/build/
+/frontend/dist/
+/frontend/.next/
+/frontend/out/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+frontend/node_modules/.cache/
+
+# Production Builds and Distribution
+build/
+dist/
+out/
+
+# Data and Databases
+agenthub/agents/youtube/db
+dump.rdb
+*.db
+*.sqlite3
+
+# Archive and Large Files
+**/*.zip
+**/*.tar.gz
+**/*.tar
+**/*.tgz
+*.pack
+*.deb
+*.dylib
+android-sdk/
+
+# Development Tools and Deployment
+chainlit.md
+.chainlit
+.ipynb_checkpoints/
+.ac
+.vercel
+.emergent
+memory/
+test_reports/
+test_result.md
+00_executive-summary.md
+01_full-system-understanding.md
+02_frontend-vs-backend-alignment.md
+03_backend-audit.md
+04_schema-domain-model-audit.md
+05_corrected-schema-design-plan.md
+06_rewrite-vs-refactor-decision.md
+07_prioritized-implementation-plan.md
+08_file-by-file-risk-register.md
+BASE_CRM_ARCHITECTURE.md
+SCOPE_OF_WORK.md
+WHATSAPP_BOT_DOCS.md
+
