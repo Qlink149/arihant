@@ -1,3 +1,4 @@
-# Vercel entrypoint — imports the FastAPI app from the package.
-# requirements.txt lives next to this file, so @vercel/python finds it.
+# Vercel entrypoint.
+# Lives at backend root alongside requirements.txt so @vercel/python
+# installs dependencies correctly before importing the FastAPI app.
 from app.main import app  # noqa: F401
