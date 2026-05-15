@@ -5,21 +5,18 @@ Monorepo: React frontend + FastAPI backend.
 ## Structure
 
 ```
-├── backend/                 # API (deploy this folder to Vercel)
-│   ├── app/                 # Application code
-│   │   ├── main.py          # FastAPI entry — `app.main:app`
-│   │   ├── core/state.py    # DB, auth, models
+├── backend/                 # API — Vercel project root
+│   ├── index.py             # ASGI entry (re-exports crm.main:app)
+│   ├── crm/                 # Application package (not named "app" — avoids Vercel conflicts)
+│   │   ├── main.py
+│   │   ├── core/state.py
 │   │   ├── routers/
 │   │   ├── services/
 │   │   └── constants/
-│   ├── scripts/             # One-off maintenance
-│   ├── tests/
-│   ├── csv/                 # Seed data
 │   ├── requirements.txt
-│   └── pyproject.toml       # Vercel entrypoint
+│   └── pyproject.toml       # dependencies + [tool.vercel] entrypoint
 │
-└── frontend/                # React app (deploy as separate Vercel project)
-    └── src/
+└── frontend/                # Web — separate Vercel project
 ```
 
 ## Local development
@@ -27,24 +24,38 @@ Monorepo: React frontend + FastAPI backend.
 **Backend** (from `backend/`):
 
 ```bash
-cp env.example .env      # then edit MONGO_URL, DB_NAME, SECRET_KEY
+cp env.example .env
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn crm.main:app --reload --port 8000
 ```
 
 **Frontend** (from `frontend/`):
 
 ```bash
-# .env: REACT_APP_BACKEND_URL=http://localhost:8000
+# REACT_APP_BACKEND_URL=http://localhost:8000
 npm install
 npm start
 ```
 
-## Vercel (two projects, same repo)
+## Vercel — backend project
 
-| Project  | Root Directory | Notes |
-|----------|----------------|--------|
-| API      | `backend`      | Env: `MONGO_URL`, `DB_NAME`, `SECRET_KEY`, `CORS_ORIGINS` |
-| Web      | `frontend`     | Env: `REACT_APP_BACKEND_URL` = API URL |
+| Setting | Value |
+|---------|--------|
+| Root Directory | `backend` |
+| Framework Preset | **FastAPI** |
+| Build Command | *(leave empty)* |
+| Install Command | *(leave empty — uses `vercel.json` / `pyproject.toml`)* |
+| Output Directory | *(leave empty)* |
 
-Test API: `https://<api>/api/health` and `https://<api>/api/docs`
+**Do not** use legacy `builds` + `api.py` — the new Vercel Python runtime skips pip install for that setup.
+
+**Environment variables:** `MONGO_URL`, `DB_NAME`, `SECRET_KEY`, `CORS_ORIGINS`
+
+**Test:** `https://<api-url>/api/health` and `/api/docs`
+
+## Vercel — frontend project
+
+| Setting | Value |
+|---------|--------|
+| Root Directory | `frontend` |
+| Env | `REACT_APP_BACKEND_URL=https://<api-url>` |

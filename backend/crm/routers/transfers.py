@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core.state import db, get_current_user, utc_now, iso_utc_now, resolve_user_id_by_full_name
+from crm.core.state import db, get_current_user, utc_now, iso_utc_now, resolve_user_id_by_full_name
 
 
 router = APIRouter()

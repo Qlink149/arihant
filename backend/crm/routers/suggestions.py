@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.state import db, get_current_user
+from crm.core.state import db, get_current_user
 
 
 router = APIRouter()

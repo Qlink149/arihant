@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.state import AssignmentRule, db, get_current_user, iso_utc_now, resolve_user_id_by_full_name, utc_now
+from crm.core.state import AssignmentRule, db, get_current_user, iso_utc_now, resolve_user_id_by_full_name, utc_now
 
 
 router = APIRouter()

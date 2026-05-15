@@ -6,8 +6,8 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Set
 
-from app.core.state import coerce_datetime, db, iso_utc_now, logger, utc_now
-from app.services.ai_service import (
+from crm.core.state import coerce_datetime, db, iso_utc_now, logger, utc_now
+from crm.services.ai_service import (
     generate_lead_insights,
     grok_keys_configured,
     mask_pii_text,

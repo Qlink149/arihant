@@ -14,7 +14,7 @@ if str(_BACKEND_ROOT) not in sys.path:
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from app.core.state import (
+from crm.core.state import (
     client,
     db,
     iso_utc_now,

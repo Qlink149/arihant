@@ -5,7 +5,7 @@ import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.core.state import (
+from crm.core.state import (
     db,
     logger,
     get_current_user,

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
-from app.core.state import (
+from crm.core.state import (
     db,
     SECRET_KEY,
     ALGORITHM,

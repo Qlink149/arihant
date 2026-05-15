@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends
 
-from app.core.state import db, get_current_user, utc_now, iso_utc_now
+from crm.core.state import db, get_current_user, utc_now, iso_utc_now
 
 
 router = APIRouter()

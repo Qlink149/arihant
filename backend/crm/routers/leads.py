@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 
-from app.core.state import (
+from crm.core.state import (
     db,
     LeadCreate,
     LeadResponse,
@@ -22,7 +22,7 @@ from app.core.state import (
     coerce_datetime,
     resolve_user_id_by_full_name,
 )
-from app.services.ai_lead_regen import (
+from crm.services.ai_lead_regen import (
     ai_insights_stale,
     ai_refresh_in_progress,
     grok_keys_configured,

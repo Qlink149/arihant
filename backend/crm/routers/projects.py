@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.core.state import PROJECT_REGISTRY, get_current_user
+from crm.core.state import PROJECT_REGISTRY, get_current_user
 
 
 router = APIRouter()
