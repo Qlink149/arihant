@@ -1,21 +1,30 @@
+import re
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from crm.core.state import coerce_datetime, db, get_current_user, utc_now
 
 
 router = APIRouter()
 
-MAX_LEADS_SCAN = 4000
+LEAD_PROJECTION = {
+    "_id": 0,
+    "id": 1,
+    "first_name": 1,
+    "last_name": 1,
+    "project": 1,
+    "phone": 1,
+    "temperature": 1,
+    "lead_status": 1,
+    "vip": 1,
+    "assigned_to": 1,
+    "assigned_to_name": 1,
+    "updated_at": 1,
+}
 
-
-def _lead_updated_at(lead: dict) -> datetime:
-    return (
-        coerce_datetime(lead.get("updated_at_dt"))
-        or coerce_datetime(lead.get("updated_at"))
-        or datetime.min.replace(tzinfo=timezone.utc)
-    )
+LEAD_SORT = [("updated_at_dt", -1), ("updated_at", -1), ("created_at_dt", -1)]
 
 
 def _transfer_at(t: dict) -> datetime:
@@ -37,24 +46,63 @@ def _rep_lead_filter(user_id: str, full_name: str) -> dict:
     }
 
 
+async def _resolve_leads_base_filter(uid: str, name: str) -> tuple[dict, bool]:
+    rep_filter = _rep_lead_filter(uid, name)
+    rep_lead_count = await db.leads.count_documents(rep_filter)
+    is_manager = rep_lead_count == 0
+    base_filter: dict = {} if is_manager else rep_filter
+    return base_filter, is_manager
+
+
+def _build_leads_query(
+    base_filter: dict,
+    temperature: Optional[str] = None,
+    search: Optional[str] = None,
+) -> dict:
+    query: dict = dict(base_filter)
+    if temperature and temperature.lower() != "all":
+        query["temperature"] = temperature
+    if search and search.strip():
+        q = re.escape(search.strip())
+        search_clause = {
+            "$or": [
+                {"first_name": {"$regex": q, "$options": "i"}},
+                {"last_name": {"$regex": q, "$options": "i"}},
+                {"project": {"$regex": q, "$options": "i"}},
+                {"phone": {"$regex": q, "$options": "i"}},
+            ]
+        }
+        if query:
+            query = {"$and": [query, search_clause]}
+        else:
+            query = search_clause
+    return query
+
+
 @router.get("/my-dashboard")
 async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
     name = current_user["full_name"]
     uid = current_user["id"]
     now = utc_now()
 
-    rep_filter = _rep_lead_filter(uid, name)
-    rep_lead_count = await db.leads.count_documents(rep_filter)
-    is_manager = rep_lead_count == 0
+    base_filter, is_manager = await _resolve_leads_base_filter(uid, name)
 
-    if is_manager:
-        raw_leads = await db.leads.find({}, {"_id": 0}).to_list(MAX_LEADS_SCAN)
-    else:
-        raw_leads = await db.leads.find(rep_filter, {"_id": 0}).to_list(MAX_LEADS_SCAN)
+    total_leads = await db.leads.count_documents(base_filter)
+    hot = await db.leads.count_documents({**base_filter, "temperature": "Hot"})
+    warm = await db.leads.count_documents({**base_filter, "temperature": "Warm"})
+    cold = await db.leads.count_documents({**base_filter, "temperature": "Cold"})
+    site_visits = await db.leads.count_documents(
+        {**base_filter, "lead_status": {"$regex": "site visit", "$options": "i"}}
+    )
+    closed = await db.leads.count_documents(
+        {
+            **base_filter,
+            "lead_status": {"$regex": "advance paid|closed|booked", "$options": "i"},
+        }
+    )
+    conversion_rate = round((closed / total_leads * 100), 1) if total_leads > 0 else 0
 
-    my_leads = sorted(raw_leads, key=_lead_updated_at, reverse=True)[:500]
-
-    transfer_query = {"acknowledged": {"$ne": True}}
+    transfer_query: Dict[str, Any] = {"acknowledged": {"$ne": True}}
     if not is_manager:
         transfer_query["to_rep"] = name
     raw_transfers = await db.lead_transfers.find(transfer_query, {"_id": 0}).to_list(200)
@@ -63,21 +111,12 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
     task_query = {} if is_manager else {"assigned_to": name}
     my_tasks = await db.tasks.find(task_query, {"_id": 0}).sort("due_date", 1).to_list(100)
 
-    total_leads = len(my_leads)
-    hot = sum(1 for l in my_leads if l.get("temperature") == "Hot")
-    warm = sum(1 for l in my_leads if l.get("temperature") == "Warm")
-    cold = sum(1 for l in my_leads if l.get("temperature") == "Cold")
-    site_visits = sum(1 for l in my_leads if "site visit" in (l.get("lead_status") or "").lower())
-    closed = sum(1 for l in my_leads if (l.get("lead_status") or "").lower() in ["advance paid", "closed", "booked"])
-    conversion_rate = round((closed / total_leads * 100), 1) if total_leads > 0 else 0
-
     pending_tasks = [t for t in my_tasks if t.get("status") == "pending"]
     overdue_tasks = [t for t in pending_tasks if t.get("due_date", "9999") < now.strftime("%Y-%m-%d")]
 
     return {
         "rep_name": name,
         "is_manager": is_manager,
-        "my_leads": my_leads,
         "transferred_leads": transferred,
         "my_tasks": my_tasks,
         "metrics": {
@@ -93,3 +132,23 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
         },
     }
 
+
+@router.get("/my-dashboard/leads")
+async def get_my_dashboard_leads(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(150, ge=1, le=500),
+    temperature: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    uid = current_user["id"]
+    name = current_user["full_name"]
+
+    base_filter, _ = await _resolve_leads_base_filter(uid, name)
+    query = _build_leads_query(base_filter, temperature, search)
+
+    total = await db.leads.count_documents(query)
+    cursor = db.leads.find(query, LEAD_PROJECTION).sort(LEAD_SORT).skip(skip).limit(limit)
+    leads = await cursor.to_list(limit)
+
+    return {"leads": leads, "total": total, "skip": skip, "limit": limit}

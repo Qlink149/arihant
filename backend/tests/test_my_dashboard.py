@@ -123,7 +123,6 @@ class TestMyDashboard:
         # Verify required fields
         assert "rep_name" in data, "Should have rep_name"
         assert "is_manager" in data, "Should have is_manager flag"
-        assert "my_leads" in data, "Should have my_leads"
         assert "transferred_leads" in data, "Should have transferred_leads"
         assert "my_tasks" in data, "Should have my_tasks"
         assert "metrics" in data, "Should have metrics"
@@ -140,17 +139,29 @@ class TestMyDashboard:
         for metric in required_metrics:
             assert metric in metrics, f"Missing metric: {metric}"
     
-    def test_my_dashboard_leads_structure(self, authenticated_client):
-        """Test my dashboard leads have required fields"""
-        response = authenticated_client.get(f"{BASE_URL}/api/my-dashboard")
-        assert response.status_code == 200
+    def test_my_dashboard_leads_pagination(self, authenticated_client):
+        """Test paginated my dashboard leads endpoint"""
+        response = authenticated_client.get(
+            f"{BASE_URL}/api/my-dashboard/leads",
+            params={"skip": 0, "limit": 150},
+        )
+        assert response.status_code == 200, f"Leads pagination failed: {response.text}"
         data = response.json()
-        
-        leads = data.get("my_leads", [])
-        if len(leads) > 0:
-            lead = leads[0]
+        assert "leads" in data, "Should have leads"
+        assert "total" in data, "Should have total"
+        assert "skip" in data, "Should have skip"
+        assert "limit" in data, "Should have limit"
+        assert len(data["leads"]) <= 150, "Should return at most 150 leads per page"
+        if len(data["leads"]) > 0:
+            lead = data["leads"][0]
             assert "id" in lead, "Lead should have id"
             assert "first_name" in lead or "last_name" in lead, "Lead should have name"
+
+    def test_my_dashboard_leads_requires_auth(self, api_client):
+        """Test paginated leads requires authentication"""
+        session = requests.Session()
+        response = session.get(f"{BASE_URL}/api/my-dashboard/leads")
+        assert response.status_code == 401, "Leads pagination should require authentication"
     
     def test_my_dashboard_requires_auth(self, api_client):
         """Test my dashboard requires authentication"""
@@ -166,8 +177,14 @@ class TestMyDashboard:
         
         # Roshini is a manager (no leads assigned to her directly)
         assert data.get("is_manager") == True, "Roshini should be detected as manager"
-        # Manager should see all leads
-        assert len(data.get("my_leads", [])) > 0, "Manager should see leads"
+        assert data.get("metrics", {}).get("total_leads", 0) > 0, "Manager should have leads in metrics"
+
+        leads_response = authenticated_client.get(
+            f"{BASE_URL}/api/my-dashboard/leads",
+            params={"skip": 0, "limit": 1},
+        )
+        assert leads_response.status_code == 200
+        assert leads_response.json().get("total", 0) > 0, "Manager should see leads via pagination"
 
 
 class TestLeadTransfer:
@@ -176,9 +193,12 @@ class TestLeadTransfer:
     @pytest.fixture(scope="class")
     def test_lead_id(self, authenticated_client):
         """Get a lead ID for testing"""
-        response = authenticated_client.get(f"{BASE_URL}/api/my-dashboard")
+        response = authenticated_client.get(
+            f"{BASE_URL}/api/my-dashboard/leads",
+            params={"skip": 0, "limit": 1},
+        )
         if response.status_code == 200:
-            leads = response.json().get("my_leads", [])
+            leads = response.json().get("leads", [])
             if leads:
                 return leads[0]["id"]
         pytest.skip("No leads available for transfer testing")
@@ -245,9 +265,12 @@ class TestAcknowledgeTransfer:
         
         if not transfer_id:
             # Create a new transfer first
-            dashboard_response = authenticated_client.get(f"{BASE_URL}/api/my-dashboard")
+            dashboard_response = authenticated_client.get(
+                f"{BASE_URL}/api/my-dashboard/leads",
+                params={"skip": 0, "limit": 1},
+            )
             if dashboard_response.status_code == 200:
-                leads = dashboard_response.json().get("my_leads", [])
+                leads = dashboard_response.json().get("leads", [])
                 reps_response = authenticated_client.get(f"{BASE_URL}/api/activity/team-status")
                 reps = reps_response.json() if reps_response.status_code == 200 else []
                 
