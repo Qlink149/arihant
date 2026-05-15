@@ -1,2 +1,8 @@
+[project]
+name = "arihant-crm-api"
+version = "1.0.0"
+description = "Arihant Sales Intelligence API"
+requires-python = ">=3.11"
+
 [tool.vercel]
-entrypoint = "server:app"
+entrypoint = "app.main:app"

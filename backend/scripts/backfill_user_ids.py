@@ -3,7 +3,7 @@ from typing import Dict, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from app_state import iso_utc_now, utc_now
+from app.core.state import iso_utc_now, utc_now
 
 
 def _env(name: str, default: Optional[str] = None) -> str:

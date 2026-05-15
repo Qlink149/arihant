@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app_state import CallSummary, db, get_current_user, iso_utc_now, utc_now
+from app.core.state import CallSummary, db, get_current_user, iso_utc_now, utc_now
 
 
 router = APIRouter()

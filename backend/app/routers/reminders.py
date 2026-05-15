@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app_state import (
+from app.core.state import (
     db,
     logger,
     get_current_user,

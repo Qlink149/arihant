@@ -1,0 +1,9 @@
+scripts/
+tests/
+scratch/
+csv/
+seed_db.py
+seed_db_v2.py
+import_leads.py
+clear_dev_data.py
+SEED_PRODUCTION_CHECKLIST.md

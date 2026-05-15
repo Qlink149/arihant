@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from app_state import db, get_current_user, get_time_greeting, utc_now
-from constants.lead_kpi import (
+from app.core.state import db, get_current_user, get_time_greeting, utc_now
+from app.constants.lead_kpi import (
     DEALS_CLOSED_STATUS_REGEX,
     RNR_STATUS_REGEX,
     SITE_VISIT_STATUS_REGEX,

@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from services import ai_service
+from app.services import ai_service
 
 
 def test_mask_pii_masks_email_and_phone_like_sequences():

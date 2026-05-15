@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app_state import coerce_datetime, db, get_current_user, iso_utc_now, utc_now
+from app.core.state import coerce_datetime, db, get_current_user, iso_utc_now, utc_now
 
 
 router = APIRouter()
