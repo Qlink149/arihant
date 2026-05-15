@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.app_state import db, get_current_user
+from app_state import db, get_current_user
 
 
 router = APIRouter()

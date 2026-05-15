@@ -5,7 +5,7 @@ import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from backend.app_state import (
+from app_state import (
     db,
     logger,
     get_current_user,

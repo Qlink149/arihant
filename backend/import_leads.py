@@ -14,7 +14,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from backend.app_state import (
+from app_state import (
     client,
     db,
     iso_utc_now,

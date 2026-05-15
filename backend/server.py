@@ -1,33 +1,29 @@
-from package_shim import ensure_backend_package
-
-ensure_backend_package()
-
 import asyncio
 import os
 
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from backend.app_state import client, ensure_db_indexes, logger, seed_default_alert_configs
+from app_state import client, ensure_db_indexes, logger, seed_default_alert_configs
 
-from backend.routers.activity import router as activity_router
-from backend.routers.alerts import router as alerts_router
-from backend.routers.analytics import router as analytics_router
-from backend.routers.assignment_rules import router as assignment_rules_router
-from backend.routers.auth import router as auth_router
-from backend.routers.call_summary import router as call_summary_router
-from backend.routers.campaigns import router as campaigns_router
-from backend.routers.leads import router as leads_router
-from backend.routers.marketing import router as marketing_router
-from backend.routers.misc import router as misc_router
-from backend.routers.my_dashboard import router as my_dashboard_router
-from backend.routers.notifications import router as notifications_router
-from backend.routers.projects import router as projects_router
-from backend.routers.reminders import process_reminders, router as reminders_router
-from backend.routers.suggestions import router as suggestions_router
-from backend.routers.tasks import router as tasks_router
-from backend.routers.transfers import router as transfers_router
-from backend.routers.whatsapp import router as whatsapp_router
+from routers.activity import router as activity_router
+from routers.alerts import router as alerts_router
+from routers.analytics import router as analytics_router
+from routers.assignment_rules import router as assignment_rules_router
+from routers.auth import router as auth_router
+from routers.call_summary import router as call_summary_router
+from routers.campaigns import router as campaigns_router
+from routers.leads import router as leads_router
+from routers.marketing import router as marketing_router
+from routers.misc import router as misc_router
+from routers.my_dashboard import router as my_dashboard_router
+from routers.notifications import router as notifications_router
+from routers.projects import router as projects_router
+from routers.reminders import process_reminders, router as reminders_router
+from routers.suggestions import router as suggestions_router
+from routers.tasks import router as tasks_router
+from routers.transfers import router as transfers_router
+from routers.whatsapp import router as whatsapp_router
 
 app = FastAPI(title="Arihant Sales Intelligence API")
 

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 
-from backend.app_state import (
+from app_state import (
     db,
     LeadCreate,
     LeadResponse,
@@ -22,7 +22,7 @@ from backend.app_state import (
     coerce_datetime,
     resolve_user_id_by_full_name,
 )
-from backend.services.ai_lead_regen import (
+from services.ai_lead_regen import (
     ai_insights_stale,
     ai_refresh_in_progress,
     grok_keys_configured,

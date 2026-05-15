@@ -38,7 +38,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from backend.constants.lead_kpi import fw_status_indicates_rnr
+from constants.lead_kpi import fw_status_indicates_rnr
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 

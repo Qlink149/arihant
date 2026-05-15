@@ -4,7 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.app_state import CampaignCreate, CampaignResponse, coerce_datetime, db, get_current_user, iso_utc_now, utc_now
+from app_state import CampaignCreate, CampaignResponse, coerce_datetime, db, get_current_user, iso_utc_now, utc_now
 
 
 router = APIRouter()

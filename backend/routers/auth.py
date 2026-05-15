@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
-from backend.app_state import (
+from app_state import (
     db,
     SECRET_KEY,
     ALGORITHM,

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 
-from backend.app_state import coerce_datetime, db, get_current_user, utc_now
+from app_state import coerce_datetime, db, get_current_user, utc_now
 
 
 router = APIRouter()
