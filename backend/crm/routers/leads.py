@@ -4,8 +4,9 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, UploadFile, File
 
+from crm.core.platform_ops import assert_assignee_allowed
 from crm.core.state import (
     db,
     LeadCreate,
@@ -105,6 +106,7 @@ async def create_lead(lead: LeadCreate, current_user: dict = Depends(get_current
 
 @router.get("/leads", response_model=List[LeadResponse])
 async def get_leads(
+    response: Response,
     current_user: dict = Depends(get_current_user),
     project: Optional[str] = None,
     project_id: Optional[str] = None,
@@ -147,6 +149,9 @@ async def get_leads(
     if days:
         cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         query["created_at"] = {"$gte": cutoff_iso}
+
+    total = await db.leads.count_documents(query)
+    response.headers["X-Total-Count"] = str(total)
 
     leads = await db.leads.find(query, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
 
@@ -197,6 +202,10 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     if "assigned_to" in patch and "assigned_to_name" not in patch:
         patch["assigned_to_name"] = patch["assigned_to"]
+
+    for field in ("assigned_to", "assigned_to_name", "presales_agent"):
+        if field in patch:
+            await assert_assignee_allowed(patch.get(field))
 
     now_dt = utc_now()
     now_iso = iso_utc_now()
@@ -348,6 +357,8 @@ async def upload_leads_csv(
             lead_dict["temperature"] = determine_temperature_from_status(status_val)
             lead_dict["intent"] = determine_lead_intent(lead_dict)
             lead_dict["vip"] = is_vip_lead(lead_dict)
+            if sales_owner:
+                await assert_assignee_allowed(sales_owner)
             lead_dict["assigned_to"] = sales_owner
             lead_dict["assigned_user_id"] = await resolve_user_id_by_full_name(sales_owner)
             lead_dict["assigned_to_name"] = sales_owner or None

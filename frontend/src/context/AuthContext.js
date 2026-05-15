@@ -1,8 +1,12 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { platformOpsAPI } from '../services/api';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+const OPERATOR_TOKEN_KEY = 'platform_operator_token';
+const OPERATOR_REFRESH_KEY = 'platform_operator_refresh_token';
 
 const AuthContext = createContext(null);
 
@@ -18,18 +22,11 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(!!localStorage.getItem('token'));
+  const [isImpersonating, setIsImpersonating] = useState(
+    () => !!localStorage.getItem(OPERATOR_TOKEN_KEY)
+  );
 
-  useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      fetchUser();
-    } else {
-      setUser(null);
-      setLoading(false);
-    }
-  }, [token]);
-
-  const fetchUser = async () => {
+  const fetchUser = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/auth/me`);
       setUser(response.data);
@@ -39,7 +36,17 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      fetchUser();
+    } else {
+      setUser(null);
+      setLoading(false);
+    }
+  }, [token, fetchUser]);
 
   const applySessionTokens = (accessToken, refreshToken) => {
     localStorage.setItem('token', accessToken);
@@ -59,7 +66,13 @@ export const AuthProvider = ({ children }) => {
     });
 
     const { access_token, refresh_token } = response.data;
+    localStorage.removeItem(OPERATOR_TOKEN_KEY);
+    localStorage.removeItem(OPERATOR_REFRESH_KEY);
+    setIsImpersonating(false);
     applySessionTokens(access_token, refresh_token);
+    const me = await axios.get(`${API}/auth/me`);
+    setUser(me.data);
+    setLoading(false);
     return response.data.user;
   };
 
@@ -72,11 +85,55 @@ export const AuthProvider = ({ children }) => {
     return response.data;
   };
 
+  const impersonateUser = async (userId) => {
+    const operatorToken = localStorage.getItem('token');
+    const operatorRefresh = localStorage.getItem('refresh_token');
+    if (!operatorToken) {
+      throw new Error('Not authenticated');
+    }
+
+    const { data } = await platformOpsAPI.impersonate(userId);
+
+    if (!localStorage.getItem(OPERATOR_TOKEN_KEY)) {
+      localStorage.setItem(OPERATOR_TOKEN_KEY, operatorToken);
+      localStorage.setItem(OPERATOR_REFRESH_KEY, operatorRefresh || '');
+    }
+
+    applySessionTokens(data.access_token, data.refresh_token);
+    setIsImpersonating(true);
+
+    const me = await axios.get(`${API}/auth/me`);
+    setUser(me.data);
+    return me.data;
+  };
+
+  const exitImpersonation = async () => {
+    const operatorToken = localStorage.getItem(OPERATOR_TOKEN_KEY);
+    const operatorRefresh = localStorage.getItem(OPERATOR_REFRESH_KEY);
+
+    if (!operatorToken) {
+      setIsImpersonating(false);
+      return;
+    }
+
+    applySessionTokens(operatorToken, operatorRefresh || '');
+    localStorage.removeItem(OPERATOR_TOKEN_KEY);
+    localStorage.removeItem(OPERATOR_REFRESH_KEY);
+    setIsImpersonating(false);
+
+    const me = await axios.get(`${API}/auth/me`);
+    setUser(me.data);
+    return me.data;
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('refresh_token');
+    localStorage.removeItem(OPERATOR_TOKEN_KEY);
+    localStorage.removeItem(OPERATOR_REFRESH_KEY);
     setToken(null);
     setUser(null);
+    setIsImpersonating(false);
     delete axios.defaults.headers.common['Authorization'];
   };
 
@@ -88,6 +145,9 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     applySessionTokens,
+    impersonateUser,
+    exitImpersonation,
+    isImpersonating,
     isAuthenticated: !!token && !!user
   };
 

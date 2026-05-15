@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from crm.core.platform_ops import assert_assignee_allowed, get_blocked_assignee_values, is_blocked_assignee_name
 from crm.core.state import AssignmentRule, db, get_current_user, iso_utc_now, resolve_user_id_by_full_name, utc_now
 
 
@@ -29,6 +30,8 @@ async def auto_assign_lead(lead_id: str, current_user: dict = Depends(get_curren
 
     managers = await db.leads.distinct("presales_agent")
     managers = [m for m in managers if m and m.strip()]
+    blocked = await get_blocked_assignee_values()
+    managers = [m for m in managers if not is_blocked_assignee_name(m, blocked)]
 
     if not managers:
         return {"assigned_to": None, "message": "No sales managers found"}
@@ -43,6 +46,7 @@ async def auto_assign_lead(lead_id: str, current_user: dict = Depends(get_curren
 
     min_count = float("inf")
     assigned_to = managers[0]
+    await assert_assignee_allowed(assigned_to)
     for mgr in managers:
         c = count_map.get(mgr, 0)
         if c < min_count:

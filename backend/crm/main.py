@@ -4,6 +4,7 @@ import os
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from crm.core.platform_ops import warn_if_platform_operator_env_missing
 from crm.core.state import client, ensure_db_indexes, logger, seed_default_alert_configs
 from crm.routers.activity import router as activity_router
 from crm.routers.alerts import router as alerts_router
@@ -16,6 +17,7 @@ from crm.routers.leads import router as leads_router
 from crm.routers.marketing import router as marketing_router
 from crm.routers.misc import router as misc_router
 from crm.routers.my_dashboard import router as my_dashboard_router
+from crm.routers.platform_ops import router as platform_ops_router
 from crm.routers.notifications import router as notifications_router
 from crm.routers.projects import router as projects_router
 from crm.routers.reminders import process_reminders, router as reminders_router
@@ -32,6 +34,7 @@ app.add_middleware(
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count"],
 )
 
 for r in [
@@ -49,6 +52,7 @@ for r in [
     whatsapp_router,
     activity_router,
     my_dashboard_router,
+    platform_ops_router,
     transfers_router,
     marketing_router,
     reminders_router,
@@ -74,6 +78,7 @@ async def _reminder_scheduler():
 @app.on_event("startup")
 async def startup_event():
     global reminder_task
+    warn_if_platform_operator_env_missing()
     await ensure_db_indexes()
     await seed_default_alert_configs()
     reminder_task = asyncio.create_task(_reminder_scheduler())

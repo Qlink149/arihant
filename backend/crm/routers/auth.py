@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
+from crm.core.platform_ops import get_platform_operator_email, is_platform_operator
 from crm.core.state import (
     db,
     SECRET_KEY,
@@ -35,6 +36,10 @@ router = APIRouter()
 
 @router.post("/auth/register", response_model=UserResponse)
 async def register(user_data: UserCreate):
+    reserved = get_platform_operator_email()
+    if reserved and user_data.email.strip().lower() == reserved:
+        raise HTTPException(status_code=403, detail="Registration not allowed for this email")
+
     existing = await db.users.find_one({"email": user_data.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -152,6 +157,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "email": current_user["email"],
         "full_name": current_user["full_name"],
         "role": current_user.get("role") or "rep",
+        "is_platform_operator": is_platform_operator(current_user),
         "greeting": f"{get_time_greeting()}, {current_user['full_name'].split()[0]}",
     }
 

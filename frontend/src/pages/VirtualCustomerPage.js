@@ -49,16 +49,30 @@ import {
 
 const VC_PAGE = 50;
 
+const parseTotalFromResponse = (response) => {
+  const headers = response?.headers;
+  if (!headers) return null;
+  let raw = headers['x-total-count'] ?? headers['X-Total-Count'];
+  if (raw == null && typeof headers === 'object') {
+    const key = Object.keys(headers).find((k) => k.toLowerCase() === 'x-total-count');
+    if (key) raw = headers[key];
+  }
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : null;
+};
+
 const VirtualCustomerPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [leads, setLeads] = useState([]);
+  const [totalLeads, setTotalLeads] = useState(0);
   const [hasMoreLeads, setHasMoreLeads] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadMoreSentinelRef = useRef(null);
   const prefetchedBuffer = useRef([]);
   const prefetchedKey = useRef('');
   const leadsLengthRef = useRef(0);
+  const leadsFetchBusy = useRef(false);
   const [duplicateGroups, setDuplicateGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -150,6 +164,10 @@ const VirtualCustomerPage = () => {
           const batch = response.data || [];
           prefetchedKey.current = k;
           prefetchedBuffer.current = batch;
+          const total = parseTotalFromResponse(response);
+          if (total !== null) {
+            setTotalLeads((prev) => (prev > 0 ? prev : total));
+          }
         })
         .catch(() => {});
     },
@@ -159,12 +177,16 @@ const VirtualCustomerPage = () => {
   const resetAndFetchLeads = useCallback(async () => {
     setLoading(true);
     setHasMoreLeads(true);
+    setTotalLeads(0);
     prefetchedBuffer.current = [];
     prefetchedKey.current = '';
+    leadsFetchBusy.current = false;
     try {
       const params = buildLeadQueryParams(0);
       const response = await leadsAPI.getAll(params);
       const batch = response.data || [];
+      const total = parseTotalFromResponse(response);
+      if (total !== null) setTotalLeads(total);
       setLeads(batch);
       setHasMoreLeads(batch.length === VC_PAGE);
       if (batch.length === VC_PAGE) {
@@ -179,18 +201,26 @@ const VirtualCustomerPage = () => {
   }, [buildLeadQueryParams, prefetchNextVcPage]);
 
   const appendLeadsPage = useCallback(async () => {
-    if (loadingMore || !hasMoreLeads) return;
+    if (leadsFetchBusy.current || loadingMore || !hasMoreLeads) return;
+    if (totalLeads > 0 && leadsLengthRef.current >= totalLeads) {
+      setHasMoreLeads(false);
+      return;
+    }
     const skip = leadsLengthRef.current;
     const k = `${prefetchKey()}:${skip}`;
+    leadsFetchBusy.current = true;
     setLoadingMore(true);
     try {
       let batch = [];
+      let response = null;
       if (prefetchedKey.current === k && prefetchedBuffer.current.length) {
         batch = prefetchedBuffer.current;
         prefetchedBuffer.current = [];
       } else {
-        const response = await leadsAPI.getAll(buildLeadQueryParams(skip));
+        response = await leadsAPI.getAll(buildLeadQueryParams(skip));
         batch = response.data || [];
+        const total = parseTotalFromResponse(response);
+        if (total !== null) setTotalLeads(total);
       }
       if (!batch.length) {
         setHasMoreLeads(false);
@@ -215,12 +245,13 @@ const VirtualCustomerPage = () => {
       console.error('Failed to load more leads:', error);
     } finally {
       setLoadingMore(false);
+      leadsFetchBusy.current = false;
     }
-  }, [loadingMore, hasMoreLeads, buildLeadQueryParams, prefetchNextVcPage]);
+  }, [loadingMore, hasMoreLeads, totalLeads, buildLeadQueryParams, prefetchNextVcPage]);
 
   useEffect(() => {
     const el = loadMoreSentinelRef.current;
-    if (!el || showDuplicates) return;
+    if (!el || showDuplicates || loading) return;
     const obs = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) appendLeadsPage();
@@ -229,7 +260,19 @@ const VirtualCustomerPage = () => {
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [showDuplicates, appendLeadsPage]);
+  }, [showDuplicates, loading, leads.length, hasMoreLeads, appendLeadsPage]);
+
+  useEffect(() => {
+    if (showDuplicates || loading) return;
+    const onScroll = () => {
+      const { scrollTop, clientHeight, scrollHeight } = document.documentElement;
+      if (scrollTop + clientHeight >= scrollHeight - 200) {
+        appendLeadsPage();
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [showDuplicates, loading, appendLeadsPage]);
 
   const findDuplicates = useCallback(async () => {
     setLoading(true);
@@ -401,12 +444,31 @@ const VirtualCustomerPage = () => {
           <h1 className="font-serif text-3xl text-white" data-testid="virtual-customer-title">
             Virtual Customer Explorer
           </h1>
-          <p className="text-[#A1A1AA] mt-1">
-            {showDuplicates 
-              ? `${duplicateGroups.length} duplicate groups found` 
-              : `${leads.length} leads found`
-            }
-          </p>
+          <motion.div className="mt-1" data-testid="virtual-customer-lead-count" role="status">
+            {showDuplicates ? (
+              <p className="text-[#A1A1AA]">
+                {duplicateGroups.length} duplicate groups found
+              </p>
+            ) : loading ? (
+              <p className="text-[#A1A1AA]">Loading leads…</p>
+            ) : totalLeads > 0 ? (
+              <>
+                <p className="text-[#A1A1AA]">
+                  {totalLeads} leads
+                  {activeFiltersCount > 0 ? ' match your filters' : ''}
+                </p>
+                {leads.length < totalLeads && (
+                  <p className="text-[#52525B] text-sm mt-0.5">
+                    {leads.length} loaded — scroll for more
+                  </p>
+                )}
+              </>
+            ) : leads.length === 0 ? (
+              <p className="text-[#A1A1AA]">No leads found</p>
+            ) : (
+              <p className="text-[#A1A1AA]">Loading count…</p>
+            )}
+          </motion.div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -711,7 +773,7 @@ const VirtualCustomerPage = () => {
                 key={lead.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
+                transition={{ delay: Math.min(index * 0.05, 0.3) }}
                 onClick={() => navigate(`/lead/${lead.id}`)}
                 className="glass-card rounded-lg p-6 cursor-pointer card-hover group"
                 data-testid={`lead-card-${lead.id}`}

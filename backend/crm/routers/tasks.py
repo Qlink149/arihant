@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from crm.core.platform_ops import assert_assignee_allowed
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now, resolve_user_id_by_full_name
 
 
@@ -96,6 +97,7 @@ async def add_task(lead_id: str, task: TaskCreate, current_user: dict = Depends(
 
     task_id = str(uuid.uuid4())
     assigned = task.assigned_to or lead.get("assigned_to") or lead.get("presales_agent") or current_user["full_name"]
+    await assert_assignee_allowed(assigned)
     assigned_user_id = task.assigned_user_id or await resolve_user_id_by_full_name(assigned)
     if not assigned_user_id:
         raise HTTPException(status_code=400, detail="assigned_user_id is required (no matching user for assigned_to)")
@@ -222,6 +224,9 @@ async def update_task(task_id: str, update: TaskUpdatePatch, current_user: dict 
     patch = update.model_dump(exclude_unset=True)
     if not patch:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    if "assigned_to" in patch:
+        await assert_assignee_allowed(patch["assigned_to"])
 
     if "status" in patch and patch["status"] not in {"pending", "done", "completed", "cancelled"}:
         raise HTTPException(status_code=400, detail="Invalid status")

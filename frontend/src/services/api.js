@@ -151,6 +151,11 @@ export const activityAPI = {
   getTeamStatus: () => api.get('/activity/team-status'),
 };
 
+export const platformOpsAPI = {
+  listUsers: () => api.get('/ops/users'),
+  impersonate: (userId) => api.post('/ops/impersonate', { user_id: userId }),
+};
+
 export const myDashboardAPI = {
   getData: () => api.get('/my-dashboard'),
   getLeads: (params) => api.get('/my-dashboard/leads', { params }),

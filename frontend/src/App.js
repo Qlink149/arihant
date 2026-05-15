@@ -15,6 +15,7 @@ import MyDashboardPage from './pages/MyDashboardPage';
 import MarketingDashboardPage from './pages/MarketingDashboardPage';
 import DevDocsPage from './pages/DevDocsPage';
 import NotificationsPage from './pages/NotificationsPage';
+import PlatformOpsPage from './pages/PlatformOpsPage';
 
 // Layout
 import DashboardLayout from './components/layout/DashboardLayout';
@@ -81,6 +82,8 @@ const PublicRoute = ({ children }) => {
 };
 
 function AppRoutes() {
+  const { user } = useAuth();
+
   return (
     <>
       <RouteProgress />
@@ -114,6 +117,9 @@ function AppRoutes() {
         <Route path="marketing-dashboard" element={<AdminRoute><MarketingDashboardPage /></AdminRoute>} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="developer-docs" element={<DevDocsPage />} />
+        {user?.is_platform_operator && (
+          <Route path="ops" element={<PlatformOpsPage />} />
+        )}
       </Route>
 
       {/* Fallback */}

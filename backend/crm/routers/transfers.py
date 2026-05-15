@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from crm.core.platform_ops import assert_assignee_allowed
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now, resolve_user_id_by_full_name
 
 
@@ -24,6 +25,8 @@ async def transfer_lead(req: TransferLeadRequest, current_user: dict = Depends(g
     if not lead:
         raise HTTPException(404, "Lead not found")
 
+    await assert_assignee_allowed(req.to_rep)
+
     from_rep = lead.get("assigned_to") or lead.get("presales_agent") or current_user["full_name"]
     transfer_id = str(uuid.uuid4())
     now_dt = utc_now()
@@ -33,6 +36,11 @@ async def transfer_lead(req: TransferLeadRequest, current_user: dict = Depends(g
     to_user_id = req.to_user_id or await resolve_user_id_by_full_name(req.to_rep)
     if not to_user_id:
         raise HTTPException(status_code=400, detail="to_user_id is required (no matching user for to_rep)")
+
+    target_user = await db.users.find_one({"id": to_user_id}, {"_id": 0, "email": 1, "full_name": 1})
+    if target_user:
+        await assert_assignee_allowed(target_user.get("full_name"))
+        await assert_assignee_allowed(target_user.get("email"))
 
     transfer_doc = {
         "id": transfer_id,

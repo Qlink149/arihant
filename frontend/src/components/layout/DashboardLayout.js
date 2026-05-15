@@ -21,10 +21,11 @@ import {
   BarChart3,
   UserCircle,
   TrendingUp,
+  Shield,
 } from 'lucide-react';
 
 const DashboardLayout = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, isImpersonating, exitImpersonation } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -48,9 +49,12 @@ const DashboardLayout = () => {
       { path: '/marketing-dashboard', icon: TrendingUp, label: 'Marketing' },
       { path: '/settings', icon: Settings, label: 'Settings' },
     ];
-    if (isAdmin) return all;
-    return all.filter((item) => !adminOnlyPaths.includes(item.path));
-  }, [isAdmin]);
+    let items = isAdmin ? all : all.filter((item) => !adminOnlyPaths.includes(item.path));
+    if (user?.is_platform_operator && !isImpersonating) {
+      items = [...items, { path: '/ops', icon: Shield, label: 'Ops' }];
+    }
+    return items;
+  }, [isAdmin, user?.is_platform_operator, isImpersonating]);
 
   useEffect(() => {
     fetchNotifications();
@@ -269,6 +273,24 @@ const DashboardLayout = () => {
 
       {/* Main Content */}
       <main className="flex-1 lg:ml-64">
+        {isImpersonating && (
+          <div
+            className="sticky top-0 z-40 flex items-center justify-between gap-4 px-4 lg:px-8 py-2 bg-amber-500/15 border-b border-amber-500/30"
+            data-testid="impersonation-banner"
+          >
+            <p className="text-amber-400 text-sm">
+              Viewing as <span className="font-medium text-white">{user?.full_name}</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => exitImpersonation().then(() => navigate('/ops'))}
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors"
+              data-testid="exit-impersonation-btn"
+            >
+              Exit impersonation
+            </button>
+          </div>
+        )}
         {/* Top Bar */}
         <header className={`sticky top-0 z-30 ${darkMode ? 'bg-[#0A0A0A]/80' : 'bg-white/80'} backdrop-blur-xl border-b ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
           <div className="flex items-center justify-between px-4 lg:px-8 py-4">

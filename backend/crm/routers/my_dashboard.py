@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Query
 
+from crm.core.platform_ops import is_platform_operator
 from crm.core.state import coerce_datetime, db, get_current_user, utc_now
 
 
@@ -46,7 +47,10 @@ def _rep_lead_filter(user_id: str, full_name: str) -> dict:
     }
 
 
-async def _resolve_leads_base_filter(uid: str, name: str) -> tuple[dict, bool]:
+async def _resolve_leads_base_filter(uid: str, name: str, current_user: dict) -> tuple[dict, bool]:
+    if is_platform_operator(current_user):
+        return {"id": {"$exists": False}}, False
+
     rep_filter = _rep_lead_filter(uid, name)
     rep_lead_count = await db.leads.count_documents(rep_filter)
     is_manager = rep_lead_count == 0
@@ -85,7 +89,7 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
     uid = current_user["id"]
     now = utc_now()
 
-    base_filter, is_manager = await _resolve_leads_base_filter(uid, name)
+    base_filter, is_manager = await _resolve_leads_base_filter(uid, name, current_user)
 
     total_leads = await db.leads.count_documents(base_filter)
     hot = await db.leads.count_documents({**base_filter, "temperature": "Hot"})
@@ -144,7 +148,7 @@ async def get_my_dashboard_leads(
     uid = current_user["id"]
     name = current_user["full_name"]
 
-    base_filter, _ = await _resolve_leads_base_filter(uid, name)
+    base_filter, _ = await _resolve_leads_base_filter(uid, name, current_user)
     query = _build_leads_query(base_filter, temperature, search)
 
     total = await db.leads.count_documents(query)

@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from crm.core.platform_ops import get_blocked_assignee_values, is_blocked_assignee_name
 from crm.core.state import coerce_datetime, db, get_current_user, iso_utc_now, utc_now
 
 
@@ -51,11 +52,14 @@ async def get_team_status(current_user: dict = Depends(get_current_user)):
 
     agents = await db.leads.distinct("presales_agent")
     agents = [a for a in agents if a and a.strip()]
+    blocked = await get_blocked_assignee_values()
 
     result = []
     activity_map = {a["full_name"]: a for a in activities}
 
     for agent in agents:
+        if is_blocked_assignee_name(agent, blocked):
+            continue
         activity = activity_map.get(agent, {})
         manual = activity.get("manual_status")
 
