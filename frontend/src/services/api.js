@@ -153,6 +153,7 @@ export const activityAPI = {
 
 export const myDashboardAPI = {
   getData: () => api.get('/my-dashboard'),
+  getLeads: (params) => api.get('/my-dashboard/leads', { params }),
   transferLead: (data) => api.post('/leads/transfer', data),
   acknowledgeTransfer: (transferId) => api.put(`/leads/transfer/${transferId}/acknowledge`),
   getReps: () => api.get('/activity/team-status'),

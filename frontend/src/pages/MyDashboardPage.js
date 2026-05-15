@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -6,11 +6,13 @@ import { myDashboardAPI, tasksAPI } from '../services/api';
 import { toast } from 'sonner';
 import {
   Flame, Snowflake, ThermometerSun, TrendingUp, CheckCircle,
-  Clock, AlertTriangle, ArrowRightLeft, Eye, Phone, Calendar,
-  ChevronRight, Filter, User, Building, X, Search,
-  ListChecks, Target, CircleDot, ArrowRight, Plus
+  AlertTriangle, ArrowRightLeft, Eye, Calendar,
+  User, Building, X, Search,
+  ListChecks, Target, Plus
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+
+const LEADS_PAGE = 150;
 
 const TEMP_CONFIG = {
   Hot: { icon: Flame, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' },
@@ -34,6 +36,10 @@ const MyDashboardPage = () => {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [leads, setLeads] = useState([]);
+  const [leadsTotal, setLeadsTotal] = useState(0);
+  const [leadsLoading, setLeadsLoading] = useState(false);
+  const [taskLeadOptions, setTaskLeadOptions] = useState([]);
   const [tempFilter, setTempFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -46,39 +52,107 @@ const MyDashboardPage = () => {
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTask, setNewTask] = useState({ description: '', due_date: '', priority: 'medium', lead_id: '' });
 
-  useEffect(() => {
-    fetchDashboard();
+  const leadsFetchBusy = useRef(false);
+  const listScrollRef = useRef(null);
+
+  const buildLeadsParams = useCallback((skip, temp, search) => {
+    const params = { skip, limit: LEADS_PAGE };
+    if (temp && temp !== 'all') params.temperature = temp;
+    const q = (search || '').trim();
+    if (q) params.search = q;
+    return params;
   }, []);
 
-  const fetchDashboard = async () => {
+  const loadLeadsPage = useCallback(async (skip, { append } = { append: false }, overrides = {}) => {
+    if (leadsFetchBusy.current) return;
+    leadsFetchBusy.current = true;
+    setLeadsLoading(true);
+    try {
+      const temp = overrides.temperature !== undefined ? overrides.temperature : tempFilter;
+      const search = overrides.search !== undefined ? overrides.search : searchQuery;
+      const { data: res } = await myDashboardAPI.getLeads(buildLeadsParams(skip, temp, search));
+      setLeadsTotal(res.total ?? 0);
+      const batch = res.leads || [];
+      setLeads((prev) => {
+        if (!append) return [...batch];
+        const seen = new Set(prev.map((l) => l.id));
+        const merged = [...prev];
+        for (const row of batch) {
+          if (!seen.has(row.id)) {
+            seen.add(row.id);
+            merged.push(row);
+          }
+        }
+        return merged;
+      });
+    } catch {
+      toast.error('Failed to load leads');
+    } finally {
+      setLeadsLoading(false);
+      leadsFetchBusy.current = false;
+    }
+  }, [tempFilter, searchQuery, buildLeadsParams]);
+
+  const refreshAll = useCallback(async () => {
     try {
       const [dashRes, repsRes] = await Promise.all([
         myDashboardAPI.getData(),
-        myDashboardAPI.getReps()
+        myDashboardAPI.getReps(),
       ]);
       setData(dashRes.data);
       setReps(repsRes.data || []);
-    } catch (error) {
+      leadsFetchBusy.current = false;
+      await loadLeadsPage(0, { append: false });
+    } catch {
       toast.error('Failed to load dashboard');
-    } finally {
-      setLoading(false);
+    }
+  }, [loadLeadsPage]);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const [dashRes, repsRes] = await Promise.all([
+          myDashboardAPI.getData(),
+          myDashboardAPI.getReps(),
+        ]);
+        setData(dashRes.data);
+        setReps(repsRes.data || []);
+      } catch {
+        toast.error('Failed to load dashboard');
+      } finally {
+        setLoading(false);
+      }
+    };
+    init();
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const delay = searchQuery.trim() ? 400 : 0;
+    const t = setTimeout(() => {
+      leadsFetchBusy.current = false;
+      setLeads([]);
+      loadLeadsPage(0, { append: false });
+    }, delay);
+    return () => clearTimeout(t);
+  }, [tempFilter, searchQuery, loading, loadLeadsPage]);
+
+  useEffect(() => {
+    if (!showAddTask) return;
+    myDashboardAPI.getLeads({ skip: 0, limit: 50 })
+      .then(({ data: res }) => setTaskLeadOptions(res.leads || []))
+      .catch(() => {});
+  }, [showAddTask]);
+
+  const onLeadListScroll = () => {
+    const el = listScrollRef.current;
+    if (!el || leadsLoading) return;
+    if (leads.length >= leadsTotal) return;
+    const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+    if (nearBottom) {
+      loadLeadsPage(leads.length, { append: true });
     }
   };
-
-  const filteredLeads = useMemo(() => {
-    if (!data?.my_leads) return [];
-    let leads = data.my_leads;
-    if (tempFilter !== 'all') leads = leads.filter(l => l.temperature === tempFilter);
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      leads = leads.filter(l =>
-        `${l.first_name} ${l.last_name}`.toLowerCase().includes(q) ||
-        (l.project || '').toLowerCase().includes(q) ||
-        (l.phone || '').includes(q)
-      );
-    }
-    return leads;
-  }, [data, tempFilter, searchQuery]);
 
   const handleTransfer = async () => {
     if (!selectedLead || !transferTo) return;
@@ -87,15 +161,15 @@ const MyDashboardPage = () => {
       await myDashboardAPI.transferLead({
         lead_id: selectedLead.id,
         to_rep: transferTo,
-        notes: transferNotes
+        notes: transferNotes,
       });
       toast.success(`Lead transferred to ${transferTo}`);
       setShowTransferModal(false);
       setSelectedLead(null);
       setTransferTo('');
       setTransferNotes('');
-      fetchDashboard();
-    } catch (error) {
+      await refreshAll();
+    } catch {
       toast.error('Transfer failed');
     } finally {
       setTransferring(false);
@@ -106,7 +180,7 @@ const MyDashboardPage = () => {
     try {
       await myDashboardAPI.acknowledgeTransfer(transferId);
       toast.success('Transfer acknowledged');
-      fetchDashboard();
+      await refreshAll();
     } catch {
       toast.error('Failed to acknowledge');
     }
@@ -116,7 +190,7 @@ const MyDashboardPage = () => {
     try {
       await tasksAPI.update(taskId, { status: 'completed' });
       toast.success('Task marked complete');
-      fetchDashboard();
+      await refreshAll();
     } catch {
       toast.error('Failed to update task');
     }
@@ -132,7 +206,7 @@ const MyDashboardPage = () => {
       toast.success('Task created');
       setNewTask({ description: '', due_date: '', priority: 'medium', lead_id: '' });
       setShowAddTask(false);
-      fetchDashboard();
+      await refreshAll();
     } catch {
       toast.error('Failed to create task');
     }
@@ -147,9 +221,13 @@ const MyDashboardPage = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="flex items-center justify-center min-h-[60vh]"
+      >
         <div className="text-[#C5A059] animate-pulse text-lg">Loading your dashboard...</div>
-      </div>
+      </motion.div>
     );
   }
 
@@ -171,7 +249,7 @@ const MyDashboardPage = () => {
   ];
 
   const tabs = [
-    { id: 'leads', label: 'My Leads', count: data?.my_leads?.length || 0 },
+    { id: 'leads', label: 'My Leads', count: m.total_leads || 0 },
     { id: 'tasks', label: 'Tasks', count: pendingTasks.length },
     { id: 'transfers', label: 'Transfers', count: transfers.length },
   ];
@@ -179,14 +257,22 @@ const MyDashboardPage = () => {
   return (
     <div className="space-y-6" data-testid="my-dashboard">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex flex-col sm:flex-row sm:items-end justify-between gap-4"
+      >
+        <motion.div
+          initial={{ opacity: 0, x: -12 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.05 }}
+        >
           <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight" data-testid="my-dashboard-greeting">
             {getGreeting()}, <span className="text-[#C5A059]">{data?.rep_name || user?.full_name || 'Rep'}</span>
           </h1>
           <p className="text-[#52525B] mt-1 text-sm">Your personalized sales workspace</p>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3" data-testid="my-dashboard-metrics">
@@ -199,9 +285,14 @@ const MyDashboardPage = () => {
             className="bg-[#1A1A1A] border border-white/5 rounded-xl p-3 hover:border-white/10 transition-colors"
             data-testid={`metric-${card.label.toLowerCase().replace(/\s/g, '-')}`}
           >
-            <div className={`w-8 h-8 rounded-lg ${card.bg} flex items-center justify-center mb-2`}>
+            <motion.div
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: i * 0.04 + 0.1 }}
+              className={`w-8 h-8 rounded-lg ${card.bg} flex items-center justify-center mb-2`}
+            >
               <card.icon size={16} className={card.color} />
-            </div>
+            </motion.div>
             <p className="text-white text-xl font-semibold">{card.value}</p>
             <p className="text-[#52525B] text-xs mt-0.5">{card.label}</p>
           </motion.div>
@@ -209,28 +300,47 @@ const MyDashboardPage = () => {
       </div>
 
       {/* Transferred Leads Alert */}
-      {transfers.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4"
-          data-testid="transferred-leads-alert"
-        >
-          <div className="flex items-center gap-3">
-            <ArrowRightLeft size={20} className="text-amber-500" />
-            <div className="flex-1">
-              <p className="text-amber-400 font-medium text-sm">{transfers.length} lead(s) transferred to you</p>
-              <p className="text-amber-500/60 text-xs mt-0.5">Review and acknowledge below</p>
-            </div>
-            <Button size="sm" variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10" onClick={() => setActiveTab('transfers')}>
-              View
-            </Button>
-          </div>
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {transfers.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4"
+            data-testid="transferred-leads-alert"
+          >
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              className="flex items-center gap-3"
+            >
+              <ArrowRightLeft size={20} className="text-amber-500" />
+              <motion.div
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.15 }}
+                className="flex-1"
+              >
+                <p className="text-amber-400 font-medium text-sm">{transfers.length} lead(s) transferred to you</p>
+                <p className="text-amber-500/60 text-xs mt-0.5">Review and acknowledge below</p>
+              </motion.div>
+              <Button size="sm" variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10" onClick={() => setActiveTab('transfers')}>
+                View
+              </Button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-[#1A1A1A] p-1 rounded-lg w-fit border border-white/5" data-testid="dashboard-tabs">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="flex gap-1 bg-[#1A1A1A] p-1 rounded-lg w-fit border border-white/5"
+        data-testid="dashboard-tabs"
+      >
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -250,14 +360,23 @@ const MyDashboardPage = () => {
             )}
           </button>
         ))}
-      </div>
+      </motion.div>
 
       {/* Leads Tab */}
       {activeTab === 'leads' && (
-        <div className="space-y-4">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="space-y-4"
+        >
           {/* Filters */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1 max-w-md">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="relative flex-1 max-w-md"
+            >
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525B]" />
               <input
                 type="text"
@@ -267,8 +386,8 @@ const MyDashboardPage = () => {
                 className="w-full pl-9 pr-4 py-2 bg-[#1A1A1A] border border-white/10 rounded-lg text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
                 data-testid="lead-search-input"
               />
-            </div>
-            <div className="flex gap-2">
+            </motion.div>
+            <motion.div className="flex gap-2">
               {['all', 'Hot', 'Warm', 'Cold'].map(t => (
                 <button
                   key={t}
@@ -283,15 +402,25 @@ const MyDashboardPage = () => {
                   {t === 'all' ? 'All' : t}
                 </button>
               ))}
-            </div>
+            </motion.div>
           </div>
 
-          {/* Leads Grid */}
-          <div className="grid gap-3">
-            {filteredLeads.length === 0 ? (
+          {/* Leads List */}
+          <p className="text-[#52525B] text-xs">
+            Showing {leads.length} of {leadsTotal}{leadsLoading ? ' · Loading…' : ''}
+          </p>
+          <motion.div
+            ref={listScrollRef}
+            onScroll={onLeadListScroll}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.15 }}
+            className="grid gap-3 max-h-[calc(100vh-22rem)] overflow-y-auto pr-2"
+          >
+            {leads.length === 0 && !leadsLoading ? (
               <div className="text-center py-12 text-[#52525B]">No leads match your filters</div>
             ) : (
-              filteredLeads.map((lead, i) => {
+              leads.map((lead) => {
                 const temp = TEMP_CONFIG[lead.temperature] || TEMP_CONFIG.Warm;
                 const TempIcon = temp.icon;
                 return (
@@ -299,38 +428,47 @@ const MyDashboardPage = () => {
                     key={lead.id}
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.02 }}
                     className="bg-[#1A1A1A] border border-white/5 rounded-xl p-4 hover:border-white/10 transition-all group"
                     data-testid={`lead-card-${lead.id}`}
                   >
-                    <div className="flex items-center gap-4">
-                      {/* Temp indicator */}
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex items-center gap-4"
+                    >
                       <div className={`w-10 h-10 rounded-lg ${temp.bg} flex items-center justify-center flex-shrink-0`}>
                         <TempIcon size={18} className={temp.color} />
                       </div>
-                      {/* Lead info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                      <motion.div
+                        initial={{ opacity: 0, x: -6 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.05 }}
+                        className="flex-1 min-w-0"
+                      >
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="flex items-center gap-2"
+                        >
                           <p className="text-white font-medium text-sm truncate">
                             {lead.first_name} {lead.last_name}
                           </p>
                           {lead.vip && <span className="text-[10px] bg-[#C5A059]/20 text-[#C5A059] px-1.5 py-0.5 rounded-full">VIP</span>}
-                        </div>
+                        </motion.div>
                         <div className="flex items-center gap-3 mt-1">
                           <span className="text-[#52525B] text-xs flex items-center gap-1">
                             <Building size={11} /> {lead.project || 'No project'}
                           </span>
-                          {data?.is_manager && lead.assigned_to && (
+                          {data?.is_manager && (lead.assigned_to || lead.assigned_to_name) && (
                             <span className="text-[#52525B] text-xs flex items-center gap-1">
-                              <User size={11} /> {lead.assigned_to}
+                              <User size={11} /> {lead.assigned_to || lead.assigned_to_name}
                             </span>
                           )}
                           <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.lead_status] || 'bg-gray-500/20 text-gray-400'}`}>
                             {lead.lead_status}
                           </span>
                         </div>
-                      </div>
-                      {/* Actions */}
+                      </motion.div>
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Button
                           size="sm"
@@ -351,20 +489,23 @@ const MyDashboardPage = () => {
                           <ArrowRightLeft size={16} />
                         </Button>
                       </div>
-                    </div>
+                    </motion.div>
                   </motion.div>
                 );
               })
             )}
-          </div>
-          <p className="text-xs text-[#52525B] text-center">Showing {filteredLeads.length} of {data?.my_leads?.length || 0} leads</p>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
 
       {/* Tasks Tab */}
       {activeTab === 'tasks' && (
-        <div className="space-y-3" data-testid="tasks-section">
-          {/* Add Task Button / Form */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-3"
+          data-testid="tasks-section"
+        >
           {!showAddTask ? (
             <Button
               onClick={() => setShowAddTask(true)}
@@ -380,12 +521,16 @@ const MyDashboardPage = () => {
               className="bg-[#1A1A1A] border border-[#C5A059]/20 rounded-xl p-5 space-y-4"
               data-testid="add-task-form"
             >
-              <div className="flex items-center justify-between">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center justify-between"
+              >
                 <h4 className="text-white font-medium text-sm">New Task</h4>
                 <button onClick={() => setShowAddTask(false)} className="text-[#52525B] hover:text-white">
                   <X size={18} />
                 </button>
-              </div>
+              </motion.div>
               <div>
                 <label className="text-[#A1A1AA] text-xs mb-1.5 block">Description *</label>
                 <input
@@ -398,7 +543,7 @@ const MyDashboardPage = () => {
                 />
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div>
+                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
                   <label className="text-[#A1A1AA] text-xs mb-1.5 block">Due Date *</label>
                   <input
                     type="date"
@@ -407,8 +552,8 @@ const MyDashboardPage = () => {
                     className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
                     data-testid="task-due-date-input"
                   />
-                </div>
-                <div>
+                </motion.div>
+                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
                   <label className="text-[#A1A1AA] text-xs mb-1.5 block">Priority</label>
                   <select
                     value={newTask.priority}
@@ -420,8 +565,8 @@ const MyDashboardPage = () => {
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
                   </select>
-                </div>
-                <div>
+                </motion.div>
+                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.11 }}>
                   <label className="text-[#A1A1AA] text-xs mb-1.5 block">Link to Lead</label>
                   <select
                     value={newTask.lead_id}
@@ -430,13 +575,13 @@ const MyDashboardPage = () => {
                     data-testid="task-lead-select"
                   >
                     <option value="">None</option>
-                    {(data?.my_leads || []).slice(0, 50).map(l => (
+                    {taskLeadOptions.map(l => (
                       <option key={l.id} value={l.id}>
                         {l.first_name} {l.last_name}
                       </option>
                     ))}
                   </select>
-                </div>
+                </motion.div>
               </div>
               <div className="flex gap-2 justify-end">
                 <Button variant="ghost" className="text-[#A1A1AA] hover:text-white" onClick={() => setShowAddTask(false)} data-testid="cancel-task-btn">
@@ -449,7 +594,6 @@ const MyDashboardPage = () => {
             </motion.div>
           )}
 
-          {/* Task list */}
           {pendingTasks.length === 0 && !showAddTask ? (
             <div className="text-center py-12 bg-[#1A1A1A] border border-white/5 rounded-xl">
               <ListChecks className="mx-auto text-[#52525B]" size={32} />
@@ -463,7 +607,7 @@ const MyDashboardPage = () => {
                   key={task.id}
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.03 }}
+                  transition={{ delay: Math.min(i * 0.03, 0.3) }}
                   className={`bg-[#1A1A1A] border rounded-xl p-4 ${isOverdue ? 'border-red-500/30' : 'border-white/5'}`}
                   data-testid={`task-${task.id}`}
                 >
@@ -479,7 +623,12 @@ const MyDashboardPage = () => {
                     </button>
                     <div className="flex-1 min-w-0">
                       <p className="text-white text-sm">{task.description}</p>
-                      <div className="flex items-center gap-3 mt-1.5">
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.05 }}
+                        className="flex items-center gap-3 mt-1.5"
+                      >
                         {task.lead_name && (
                           <span className="text-[#52525B] text-xs flex items-center gap-1">
                             <User size={10} /> {task.lead_name}
@@ -495,7 +644,7 @@ const MyDashboardPage = () => {
                           task.priority === 'medium' ? 'bg-amber-500/20 text-amber-400' :
                           'bg-gray-500/20 text-gray-400'
                         }`}>{task.priority || 'normal'}</span>
-                      </div>
+                      </motion.div>
                     </div>
                     {isOverdue && <span className="text-red-400 text-xs font-medium flex-shrink-0">Overdue</span>}
                   </div>
@@ -503,24 +652,33 @@ const MyDashboardPage = () => {
               );
             })
           )}
-        </div>
+        </motion.div>
       )}
 
       {/* Transfers Tab */}
       {activeTab === 'transfers' && (
-        <div className="space-y-3" data-testid="transfers-section">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-3"
+          data-testid="transfers-section"
+        >
           {transfers.length === 0 ? (
-            <div className="text-center py-12 bg-[#1A1A1A] border border-white/5 rounded-xl">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-center py-12 bg-[#1A1A1A] border border-white/5 rounded-xl"
+            >
               <ArrowRightLeft className="mx-auto text-[#52525B]" size={32} />
               <p className="text-[#52525B] mt-2 text-sm">No pending transfers</p>
-            </div>
+            </motion.div>
           ) : (
             transfers.map((t, i) => (
               <motion.div
                 key={t.id}
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
+                transition={{ delay: Math.min(i * 0.03, 0.3) }}
                 className="bg-[#1A1A1A] border border-amber-500/20 rounded-xl p-4"
                 data-testid={`transfer-${t.id}`}
               >
@@ -561,7 +719,7 @@ const MyDashboardPage = () => {
               </motion.div>
             ))
           )}
-        </div>
+        </motion.div>
       )}
 
       {/* Transfer Modal */}
@@ -594,7 +752,11 @@ const MyDashboardPage = () => {
                 <p className="text-[#52525B] text-xs mt-0.5">{selectedLead.project} &middot; {selectedLead.lead_status}</p>
               </div>
 
-              <div className="space-y-4">
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
                 <div>
                   <label className="text-[#A1A1AA] text-xs mb-1.5 block">Transfer to</label>
                   <select
@@ -611,7 +773,7 @@ const MyDashboardPage = () => {
                     ))}
                   </select>
                 </div>
-                <div>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.05 }}>
                   <label className="text-[#A1A1AA] text-xs mb-1.5 block">Notes (optional)</label>
                   <textarea
                     value={transferNotes}
@@ -621,7 +783,7 @@ const MyDashboardPage = () => {
                     className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none resize-none"
                     data-testid="transfer-notes-input"
                   />
-                </div>
+                </motion.div>
                 <Button
                   onClick={handleTransfer}
                   disabled={!transferTo || transferring}
@@ -630,7 +792,7 @@ const MyDashboardPage = () => {
                 >
                   {transferring ? 'Transferring...' : 'Transfer Lead'}
                 </Button>
-              </div>
+              </motion.div>
             </motion.div>
           </motion.div>
         )}
