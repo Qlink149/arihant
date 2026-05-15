@@ -1,3 +1,7 @@
+from package_shim import ensure_backend_package
+
+ensure_backend_package()
+
 import asyncio
 import os
 
