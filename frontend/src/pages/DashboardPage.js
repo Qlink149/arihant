@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -14,7 +14,8 @@ import {
   Calendar,
   ChevronDown,
   Info,
-  Building
+  Building,
+  Layers
 } from 'lucide-react';
 import {
   BarChart,
@@ -43,6 +44,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '../components/ui/tooltip';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../components/ui/dialog';
 
 // Tooltip copy aligned with GET /api/analytics/dashboard counts
 const LEAD_CRITERIA = {
@@ -115,6 +123,7 @@ const DashboardPage = () => {
   const [timeFilter, setTimeFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
   const [dateRange, setDateRange] = useState(null);
+  const [otherModalOpen, setOtherModalOpen] = useState(false);
 
   const timeFilters = [
     { value: '7', label: '7 Days' },
@@ -149,6 +158,25 @@ const DashboardPage = () => {
   // Navigate to Virtual Customer with project filter
   const handleProjectClick = (projectName) => {
     navigate(`/virtual-customer?project=${encodeURIComponent(projectName)}`);
+  };
+
+  const { topProjects, otherProjects, otherTotal, maxProjectCount } = useMemo(() => {
+    const all = analytics?.projects || [];
+    const top = all.slice(0, 11);
+    const other = all.slice(11);
+    const max = Math.max(...all.map((p) => p.count), 1);
+    const total = other.reduce((sum, p) => sum + p.count, 0);
+    return {
+      topProjects: top,
+      otherProjects: other,
+      otherTotal: total,
+      maxProjectCount: max,
+    };
+  }, [analytics?.projects]);
+
+  const handleOtherProjectClick = (projectName) => {
+    setOtherModalOpen(false);
+    handleProjectClick(projectName);
   };
 
   const COLORS = ['#059669', '#D97706', '#DC2626', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#EF4444', '#10B981', '#A855F7', '#F59E0B', '#06B6D4'];
@@ -577,16 +605,15 @@ const DashboardPage = () => {
         <h3 className="font-serif text-xl text-white mb-6">Project Interest Distribution</h3>
         <p className="text-[#52525B] text-sm mb-4">Click on a project to view its leads</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {(analytics?.projects || []).map((project, index) => (
+          {topProjects.map((project) => (
             <div
               key={project.name}
               onClick={() => handleProjectClick(project.name)}
               className="p-4 rounded-lg bg-[#1A1A1A] border border-white/10 hover:border-[#C5A059]/50 transition-all cursor-pointer group overflow-hidden relative"
               data-testid={`project-card-${project.name}`}
             >
-              {/* Project Image Background */}
               {PROJECT_IMAGES[project.name] && (
-                <div 
+                <div
                   className="absolute inset-0 opacity-20 group-hover:opacity-30 transition-opacity bg-cover bg-center"
                   style={{ backgroundImage: `url(${PROJECT_IMAGES[project.name]})` }}
                 />
@@ -603,9 +630,7 @@ const DashboardPage = () => {
                 <div className="h-2 bg-black/50 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-[#C5A059] to-[#E5C079] rounded-full transition-all duration-500"
-                    style={{
-                      width: `${(project.count / Math.max(...(analytics?.projects || []).map(p => p.count), 1)) * 100}%`
-                    }}
+                    style={{ width: `${(project.count / maxProjectCount) * 100}%` }}
                   />
                 </div>
                 <p className="text-[#52525B] text-xs mt-2 group-hover:text-[#A1A1AA] transition-colors">
@@ -614,8 +639,62 @@ const DashboardPage = () => {
               </div>
             </div>
           ))}
+          {otherProjects.length > 0 && (
+            <div
+              onClick={() => setOtherModalOpen(true)}
+              className="p-4 rounded-lg bg-[#1A1A1A] border border-white/10 hover:border-[#C5A059]/50 transition-all cursor-pointer group overflow-hidden relative"
+              data-testid="project-card-Other"
+            >
+              <div className="relative z-10">
+                <div className="flex items-center gap-2 mb-3">
+                  <Layers className="text-[#C5A059]" size={18} />
+                  <span className="text-white font-medium group-hover:text-[#C5A059] transition-colors">Other</span>
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[#52525B] text-sm">Leads</span>
+                  <span className="text-[#C5A059] font-serif text-xl">{otherTotal}</span>
+                </div>
+                <div className="h-2 bg-black/50 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#C5A059] to-[#E5C079] rounded-full transition-all duration-500"
+                    style={{ width: `${(otherTotal / maxProjectCount) * 100}%` }}
+                  />
+                </div>
+                <p className="text-[#52525B] text-xs mt-2 group-hover:text-[#A1A1AA] transition-colors">
+                  Click to view all projects →
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
+
+      <Dialog open={otherModalOpen} onOpenChange={setOtherModalOpen}>
+        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-xl text-[#EDEDED]">Other projects</DialogTitle>
+            <DialogDescription className="text-[#A1A1AA]">
+              {otherProjects.length} project{otherProjects.length !== 1 ? 's' : ''} · {otherTotal} leads total
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
+            {otherProjects.map((project) => (
+              <button
+                key={project.name}
+                type="button"
+                onClick={() => handleOtherProjectClick(project.name)}
+                className="w-full flex items-center justify-between gap-4 p-3 rounded-lg bg-black/30 border border-white/10 hover:border-[#C5A059]/50 hover:bg-white/5 transition-all text-left cursor-pointer group"
+                data-testid={`other-project-row-${project.name}`}
+              >
+                <span className="text-white font-medium group-hover:text-[#C5A059] transition-colors truncate">
+                  {project.name}
+                </span>
+                <span className="text-[#C5A059] font-serif text-lg flex-shrink-0">{project.count}</span>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

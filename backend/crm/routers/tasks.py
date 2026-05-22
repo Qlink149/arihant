@@ -76,11 +76,6 @@ async def add_context_update(lead_id: str, update: ContextUpdateCreate, current_
         "actor_name": current_user.get("full_name"),
     }
 
-    existing_updates = lead.get("context_updates", [])
-    existing_updates.append(context_entry)
-
-    merged = {**lead, "context_updates": existing_updates, "presales_description": update.note}
-
     await db.leads.update_one(
         {"id": lead_id},
         {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},

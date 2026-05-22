@@ -53,6 +53,8 @@ const MyDashboardPage = () => {
   const [newTask, setNewTask] = useState({ description: '', due_date: '', priority: 'medium', lead_id: '' });
 
   const leadsFetchBusy = useRef(false);
+  const leadsFetchGeneration = useRef(0);
+  const leadsAbortRef = useRef(null);
   const listScrollRef = useRef(null);
 
   const buildLeadsParams = useCallback((skip, temp, search) => {
@@ -64,13 +66,27 @@ const MyDashboardPage = () => {
   }, []);
 
   const loadLeadsPage = useCallback(async (skip, { append } = { append: false }, overrides = {}) => {
-    if (leadsFetchBusy.current) return;
+    if (append && leadsFetchBusy.current) return;
+
+    const requestGen = leadsFetchGeneration.current;
+    let abortController;
+    if (!append) {
+      leadsAbortRef.current?.abort();
+      abortController = new AbortController();
+      leadsAbortRef.current = abortController;
+    }
+
     leadsFetchBusy.current = true;
     setLeadsLoading(true);
     try {
       const temp = overrides.temperature !== undefined ? overrides.temperature : tempFilter;
       const search = overrides.search !== undefined ? overrides.search : searchQuery;
-      const { data: res } = await myDashboardAPI.getLeads(buildLeadsParams(skip, temp, search));
+      const { data: res } = await myDashboardAPI.getLeads(
+        buildLeadsParams(skip, temp, search),
+        abortController ? { signal: abortController.signal } : undefined
+      );
+      if (requestGen !== leadsFetchGeneration.current) return;
+
       setLeadsTotal(res.total ?? 0);
       const batch = res.leads || [];
       setLeads((prev) => {
@@ -85,10 +101,13 @@ const MyDashboardPage = () => {
         }
         return merged;
       });
-    } catch {
+    } catch (err) {
+      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
       toast.error('Failed to load leads');
     } finally {
-      setLeadsLoading(false);
+      if (requestGen === leadsFetchGeneration.current) {
+        setLeadsLoading(false);
+      }
       leadsFetchBusy.current = false;
     }
   }, [tempFilter, searchQuery, buildLeadsParams]);
@@ -130,8 +149,9 @@ const MyDashboardPage = () => {
     if (loading) return;
     const delay = searchQuery.trim() ? 400 : 0;
     const t = setTimeout(() => {
-      leadsFetchBusy.current = false;
+      leadsFetchGeneration.current += 1;
       setLeads([]);
+      if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
       loadLeadsPage(0, { append: false });
     }, delay);
     return () => clearTimeout(t);

@@ -231,6 +231,7 @@ USER_DEFS = [
     {"full_name": "Harish Marlecha", "email": "harish@arihants.co.in", "role": "admin"},
     {"full_name": "Gowtham j", "email": "gowtham@arihants.co.in", "role": "rep"},
     {"full_name": "Roshini", "email": "roshni@arihantspaces.com", "role": "admin"},
+    {"full_name": "Yogansh", "email": "yogansh@claraai.tech", "role": "admin"},
 ]
 
 # Owner display normalization (Freshworks exports include dots/variants)
@@ -384,21 +385,34 @@ def clean_source(*candidates: str) -> str:
 def clean_project(raw: str) -> Optional[str]:
     if not raw or not str(raw).strip():
         return None
-    parts = [p.strip() for p in str(raw).split(";") if p.strip() and p.strip() != "NA"]
-    if not parts:
+        
+    invalid_re = re.compile(r'(?i)^\s*(unknown|na|n/a|others?|null|sold\s*out\s*enquiry|homepage\s*enquiry|all\s*projects?|commercial\s*space|upcoming\s*commercial)\s*$')
+    
+    parts = [p.strip() for p in str(raw).split(";") if p.strip()]
+    
+    valid_parts = []
+    for p in parts:
+        if invalid_re.match(p):
+            continue
+        if p in PROJECT_CLEAN_MAP:
+            mapped = PROJECT_CLEAN_MAP[p]
+            if mapped:
+                valid_parts.append(mapped)
+        else:
+            valid_parts.append(p)
+            
+    # Deduplicate
+    seen = set()
+    final_parts = []
+    for p in valid_parts:
+        if p not in seen:
+            seen.add(p)
+            final_parts.append(p)
+            
+    if not final_parts:
         return None
-    for part in parts:
-        if part in PROJECT_CLEAN_MAP:
-            mapped = PROJECT_CLEAN_MAP[part]
-            if mapped and mapped in UI_PROJECTS:
-                return mapped
-    # fuzzy contains
-    for part in parts:
-        pl = part.lower()
-        for vp in UI_PROJECTS:
-            if vp.lower() in pl or pl in vp.lower():
-                return vp
-    return None
+        
+    return ";".join(final_parts)
 
 
 def derive_location(project: Optional[str], loc_interested: str = "") -> Optional[str]:
@@ -780,15 +794,16 @@ def build_context_updates(
         if not desc:
             continue
         ts_dt = parse_dt(n.get("Created at")) or row_updated or updated_at_dt
-        out.append(
-            {
-                "type": "note",
-                "timestamp": ts_dt.isoformat(),
-                "timestamp_dt": ts_dt,
-                "description": desc[:500],
-                "agent": "freshworks",
-            }
-        )
+        entry: Dict[str, Any] = {
+            "type": "note",
+            "timestamp": ts_dt.isoformat(),
+            "timestamp_dt": ts_dt,
+            "description": desc[:500],
+            "agent": "freshworks",
+        }
+        if n.get("Id"):
+            entry["note_id"] = str(n.get("Id")).strip()
+        out.append(entry)
 
     # Freshworks Calls
     for c in ctx_calls:
@@ -856,7 +871,9 @@ def build_context_updates(
             }
         )
 
-    # Sort newest first and cap
+    from crm.services.context_updates import dedupe_context_updates
+
+    out = dedupe_context_updates(out)
     out.sort(key=lambda x: x.get("timestamp_dt") or updated_at_dt, reverse=True)
     return out[:50]
 
@@ -962,6 +979,8 @@ def transform_to_lead(
         ).strip()
     )
     configuration = " ".join(x for x in [apt, unit] if x).strip() or None
+    if configuration and configuration.lower() in ("yes", "may_be", "no", "yes ", "may_be "):
+        configuration = None
     possession_requirement = (
         (row.get("Possession") or row.get("Possession timeline") or row.get("Possession requirement") or "").strip()
         or None

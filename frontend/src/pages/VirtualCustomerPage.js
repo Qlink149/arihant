@@ -61,6 +61,21 @@ const parseTotalFromResponse = (response) => {
   return Number.isFinite(n) ? n : null;
 };
 
+const emptyLeadFilters = () => ({
+  budget: '',
+  location: '',
+  project: '',
+  temperature: '',
+  intent: '',
+  vip: null,
+});
+
+const filtersFromSearchParams = (searchParams) => ({
+  ...emptyLeadFilters(),
+  project: searchParams.get('project') || '',
+  location: searchParams.get('location') || '',
+});
+
 const VirtualCustomerPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -73,9 +88,11 @@ const VirtualCustomerPage = () => {
   const prefetchedKey = useRef('');
   const leadsLengthRef = useRef(0);
   const leadsFetchBusy = useRef(false);
+  const leadsFetchGeneration = useRef(0);
   const [duplicateGroups, setDuplicateGroups] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('agent') || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('agent') || '');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
@@ -99,15 +116,7 @@ const VirtualCustomerPage = () => {
     lead_status: '',
   });
   
-  // Filters
-  const [filters, setFilters] = useState({
-    budget: '',
-    location: '',
-    project: '',
-    temperature: '',
-    intent: '',
-    vip: null
-  });
+  const [filters, setFilters] = useState(() => filtersFromSearchParams(searchParams));
 
   const budgetRanges = ['Under 1Cr', '1-2 Cr', '2-5 Cr', '5 Cr+'];
   const locations = ['ECR', 'Abhiramapuram', 'OMR', 'Saligramam', 'Kilpauk'];
@@ -118,23 +127,27 @@ const VirtualCustomerPage = () => {
   const salesManagers = ['Narendran S', 'Piyush', 'Malathy', 'Anusha Omprakash', 'jigar', 'shariff', 'Roshini'];
   const LEAD_STATUSES = ['Open', 'Contacted', 'Follow Up', 'Site Visit', 'Lost', 'Won'];
 
-  // Check URL params for initial filters
   useEffect(() => {
     const projectParam = searchParams.get('project');
     const locationParam = searchParams.get('location');
     const agentParam = searchParams.get('agent');
-    
-    if (projectParam || locationParam || agentParam) {
-      setFilters(prev => ({
-        ...prev,
-        project: projectParam || '',
-        location: locationParam || ''
-      }));
-      if (agentParam) {
-        setSearchQuery(agentParam);
-      }
+    if (!projectParam && !locationParam && !agentParam) return;
+
+    setFilters((prev) => ({
+      ...prev,
+      project: projectParam || '',
+      location: locationParam || '',
+    }));
+    if (agentParam) {
+      setSearchQuery(agentParam);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    const delay = searchQuery.trim() ? 400 : 0;
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), delay);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   useEffect(() => {
     leadsLengthRef.current = leads.length;
@@ -148,9 +161,9 @@ const VirtualCustomerPage = () => {
     if (filters.temperature) params.temperature = filters.temperature;
     if (filters.intent) params.intent = filters.intent;
     if (filters.vip !== null) params.vip = filters.vip;
-    if (searchQuery) params.search = searchQuery;
+    if (debouncedSearch) params.search = debouncedSearch;
     return params;
-  }, [filters, searchQuery]);
+  }, [filters, debouncedSearch]);
 
   const prefetchKey = () => JSON.stringify(buildLeadQueryParams(0));
 
@@ -175,6 +188,9 @@ const VirtualCustomerPage = () => {
   );
 
   const resetAndFetchLeads = useCallback(async () => {
+    leadsFetchGeneration.current += 1;
+    const requestGen = leadsFetchGeneration.current;
+
     setLoading(true);
     setHasMoreLeads(true);
     setTotalLeads(0);
@@ -184,6 +200,8 @@ const VirtualCustomerPage = () => {
     try {
       const params = buildLeadQueryParams(0);
       const response = await leadsAPI.getAll(params);
+      if (requestGen !== leadsFetchGeneration.current) return;
+
       const batch = response.data || [];
       const total = parseTotalFromResponse(response);
       if (total !== null) setTotalLeads(total);
@@ -193,10 +211,13 @@ const VirtualCustomerPage = () => {
         prefetchNextVcPage(VC_PAGE);
       }
     } catch (error) {
+      if (requestGen !== leadsFetchGeneration.current) return;
       console.error('Failed to fetch leads:', error);
       toast.error('Failed to load leads');
     } finally {
-      setLoading(false);
+      if (requestGen === leadsFetchGeneration.current) {
+        setLoading(false);
+      }
     }
   }, [buildLeadQueryParams, prefetchNextVcPage]);
 
@@ -206,6 +227,7 @@ const VirtualCustomerPage = () => {
       setHasMoreLeads(false);
       return;
     }
+    const requestGen = leadsFetchGeneration.current;
     const skip = leadsLengthRef.current;
     const k = `${prefetchKey()}:${skip}`;
     leadsFetchBusy.current = true;
@@ -218,10 +240,13 @@ const VirtualCustomerPage = () => {
         prefetchedBuffer.current = [];
       } else {
         response = await leadsAPI.getAll(buildLeadQueryParams(skip));
+        if (requestGen !== leadsFetchGeneration.current) return;
         batch = response.data || [];
         const total = parseTotalFromResponse(response);
         if (total !== null) setTotalLeads(total);
       }
+      if (requestGen !== leadsFetchGeneration.current) return;
+
       if (!batch.length) {
         setHasMoreLeads(false);
         return;
@@ -242,9 +267,12 @@ const VirtualCustomerPage = () => {
         prefetchNextVcPage(skip + batch.length);
       }
     } catch (error) {
+      if (requestGen !== leadsFetchGeneration.current) return;
       console.error('Failed to load more leads:', error);
     } finally {
-      setLoadingMore(false);
+      if (requestGen === leadsFetchGeneration.current) {
+        setLoadingMore(false);
+      }
       leadsFetchBusy.current = false;
     }
   }, [loadingMore, hasMoreLeads, totalLeads, buildLeadQueryParams, prefetchNextVcPage]);
@@ -331,15 +359,9 @@ const VirtualCustomerPage = () => {
   };
 
   const clearFilters = () => {
-    setFilters({
-      budget: '',
-      location: '',
-      project: '',
-      temperature: '',
-      intent: '',
-      vip: null
-    });
+    setFilters(emptyLeadFilters());
     setSearchQuery('');
+    setDebouncedSearch('');
     setShowDuplicates(false);
   };
 

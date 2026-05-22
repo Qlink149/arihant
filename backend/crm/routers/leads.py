@@ -29,6 +29,8 @@ from crm.services.ai_lead_regen import (
     grok_keys_configured,
     schedule_lead_ai_refresh,
 )
+from crm.services.context_updates import dedupe_context_updates
+from crm.services.lead_search import build_leads_list_query
 
 
 router = APIRouter()
@@ -37,6 +39,7 @@ router = APIRouter()
 def _normalize_lead_for_response(lead: dict) -> dict:
     if lead.get("strategic_next_moves") is None:
         lead["strategic_next_moves"] = []
+    lead["context_updates"] = dedupe_context_updates(lead.get("context_updates") or [])
     dt = lead.get("ai_last_generated_at_dt")
     if isinstance(dt, datetime):
         lead["ai_last_generated_at"] = dt
@@ -121,34 +124,22 @@ async def get_leads(
     skip: int = 0,
     limit: int = 100,
 ):
-    query = {}
-
-    if project_id:
-        query["project_id"] = project_id
-    if project:
-        query["project"] = {"$regex": project, "$options": "i"}
-    if temperature:
-        query["temperature"] = temperature
-    if budget:
-        query["budget"] = {"$regex": budget, "$options": "i"}
-    if location:
-        query["location"] = {"$regex": location, "$options": "i"}
-    if intent:
-        query["intent"] = intent
-    if vip is not None:
-        query["vip"] = vip
-    if status:
-        query["lead_status"] = status
-    if search:
-        query["$or"] = [
-            {"first_name": {"$regex": search, "$options": "i"}},
-            {"last_name": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}},
-        ]
+    days_cutoff_iso = None
     if days:
-        cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        query["created_at"] = {"$gte": cutoff_iso}
+        days_cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    query = build_leads_list_query(
+        temperature=temperature,
+        search=search,
+        project=project,
+        project_id=project_id,
+        budget=budget,
+        location=location,
+        intent=intent,
+        vip=vip,
+        status=status,
+        days_cutoff_iso=days_cutoff_iso,
+    )
 
     total = await db.leads.count_documents(query)
     response.headers["X-Total-Count"] = str(total)
@@ -418,6 +409,7 @@ async def merge_leads(lead_id: str, duplicate_id: str, current_user: dict = Depe
             "actor_user_id": current_user["id"],
         }
     )
+    merged_context = dedupe_context_updates(merged_context)
 
     await db.leads.update_one(
         {"id": lead_id},

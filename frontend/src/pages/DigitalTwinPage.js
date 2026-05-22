@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { leadsAPI, whatsappAPI } from '../services/api';
+import { dedupeContextUpdates, contextUpdateKey } from '../utils/contextUpdates';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
@@ -475,7 +476,7 @@ const DigitalTwinPage = () => {
 
       {!lead.ai_configured && (
         <div className="rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-[#A1A1AA]">
-          Live AI is not configured (set <span className="font-mono text-[#C5A059]">GROK_API_KEY_1</span> etc. on the server). Persona and strategic moves will appear once keys are added.
+          Live AI is not configured (set <span className="font-mono text-[#C5A059]">GROQ_API_KEY</span> on the server). Persona and strategic moves will appear once keys are added.
         </div>
       )}
 
@@ -644,13 +645,13 @@ const DigitalTwinPage = () => {
         </div>
 
         <div className="timeline-line space-y-6">
-          {(lead.context_updates || []).slice().reverse().map((update, idx) => {
+          {dedupeContextUpdates(lead.context_updates || []).slice().reverse().map((update, idx) => {
             const IconComponent = getContextIcon(update.type);
             const isNew = idx === 0;
             
             return (
               <motion.div
-                key={idx}
+                key={contextUpdateKey(update)}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.1 }}

@@ -18,6 +18,10 @@ DORMANT_INACTIVITY_DAYS = 7
 # Dashboard project distribution: exclude placeholders (case-insensitive match on whole string)
 _INVALID_PROJECT_REGEX = {"$regex": r"^(?i)\s*(unknown|na|n/a|others|null)\s*$"}
 
+# Per-element invalid tokens (after splitting semicolon-delimited multi-project strings).
+# Only exclude true placeholders/noise — NOT real project names like Vinyasa, Vihaana, Esta, Tiara etc.
+_INVALID_PROJECT_PART_REGEX = r"(?i)^\s*(unknown|na|n/a|others?|null|sold\s*out\s*enquiry|homepage\s*enquiry|all\s*projects?|commercial\s*space|upcoming\s*commercial)\s*$"
+
 
 def _created_since_filter(days: int) -> dict:
     cutoff_dt = utc_now() - timedelta(days=days)
@@ -87,6 +91,51 @@ def _merge_query_with_valid_projects(query: dict) -> dict:
     if not query:
         return valid_proj
     return {"$and": [query, valid_proj]}
+
+
+def _project_distribution_pipeline(match_query: dict, limit: int = 50) -> List[Dict[str, Any]]:
+    """Aggregation pipeline that correctly handles semicolon-delimited multi-project strings.
+
+    Many leads store multiple projects as ';ECR - Reserve 16;Saligramam Melange;'
+    This pipeline splits by ';', trims whitespace, filters invalid tokens, unwinds,
+    then groups by individual project name so each project gets its true lead count.
+    """
+    return [
+        {"$match": match_query},
+        {
+            "$addFields": {
+                "_project_parts": {
+                    "$filter": {
+                        "input": {
+                            "$map": {
+                                "input": {"$split": [{"$ifNull": ["$project", ""]}, ";"]},
+                                "as": "p",
+                                "in": {"$trim": {"input": "$$p"}},
+                            }
+                        },
+                        "as": "p",
+                        "cond": {
+                            "$and": [
+                                {"$gt": [{"$strLenCP": "$$p"}, 0]},
+                                {
+                                    "$not": {
+                                        "$regexMatch": {
+                                            "input": "$$p",
+                                            "regex": _INVALID_PROJECT_PART_REGEX,
+                                        }
+                                    }
+                                },
+                            ]
+                        },
+                    }
+                }
+            }
+        },
+        {"$unwind": "$_project_parts"},
+        {"$group": {"_id": "$_project_parts", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": limit},
+    ]
 
 
 def _rep_name_expression() -> Dict[str, Any]:
@@ -291,12 +340,7 @@ async def _sales_managers_from_aggregation() -> tuple[List[Dict[str, Any]], Dict
     status_raw = await db.leads.aggregate([{"$match": {}}] + status_pipeline).to_list(50)
     by_status = [{"name": (s["_id"] or "Unknown"), "count": s["count"]} for s in status_raw]
 
-    project_pipeline = [
-        {"$match": _merge_query_with_valid_projects({})},
-        {"$group": {"_id": "$project", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 50},
-    ]
+    project_pipeline = _project_distribution_pipeline(_merge_query_with_valid_projects({}))
     proj_raw = await db.leads.aggregate(project_pipeline).to_list(50)
     by_project = [{"name": (p["_id"] or "Unknown"), "count": p["count"]} for p in proj_raw]
 
@@ -372,12 +416,7 @@ async def get_dashboard_analytics(current_user: dict = Depends(get_current_user)
     ]
     owners = await db.leads.aggregate(owner_pipeline).to_list(10)
 
-    project_pipeline = [
-        {"$match": _merge_query_with_valid_projects(query)},
-        {"$group": {"_id": "$project", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 50},
-    ]
+    project_pipeline = _project_distribution_pipeline(_merge_query_with_valid_projects(query))
     projects = await db.leads.aggregate(project_pipeline).to_list(50)
 
     return {

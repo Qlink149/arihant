@@ -40,10 +40,6 @@ const LoginPage = () => {
     try {
       await login(email, password);
       setShowTransition(true);
-
-      setTimeout(() => {
-        window.location.href = '/dashboard';
-      }, 3000);
     } catch (err) {
       setError(err.response?.data?.detail || 'Invalid credentials');
       toast.error('Login failed. Please check your credentials.');

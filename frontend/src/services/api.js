@@ -158,7 +158,7 @@ export const platformOpsAPI = {
 
 export const myDashboardAPI = {
   getData: () => api.get('/my-dashboard'),
-  getLeads: (params) => api.get('/my-dashboard/leads', { params }),
+  getLeads: (params, config) => api.get('/my-dashboard/leads', { params, ...config }),
   transferLead: (data) => api.post('/leads/transfer', data),
   acknowledgeTransfer: (transferId) => api.put(`/leads/transfer/${transferId}/acknowledge`),
   getReps: () => api.get('/activity/team-status'),

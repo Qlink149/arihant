@@ -470,10 +470,14 @@ def transform_lead(row, name_to_uuid, ctx_notes, ctx_calls, ctx_tasks):
     for n in ctx_notes:
         desc = n.get("Description", "").strip()
         if desc:
-            context_updates.append({
-                "type": "note", "description": desc[:500],
+            entry = {
+                "type": "note",
+                "description": desc[:500],
                 "timestamp": parse_date(n.get("Created at", "")) or created_at,
-            })
+            }
+            if n.get("Id"):
+                entry["note_id"] = str(n.get("Id")).strip()
+            context_updates.append(entry)
     for c in ctx_calls:
         outcome = c.get("Outcome", "").strip()
         notes = c.get("Notes", "").strip()
@@ -493,6 +497,9 @@ def transform_lead(row, name_to_uuid, ctx_notes, ctx_calls, ctx_tasks):
                 "timestamp": parse_date(t.get("Created at", "")) or created_at,
             })
 
+    from crm.services.context_updates import dedupe_context_updates
+
+    context_updates = dedupe_context_updates(context_updates)
     context_updates.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     context_updates = context_updates[:20]
 

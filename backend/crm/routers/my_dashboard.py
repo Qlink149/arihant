@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -6,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 
 from crm.core.platform_ops import is_platform_operator
 from crm.core.state import coerce_datetime, db, get_current_user, utc_now
+from crm.services.lead_search import build_leads_list_query
 
 
 router = APIRouter()
@@ -49,38 +49,13 @@ def _rep_lead_filter(user_id: str, full_name: str) -> dict:
 
 async def _resolve_leads_base_filter(uid: str, name: str, current_user: dict) -> tuple[dict, bool]:
     if is_platform_operator(current_user):
-        return {"id": {"$exists": False}}, False
+        return {}, True
 
     rep_filter = _rep_lead_filter(uid, name)
     rep_lead_count = await db.leads.count_documents(rep_filter)
     is_manager = rep_lead_count == 0
     base_filter: dict = {} if is_manager else rep_filter
     return base_filter, is_manager
-
-
-def _build_leads_query(
-    base_filter: dict,
-    temperature: Optional[str] = None,
-    search: Optional[str] = None,
-) -> dict:
-    query: dict = dict(base_filter)
-    if temperature and temperature.lower() != "all":
-        query["temperature"] = temperature
-    if search and search.strip():
-        q = re.escape(search.strip())
-        search_clause = {
-            "$or": [
-                {"first_name": {"$regex": q, "$options": "i"}},
-                {"last_name": {"$regex": q, "$options": "i"}},
-                {"project": {"$regex": q, "$options": "i"}},
-                {"phone": {"$regex": q, "$options": "i"}},
-            ]
-        }
-        if query:
-            query = {"$and": [query, search_clause]}
-        else:
-            query = search_clause
-    return query
 
 
 @router.get("/my-dashboard")
@@ -149,7 +124,7 @@ async def get_my_dashboard_leads(
     name = current_user["full_name"]
 
     base_filter, _ = await _resolve_leads_base_filter(uid, name, current_user)
-    query = _build_leads_query(base_filter, temperature, search)
+    query = build_leads_list_query(base_filter, temperature=temperature, search=search)
 
     total = await db.leads.count_documents(query)
     cursor = db.leads.find(query, LEAD_PROJECTION).sort(LEAD_SORT).skip(skip).limit(limit)

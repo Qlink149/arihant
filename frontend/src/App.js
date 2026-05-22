@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider, useAuth, getPostLoginPath } from './context/AuthContext';
 import { Toaster } from './components/ui/sonner';
 
 // Pages
@@ -64,7 +64,7 @@ const AdminRoute = ({ children }) => {
 
 // Public Route Component (redirects to dashboard if logged in)
 const PublicRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
     return (
@@ -75,7 +75,7 @@ const PublicRoute = ({ children }) => {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={getPostLoginPath(user)} replace />;
   }
 
   return children;

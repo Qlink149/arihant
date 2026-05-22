@@ -1,9 +1,12 @@
 """
-Grok (xAI) integration: rotating API keys, retries on rate limit / errors, PII masking.
+LLM chat integration (Groq by default; optional xAI): rotating API keys, retries, PII masking.
 
-Environment (optional for dev; at least one key required for live AI):
-  GROK_API_KEY_1, GROK_API_KEY_2, GROK_API_KEY_3
-  GROK_MODEL — default grok-2-latest
+Environment (at least one key required for live AI):
+  GROQ_API_KEY — Groq free tier (recommended)
+  GROQ_MODEL — default llama-3.3-70b-versatile
+  GROK_API_KEY_1, GROK_API_KEY_2, GROK_API_KEY_3 — legacy aliases (treated as Groq keys)
+  GROK_MODEL — legacy model env (used when GROQ_MODEL unset)
+  LLM_PROVIDER — groq (default) or xai
 """
 
 from __future__ import annotations
@@ -20,10 +23,12 @@ from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
-GROK_CHAT_URL = "https://api.x.ai/v1/chat/completions"
-DEFAULT_GROK_MODEL = os.environ.get("GROK_MODEL", "grok-2-latest")
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+XAI_CHAT_URL = "https://api.x.ai/v1/chat/completions"
+DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_XAI_MODEL = "grok-2-latest"
 
-# --- PII masking (best-effort before sending text to Grok) ---
+# --- PII masking (best-effort before sending text to LLM) ---
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 _PHONE_RE = re.compile(
@@ -54,17 +59,45 @@ def mask_pii_text(text: str) -> str:
 
 # --- API key rotation ---
 
+def load_llm_api_keys() -> List[str]:
+    seen: set[str] = set()
+    keys: List[str] = []
+    for env_name in (
+        "GROQ_API_KEY",
+        "GROQ_API_KEY_2",
+        "GROQ_API_KEY_3",
+        "GROK_API_KEY_1",
+        "GROK_API_KEY_2",
+        "GROK_API_KEY_3",
+    ):
+        k = os.environ.get(env_name, "").strip()
+        if k and k not in seen:
+            seen.add(k)
+            keys.append(k)
+    return keys
+
+
 def load_grok_api_keys() -> List[str]:
-    keys = [
-        os.environ.get("GROK_API_KEY_1", "").strip(),
-        os.environ.get("GROK_API_KEY_2", "").strip(),
-        os.environ.get("GROK_API_KEY_3", "").strip(),
-    ]
-    return [k for k in keys if k]
+    """Backward-compatible alias for load_llm_api_keys."""
+    return load_llm_api_keys()
+
+
+def _resolve_llm_config() -> Tuple[str, str, List[str]]:
+    keys = load_llm_api_keys()
+    provider = os.environ.get("LLM_PROVIDER", "groq").strip().lower()
+    if provider == "xai":
+        model = os.environ.get("GROK_MODEL", DEFAULT_XAI_MODEL)
+        return XAI_CHAT_URL, model, keys
+    model = (
+        os.environ.get("GROQ_MODEL")
+        or os.environ.get("GROK_MODEL")
+        or DEFAULT_GROQ_MODEL
+    )
+    return GROQ_CHAT_URL, model, keys
 
 
 def grok_keys_configured() -> bool:
-    return bool(load_grok_api_keys())
+    return bool(load_llm_api_keys())
 
 
 _current_key_index = 0
@@ -72,15 +105,15 @@ _current_key_index = 0
 
 def _next_key_index() -> None:
     global _current_key_index
-    keys = load_grok_api_keys()
+    keys = load_llm_api_keys()
     if not keys:
         return
     _current_key_index = (_current_key_index + 1) % len(keys)
 
 
-def _post_chat_sync(api_key: str, body: Dict[str, Any]) -> Tuple[int, str]:
+def _post_chat_sync(api_key: str, body: Dict[str, Any], chat_url: str) -> Tuple[int, str]:
     r = requests.post(
-        GROK_CHAT_URL,
+        chat_url,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         json=body,
         timeout=120,
@@ -187,13 +220,15 @@ Rules:
 
 
 async def grok_chat_json(system: str, user: str, *, temperature: float = 0.0) -> Dict[str, Any]:
-    keys = load_grok_api_keys()
+    chat_url, model, keys = _resolve_llm_config()
     if not keys:
-        raise RuntimeError("No GROK_API_KEY_* environment variables configured")
+        raise RuntimeError(
+            "No GROQ_API_KEY or GROK_API_KEY_* environment variables configured"
+        )
 
     global _current_key_index
     body = {
-        "model": DEFAULT_GROK_MODEL,
+        "model": model,
         "temperature": temperature,
         "messages": [
             {"role": "system", "content": system},
@@ -205,27 +240,29 @@ async def grok_chat_json(system: str, user: str, *, temperature: float = 0.0) ->
     for attempt in range(len(keys)):
         api_key = keys[_current_key_index % len(keys)]
         try:
-            status, text = await asyncio.to_thread(_post_chat_sync, api_key, body)
+            status, text = await asyncio.to_thread(
+                _post_chat_sync, api_key, body, chat_url
+            )
         except requests.RequestException as e:
             last_err = e
-            logger.warning("Grok request network error: %s", e)
+            logger.warning("LLM request network error: %s", e)
             _next_key_index()
             continue
 
         if _should_rotate_on_status(status):
-            logger.warning("Grok HTTP %s, rotating key index", status)
+            logger.warning("LLM HTTP %s, rotating key index", status)
             _next_key_index()
-            last_err = RuntimeError(f"Grok HTTP {status}: {text[:500]}")
+            last_err = RuntimeError(f"LLM HTTP {status}: {text[:500]}")
             continue
 
         if status != 200:
-            raise RuntimeError(f"Grok HTTP {status}: {text[:800]}")
+            raise RuntimeError(f"LLM HTTP {status}: {text[:800]}")
 
         try:
             outer = json.loads(text)
             content = outer["choices"][0]["message"]["content"]
         except (KeyError, IndexError, json.JSONDecodeError) as e:
-            raise RuntimeError(f"Unexpected Grok response shape: {text[:500]}") from e
+            raise RuntimeError(f"Unexpected LLM response shape: {text[:500]}") from e
 
         try:
             return _extract_json_object(content)
@@ -235,7 +272,7 @@ async def grok_chat_json(system: str, user: str, *, temperature: float = 0.0) ->
                 + content[:12000]
             )
             repair_body = {
-                "model": DEFAULT_GROK_MODEL,
+                "model": model,
                 "temperature": 0,
                 "messages": [
                     {"role": "system", "content": "Return only valid JSON. No markdown."},
@@ -243,18 +280,20 @@ async def grok_chat_json(system: str, user: str, *, temperature: float = 0.0) ->
                 ],
             }
             try:
-                status2, text2 = await asyncio.to_thread(_post_chat_sync, api_key, repair_body)
+                status2, text2 = await asyncio.to_thread(
+                    _post_chat_sync, api_key, repair_body, chat_url
+                )
                 if status2 == 200:
                     outer2 = json.loads(text2)
                     content2 = outer2["choices"][0]["message"]["content"]
                     return _extract_json_object(content2)
             except Exception as e2:
                 last_err = e2
-            raise RuntimeError("Grok returned non-JSON content") from e
+            raise RuntimeError("LLM returned non-JSON content") from e
 
     if last_err:
         raise last_err
-    raise RuntimeError("Grok request failed after key rotation")
+    raise RuntimeError("LLM request failed after key rotation")
 
 
 async def generate_lead_insights(*, transcript: str, crm_hints: str) -> LeadGrokPayload:

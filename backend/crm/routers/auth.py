@@ -107,6 +107,10 @@ async def refresh_token(req: RefreshTokenRequest):
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
 
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
+
         token_sid = payload.get("sid")
         user = await db.users.find_one({"id": user_id}, {"_id": 0})
         if not user:
