@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { leadsAPI, tasksAPI } from '../services/api';
 import { LeadDataTable } from '../components/leads/LeadDataTable';
 import { buildPendingTaskMap } from '../utils/leadTable';
+import { LeadTasksDrawer } from '../components/tasks/LeadTasksDrawer';
 import { METRIC_LABELS } from '../utils/leadOverview';
 import { isNurturingStatus, NURTURE_LABELS, NURTURING_STATUS } from '../utils/nurtureLabel';
 import { toast } from 'sonner';
@@ -166,6 +167,11 @@ const VirtualCustomerPage = () => {
   const [createNurtureLabel, setCreateNurtureLabel] = useState('');
   const [pendingTasks, setPendingTasks] = useState([]);
   const [pendingTaskMap, setPendingTaskMap] = useState(() => new Map());
+  const [leadTasksDrawerOpen, setLeadTasksDrawerOpen] = useState(false);
+  const [leadTasksDrawerLead, setLeadTasksDrawerLead] = useState(null);
+  const [leadTasksDrawerTasks, setLeadTasksDrawerTasks] = useState([]);
+  const [leadTasksDrawerLoading, setLeadTasksDrawerLoading] = useState(false);
+  const [leadTasksDrawerHighlightId, setLeadTasksDrawerHighlightId] = useState(null);
   const [noteLeadId, setNoteLeadId] = useState(null);
   const [quickNote, setQuickNote] = useState('');
   const [savingQuickNote, setSavingQuickNote] = useState(false);
@@ -247,6 +253,71 @@ const VirtualCustomerPage = () => {
       /* non-blocking */
     }
   }, []);
+
+  const fetchLeadPendingTasks = useCallback(async (leadId) => {
+    if (!leadId) return [];
+    const { data } = await tasksAPI.getAll({ status: 'pending', lead_id: leadId, mine: true });
+    return Array.isArray(data) ? data : [];
+  }, []);
+
+  const openLeadTasksDrawer = useCallback(
+    async (lead, { highlightTaskId = null } = {}) => {
+      if (!lead?.id) return;
+      setLeadTasksDrawerLead(lead);
+      setLeadTasksDrawerTasks([]);
+      setLeadTasksDrawerHighlightId(highlightTaskId);
+      setLeadTasksDrawerOpen(true);
+      setLeadTasksDrawerLoading(true);
+      try {
+        const list = await fetchLeadPendingTasks(lead.id);
+        // stable sort by due_date then created_at, so the list feels deterministic
+        const sorted = [...list].sort((a, b) => {
+          const ad = String(a?.due_date || '');
+          const bd = String(b?.due_date || '');
+          if (ad !== bd) return ad.localeCompare(bd);
+          return String(b?.created_at || '').localeCompare(String(a?.created_at || ''));
+        });
+        setLeadTasksDrawerTasks(sorted);
+      } catch (error) {
+        toast.error('Failed to load tasks for this lead');
+      } finally {
+        setLeadTasksDrawerLoading(false);
+      }
+    },
+    [fetchLeadPendingTasks]
+  );
+
+  const handleCompleteDrawerTask = useCallback(
+    async (task) => {
+      const taskId = task?.id;
+      const leadId = leadTasksDrawerLead?.id;
+      if (!taskId) return;
+      try {
+        await tasksAPI.update(taskId, { status: 'completed' });
+        toast.success('Task marked complete');
+        // Refresh both the drawer list and the summary map
+        if (leadId) {
+          setLeadTasksDrawerLoading(true);
+          const list = await fetchLeadPendingTasks(leadId);
+          setLeadTasksDrawerTasks(list);
+          setLeadTasksDrawerLoading(false);
+        }
+        await fetchPendingTasks();
+      } catch {
+        toast.error('Failed to update task');
+      }
+    },
+    [leadTasksDrawerLead?.id, fetchLeadPendingTasks, fetchPendingTasks]
+  );
+
+  const handleOpenDrawerLead = useCallback(
+    (leadId) => {
+      if (!leadId) return;
+      setLeadTasksDrawerOpen(false);
+      navigate(`/lead/${leadId}`);
+    },
+    [navigate]
+  );
 
   useEffect(() => {
     fetchPendingTasks();
@@ -1094,6 +1165,7 @@ const VirtualCustomerPage = () => {
               onRowClick={handleViewLead}
               onView={handleViewLead}
               onNote={handleOpenNote}
+              onOpenLeadTasks={openLeadTasksDrawer}
             />
           </motion.div>
           {!loading && leads.length > 0 && (
@@ -1142,6 +1214,25 @@ const VirtualCustomerPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <LeadTasksDrawer
+        open={leadTasksDrawerOpen}
+        onOpenChange={(open) => {
+          setLeadTasksDrawerOpen(open);
+          if (!open) {
+            setLeadTasksDrawerLead(null);
+            setLeadTasksDrawerTasks([]);
+            setLeadTasksDrawerHighlightId(null);
+            setLeadTasksDrawerLoading(false);
+          }
+        }}
+        lead={leadTasksDrawerLead}
+        tasks={leadTasksDrawerTasks}
+        loading={leadTasksDrawerLoading}
+        highlightedTaskId={leadTasksDrawerHighlightId}
+        onCompleteTask={handleCompleteDrawerTask}
+        onOpenLead={handleOpenDrawerLead}
+      />
 
       {/* Add New Customer Modal */}
       <Dialog open={showAddCustomerModal} onOpenChange={setShowAddCustomerModal}>

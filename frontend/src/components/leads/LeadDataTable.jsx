@@ -18,6 +18,7 @@ import {
   getOwnerDisplay,
   getRecentNote,
 } from '../../utils/leadTable';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 const RecentNoteCell = memo(function RecentNoteCell({ note, leadId }) {
   const [expanded, setExpanded] = useState(false);
@@ -75,6 +76,7 @@ export function LeadDataTable({
   onRowClick,
   onView,
   onNote,
+  onOpenLeadTasks,
 }) {
   if (loading) {
     return (
@@ -102,6 +104,7 @@ export function LeadDataTable({
       className="rounded-lg border border-white/5 bg-[#1A1A1A] overflow-x-auto"
       data-testid="lead-data-table"
     >
+      <TooltipProvider>
       <Table className="min-w-max w-full">
         <TableHeader>
           <TableRow className="border-white/10 hover:bg-transparent">
@@ -112,10 +115,22 @@ export function LeadDataTable({
               Status
             </TableHead>
             <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[140px]">
-              Next follow-up
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-help">Next follow-up</span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Earliest of next_action_date or earliest pending task due time.
+                </TooltipContent>
+              </Tooltip>
             </TableHead>
             <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[100px]">
-              Active tasks
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-help">Active tasks</span>
+                </TooltipTrigger>
+                <TooltipContent>Pending tasks linked to this lead.</TooltipContent>
+              </Tooltip>
             </TableHead>
             <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[160px]">
               Project
@@ -138,6 +153,12 @@ export function LeadDataTable({
           {leads.map((lead) => {
             const taskCount = pendingTaskMap?.get(lead.id) || 0;
             const followUp = formatFollowUp(lead, pendingTasksList, pendingTaskMap);
+            const earliestTask =
+              taskCount && pendingTasksList?.length
+                ? pendingTasksList
+                    .filter((t) => t.lead_id === lead.id && t.status === 'pending' && t.due_date)
+                    .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))[0]
+                : null;
             const owner = getOwnerDisplay(lead);
             const recentNote = getRecentNote(lead);
             const t = (lead.temperature || '').trim();
@@ -173,19 +194,39 @@ export function LeadDataTable({
                 </TableCell>
                 <TableCell className="py-2.5">
                   {followUp ? (
-                    <span className="text-white text-sm font-medium">{followUp}</span>
+                    <button
+                      type="button"
+                      className="text-white text-sm font-medium hover:text-[#C5A059] underline-offset-2 hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenLeadTasks?.(lead, { highlightTaskId: earliestTask?.id || null });
+                      }}
+                      title="Click to view tasks for this lead"
+                      data-testid={`lead-followup-${lead.id}`}
+                    >
+                      {followUp}
+                    </button>
                   ) : (
                     <span className="text-[#52525B] text-sm">—</span>
                   )}
                 </TableCell>
                 <TableCell className="py-2.5">
                   {taskCount > 0 ? (
-                    <span className="inline-flex items-center gap-1.5 text-amber-400 text-sm">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 text-amber-400 text-sm hover:text-[#C5A059]"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenLeadTasks?.(lead, { highlightTaskId: null });
+                      }}
+                      title="Click to view pending tasks"
+                      data-testid={`lead-active-tasks-${lead.id}`}
+                    >
                       <ListChecks size={14} />
                       <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full text-xs font-medium">
                         {taskCount} pending
                       </span>
-                    </span>
+                    </button>
                   ) : (
                     <span className="text-[#52525B] text-sm">—</span>
                   )}
@@ -224,6 +265,7 @@ export function LeadDataTable({
           })}
         </TableBody>
       </Table>
+      </TooltipProvider>
     </div>
   );
 }

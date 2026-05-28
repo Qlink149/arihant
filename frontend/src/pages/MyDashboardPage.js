@@ -18,6 +18,7 @@ import { resolveDrillDown } from '../utils/leadOverview';
 import { TemperatureBadge } from '../components/leads/TemperatureBadge';
 import { formatDateTimeIST, parseApiDate } from '../utils/datetime';
 import { buildPendingTaskMap, formatFollowUp } from '../utils/leadTable';
+import { TaskDetailModal } from '../components/tasks/TaskDetailModal';
 
 const LEADS_PAGE = 150;
 
@@ -64,6 +65,8 @@ const MyDashboardPage = () => {
   const [showCompletedTasks, setShowCompletedTasks] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTask, setNewTask] = useState({ description: '', due_date: '', priority: 'medium', lead_id: '' });
+  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState(null);
 
   const leadsFetchBusy = useRef(false);
   const leadsFetchGeneration = useRef(0);
@@ -245,6 +248,27 @@ const MyDashboardPage = () => {
     } catch {
       toast.error('Failed to update task');
     }
+  };
+
+  const openTaskDetail = (task) => {
+    if (!task) return;
+    setSelectedTask(task);
+    setTaskDetailOpen(true);
+  };
+
+  const handleCompleteFromModal = async (task) => {
+    const id = task?.id;
+    if (!id) return;
+    await handleTaskComplete(id);
+    setTaskDetailOpen(false);
+    setSelectedTask(null);
+  };
+
+  const handleOpenLeadFromTask = (leadId) => {
+    if (!leadId) return;
+    setTaskDetailOpen(false);
+    setSelectedTask(null);
+    navigate(`/lead/${leadId}`);
   };
 
   const handleCreateTask = async () => {
@@ -574,6 +598,12 @@ const MyDashboardPage = () => {
           className="space-y-3"
           data-testid="tasks-section"
         >
+          <div className="rounded-xl border border-white/5 bg-[#1A1A1A] p-3" data-testid="tasks-hint">
+            <p className="text-[#A1A1AA] text-sm">
+              Click a task to see details. Use the circle button to mark it complete.
+            </p>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
             {!showAddTask ? (
               <Button
@@ -691,12 +721,15 @@ const MyDashboardPage = () => {
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                  className={`bg-[#1A1A1A] border rounded-xl p-4 ${isOverdue ? 'border-red-500/30' : 'border-white/5'}`}
+                  className={`bg-[#1A1A1A] border rounded-xl p-4 cursor-pointer hover:border-[#C5A059]/30 ${isOverdue ? 'border-red-500/30' : 'border-white/5'}`}
+                  onClick={() => openTaskDetail(task)}
                   data-testid={`task-${task.id}`}
                 >
                   <div className="flex items-start gap-3">
                     <button
                       onClick={() => handleTaskComplete(task.id)}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClickCapture={(e) => e.stopPropagation()}
                       className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
                         isOverdue ? 'border-red-500 hover:bg-red-500/20' : 'border-[#52525B] hover:border-[#C5A059]'
                       }`}
@@ -868,6 +901,17 @@ const MyDashboardPage = () => {
           )}
         </motion.div>
       )}
+
+      <TaskDetailModal
+        open={taskDetailOpen}
+        onOpenChange={(open) => {
+          setTaskDetailOpen(open);
+          if (!open) setSelectedTask(null);
+        }}
+        task={selectedTask}
+        onComplete={handleCompleteFromModal}
+        onOpenLead={handleOpenLeadFromTask}
+      />
 
       {/* Transfer Modal */}
       <AnimatePresence>
