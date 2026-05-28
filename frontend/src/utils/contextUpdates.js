@@ -1,5 +1,7 @@
 /** Client-side mirror of backend context_updates deduplication. */
 
+import { formatDateTimeIST, parseApiDate } from './datetime';
+
 export function normalizeDescription(text) {
   return (text || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -7,8 +9,8 @@ export function normalizeDescription(text) {
 function entryTimestamp(update) {
   const raw = update.timestamp_dt || update.timestamp;
   if (!raw) return 0;
-  const t = new Date(raw).getTime();
-  return Number.isNaN(t) ? 0 : t;
+  const d = parseApiDate(raw);
+  return d ? d.getTime() : 0;
 }
 
 function dedupeKey(update) {
@@ -32,6 +34,16 @@ export function dedupeContextUpdates(updates) {
     kept.push(entry);
   }
   return kept.sort((a, b) => entryTimestamp(b) - entryTimestamp(a));
+}
+
+export function formatTimelineAttribution(update) {
+  const name = (update?.actor_name || update?.agent || 'Unknown').trim() || 'Unknown';
+  const raw = update?.timestamp_dt || update?.timestamp;
+  let timeStr = '';
+  if (raw) {
+    timeStr = formatDateTimeIST(raw) || String(raw);
+  }
+  return { name, timeStr, label: timeStr ? `Added by ${name} at ${timeStr}` : `Added by ${name}` };
 }
 
 export function contextUpdateKey(update) {

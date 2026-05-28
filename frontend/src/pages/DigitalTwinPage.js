@@ -2,7 +2,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { leadsAPI, whatsappAPI } from '../services/api';
-import { dedupeContextUpdates, contextUpdateKey } from '../utils/contextUpdates';
+import { LeadProfileHeader } from '../components/leads/LeadProfileHeader';
+import { dedupeContextUpdates, contextUpdateKey, formatTimelineAttribution } from '../utils/contextUpdates';
+import { formatTimeIST, parseApiDate } from '../utils/datetime';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '../components/ui/accordion';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
@@ -10,7 +18,6 @@ import {
   MessageCircle,
   Bot,
   MapPin,
-  Briefcase,
   Home,
   DollarSign,
   Calendar,
@@ -22,6 +29,7 @@ import {
   PhoneCall,
   MessageSquare,
   User,
+  UserPlus,
   TrendingUp,
   Send,
   History,
@@ -33,7 +41,6 @@ import {
   Video,
   StickyNote,
   AlertCircle,
-  UserPlus
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -65,16 +72,7 @@ const DigitalTwinPage = () => {
     reminder_method: 'email', assigned_to: ''
   });
   const [savingTask, setSavingTask] = useState(false);
-  const [savingPipeline, setSavingPipeline] = useState(false);
   const aiPollCount = useRef(0);
-
-  const PIPELINE_OPTIONS = [
-    { value: '', label: 'Not set' },
-    { value: 'Qualified', label: 'Qualified' },
-    { value: 'VIP', label: 'VIP' },
-    { value: 'Nurture', label: 'Nurture' },
-    { value: 'Standard', label: 'Standard' },
-  ];
 
   useEffect(() => {
     fetchLead();
@@ -120,7 +118,7 @@ const DigitalTwinPage = () => {
       const response = await whatsappAPI.getLeadChat(leadId);
       const messages = response.data.messages || [];
       // Sort messages by date (oldest first for chat view)
-      messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      messages.sort((a, b) => (parseApiDate(a.created_at)?.getTime() ?? 0) - (parseApiDate(b.created_at)?.getTime() ?? 0));
       setChatHistory(messages);
       if (showModal) setShowChatHistory(true);
     } catch (error) {
@@ -208,6 +206,11 @@ const DigitalTwinPage = () => {
     });
   };
 
+  const requiresPostNurtureTask =
+    lead?.lead_status === 'Nurturing' &&
+    Boolean(lead?.nurture_task_required_since_dt) &&
+    !lead?.nurture_task_required_task_id;
+
   const handleSaveContext = async () => {
     if (!contextNote.trim()) { toast.error('Please enter a note'); return; }
     setSavingContext(true);
@@ -219,7 +222,14 @@ const DigitalTwinPage = () => {
       setShowContextModal(false);
       fetchLead(); // Refresh to show new entry + updated AI summary
     } catch (error) {
-      toast.error('Failed to save context update');
+      const msg = error?.response?.data?.detail;
+      if (error?.response?.status === 409 && msg) {
+        toast.error(msg);
+        setShowContextModal(false);
+        setShowTaskModal(true);
+      } else {
+        toast.error('Failed to save context update');
+      }
     } finally { setSavingContext(false); }
   };
 
@@ -240,42 +250,6 @@ const DigitalTwinPage = () => {
     } finally { setSavingTask(false); }
   };
 
-  const handlePipelineCategoryChange = async (value) => {
-    setSavingPipeline(true);
-    try {
-      await leadsAPI.update(leadId, { pipeline_category: value || null });
-      toast.success('Pipeline category updated');
-      await fetchLead();
-    } catch (error) {
-      toast.error('Failed to update pipeline category');
-    } finally {
-      setSavingPipeline(false);
-    }
-  };
-
-  const handleAutoAssign = async () => {
-    try {
-      const response = await leadsAPI.autoAssign(leadId);
-      if (response.data.assigned_to) {
-        toast.success(`Assigned to ${response.data.assigned_to} (${response.data.active_leads} active leads)`);
-        fetchLead();
-      } else {
-        toast.error('No sales managers available for assignment');
-      }
-    } catch (error) {
-      toast.error('Auto-assignment failed');
-    }
-  };
-
-  const getTemperatureColor = (temp) => {
-    switch (temp) {
-      case 'Hot': return 'text-red-500 bg-red-500/20';
-      case 'Warm': return 'text-orange-500 bg-orange-500/20';
-      case 'Cold': return 'text-blue-500 bg-blue-500/20';
-      default: return 'text-gray-500 bg-gray-500/20';
-    }
-  };
-
   const getContextIcon = (type) => {
     switch (type) {
       case 'call': return PhoneCall;
@@ -292,6 +266,21 @@ const DigitalTwinPage = () => {
       case 'note': return StickyNote;
       default: return Clock;
     }
+  };
+
+  const changeLabel = (field) => {
+    if (field === 'lead_status') return 'Lead Status';
+    if (field === 'temperature') return 'Nurture Label';
+    if (!field) return 'Updated';
+    return String(field)
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  const changeValue = (v) => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+    return String(v);
   };
 
   if (loading) {
@@ -334,7 +323,7 @@ const DigitalTwinPage = () => {
         className="relative rounded-xl overflow-hidden h-20"
       >
         <div className="absolute inset-0 bg-gradient-to-r from-[#0A0A0A] via-[#1A1A1A] to-[#C5A059]/20" />
-        <div className="relative z-10 h-full flex items-center px-6 justify-between">
+        <div className="relative z-10 h-full flex items-center px-6">
           <div className="flex items-center gap-4">
             <Building className="text-[#C5A059]" size={24} />
             <div>
@@ -342,11 +331,6 @@ const DigitalTwinPage = () => {
               <p className="text-[#52525B] text-xs">Managed by {lead.assigned_to || lead.presales_agent || 'Unassigned'}</p>
             </div>
           </div>
-          <Button size="sm" onClick={handleAutoAssign}
-            className="bg-transparent border border-[#C5A059]/40 text-[#C5A059] hover:bg-[#C5A059]/10 h-8 px-3 text-xs"
-            data-testid="auto-assign-btn">
-            <UserPlus size={14} className="mr-1" /> Auto Assign
-          </Button>
         </div>
       </motion.div>
 
@@ -365,61 +349,8 @@ const DigitalTwinPage = () => {
             </div>
           </div>
 
-          {/* Profile Details */}
           <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="font-serif text-3xl text-white">
-                {lead.first_name} {lead.last_name}
-              </h1>
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getTemperatureColor(lead.temperature)}`}>
-                {lead.temperature}
-              </span>
-              {lead.vip && (
-                <span className="px-3 py-1 rounded-full text-sm font-medium bg-purple-500/20 text-purple-400">
-                  VIP
-                </span>
-              )}
-              {lead.pipeline_category && (
-                <span className="px-3 py-1 rounded-full text-sm font-medium bg-amber-500/20 text-amber-400">
-                  {lead.pipeline_category}
-                </span>
-              )}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <label className="text-[#52525B] text-xs uppercase tracking-wider">Pipeline category</label>
-              <select
-                value={lead.pipeline_category || ''}
-                onChange={(e) => handlePipelineCategoryChange(e.target.value)}
-                disabled={savingPipeline}
-                className="h-9 min-w-[180px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50"
-                data-testid="pipeline-category-select"
-              >
-                {PIPELINE_OPTIONS.map((o) => (
-                  <option key={o.value || 'unset'} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              {savingPipeline && <span className="text-[#52525B] text-xs">Saving...</span>}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-              <div className="flex items-center gap-2 text-[#A1A1AA]">
-                <Briefcase size={16} className="text-[#C5A059]" />
-                <span>{lead.designation || 'Not specified'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-[#A1A1AA]">
-                <MapPin size={16} className="text-[#C5A059]" />
-                <span>{lead.location || 'Not specified'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-[#A1A1AA]">
-                <Home size={16} className="text-[#C5A059]" />
-                <span>{lead.current_residence_type || 'Not specified'}</span>
-              </div>
-            </div>
-
-            {/* Contact Info */}
+            <LeadProfileHeader lead={lead} leadId={leadId} onLeadUpdated={fetchLead} />
             <div className="flex flex-wrap items-center gap-4 mt-4 text-[#52525B] text-sm">
               {lead.phone && (
                 <span className="flex items-center gap-1">
@@ -500,75 +431,82 @@ const DigitalTwinPage = () => {
         </p>
       </motion.div>
 
-      {/* AI strategic next moves (Grok) */}
-      {Array.isArray(lead.strategic_next_moves) && lead.strategic_next_moves.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.12 }}
-          className="glass-card rounded-lg p-6 border-l-4 border-emerald-600/60"
-          data-testid="ai-strategic-moves-section"
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="text-emerald-400" size={20} />
-            <h2 className="font-serif text-xl text-white">AI strategic next moves</h2>
-            <span className="text-[#52525B] text-xs ml-2">from conversations</span>
-          </div>
-          <div className="space-y-3">
-            {lead.strategic_next_moves.map((move, idx) => (
-              <div
-                key={idx}
-                className="p-3 bg-black/30 rounded-lg border border-white/5"
-              >
-                <p className="text-white font-medium">{move.title || `Step ${idx + 1}`}</p>
-                <p className="text-[#A1A1AA] text-sm mt-1">{move.rationale}</p>
-                {move.priority && (
-                  <span className="inline-block mt-2 text-xs text-[#C5A059] capitalize">{move.priority}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </motion.div>
-      )}
+      {(Array.isArray(lead.strategic_next_moves) && lead.strategic_next_moves.length > 0) ||
+      suggestions.length > 0 ? (
+        <Accordion type="multiple" className="space-y-3">
+          {Array.isArray(lead.strategic_next_moves) && lead.strategic_next_moves.length > 0 && (
+            <AccordionItem
+              value="strategic-moves"
+              className="glass-card rounded-lg border-l-4 border-emerald-600/60 border-b-0 px-6"
+              data-testid="ai-strategic-moves-section"
+            >
+              <AccordionTrigger className="hover:no-underline py-4">
+                <div className="flex items-center gap-2 text-left">
+                  <TrendingUp className="text-emerald-400 shrink-0" size={20} />
+                  <span className="font-serif text-xl text-white">AI strategic next moves</span>
+                  <span className="text-[#52525B] text-xs font-normal">from conversations</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-3 pb-2">
+                  {lead.strategic_next_moves.map((move, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 bg-black/30 rounded-lg border border-white/5"
+                    >
+                      <p className="text-white font-medium">{move.title || `Step ${idx + 1}`}</p>
+                      <p className="text-[#A1A1AA] text-sm mt-1">{move.rationale}</p>
+                      {move.priority && (
+                        <span className="inline-block mt-2 text-xs text-[#C5A059] capitalize">{move.priority}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          )}
 
-      {/* Portfolio cross-pitch suggestions */}
-      {suggestions.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="glass-card rounded-lg p-6 border-l-4 border-[#C5A059]"
-          data-testid="strategic-move-section"
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <Target className="text-[#C5A059]" size={20} />
-            <h2 className="font-serif text-xl text-white">Portfolio suggestions</h2>
-            <span className="text-[#52525B] text-xs ml-2">cross-project</span>
-          </div>
-          <div className="space-y-3">
-            {suggestions.map((suggestion, idx) => (
-              <div
-                key={idx}
-                className="flex items-center justify-between p-3 bg-black/30 rounded-lg hover:bg-black/40 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Building className="text-[#C5A059]" size={18} />
-                  <div>
-                    <p className="text-white font-medium">{suggestion.project}</p>
-                    <p className="text-[#52525B] text-sm">{suggestion.reason}</p>
-                  </div>
+          {suggestions.length > 0 && (
+            <AccordionItem
+              value="portfolio-suggestions"
+              className="glass-card rounded-lg border-l-4 border-[#C5A059] border-b-0 px-6"
+              data-testid="strategic-move-section"
+            >
+              <AccordionTrigger className="hover:no-underline py-4">
+                <div className="flex items-center gap-2 text-left">
+                  <Target className="text-[#C5A059] shrink-0" size={20} />
+                  <span className="font-serif text-xl text-white">Portfolio suggestions</span>
+                  <span className="text-[#52525B] text-xs font-normal">cross-project</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[#C5A059] text-sm">
-                    {Math.round(suggestion.match_score * 100)}% match
-                  </span>
-                  <ChevronRight className="text-[#52525B]" size={16} />
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="space-y-3 pb-2">
+                  {suggestions.map((suggestion, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-3 bg-black/30 rounded-lg hover:bg-black/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Building className="text-[#C5A059]" size={18} />
+                        <div>
+                          <p className="text-white font-medium">{suggestion.project}</p>
+                          <p className="text-[#52525B] text-sm">{suggestion.reason}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#C5A059] text-sm">
+                          {Math.round(suggestion.match_score * 100)}% match
+                        </span>
+                        <ChevronRight className="text-[#52525B]" size={16} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-      )}
+              </AccordionContent>
+            </AccordionItem>
+          )}
+        </Accordion>
+      ) : null}
 
       {/* Data DNA Grid */}
       <motion.div
@@ -631,16 +569,44 @@ const DigitalTwinPage = () => {
             <h2 className="font-serif text-xl text-white">Context Updates Timeline</h2>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => setShowContextModal(true)}
-              className="bg-[#C5A059] text-black hover:bg-[#E5C079] h-8 px-3 text-xs"
-              data-testid="update-context-btn">
-              <Plus size={14} className="mr-1" /> Update Context
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (requiresPostNurtureTask) {
+                    toast.error('Create a follow-up task first after moving lead to Nurturing.');
+                    setShowTaskModal(true);
+                    return;
+                  }
+                  setShowContextModal(true);
+                }}
+                className="bg-[#C5A059] text-black hover:bg-[#E5C079] h-8 px-3 text-xs disabled:opacity-60"
+                data-testid="update-context-btn"
+                disabled={savingTask || savingContext}
+              >
+                <Plus size={14} className="mr-1" /> Add Note
+              </Button>
+              {requiresPostNurtureTask && (
+                <div className="text-[10px] text-amber-400/90 max-w-[320px] text-right">
+                  Create a follow-up task first after moving lead to Nurturing.
+                </div>
+              )}
+            </div>
             <Button size="sm" onClick={() => setShowTaskModal(true)}
               className="bg-transparent border border-[#C5A059] text-[#C5A059] hover:bg-[#C5A059]/10 h-8 px-3 text-xs"
               data-testid="add-task-btn">
               <ClipboardList size={14} className="mr-1" /> Add Task
             </Button>
+            {requiresPostNurtureTask && (
+              <Button
+                size="sm"
+                onClick={() => setShowTaskModal(true)}
+                className="bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 h-8 px-3 text-xs"
+                data-testid="create-follow-up-task-btn"
+              >
+                Create Follow-Up Task
+              </Button>
+            )}
           </div>
         </div>
 
@@ -648,7 +614,8 @@ const DigitalTwinPage = () => {
           {dedupeContextUpdates(lead.context_updates || []).slice().reverse().map((update, idx) => {
             const IconComponent = getContextIcon(update.type);
             const isNew = idx === 0;
-            
+            const attribution = formatTimelineAttribution(update);
+
             return (
               <motion.div
                 key={contextUpdateKey(update)}
@@ -666,28 +633,33 @@ const DigitalTwinPage = () => {
 
                 {/* Content */}
                 <div className={`p-4 rounded-lg ${isNew ? 'bg-[#C5A059]/10 border border-[#C5A059]/30' : 'bg-black/30'}`}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs px-2 py-0.5 rounded uppercase tracking-wider ${
-                        isNew ? 'bg-[#C5A059] text-black' : 'bg-white/10 text-[#A1A1AA]'
-                      }`}>
-                        {update.type}
-                      </span>
-                      {update.agent && (
-                        <span className="text-[#52525B] text-xs">{update.agent}</span>
-                      )}
-                    </div>
-                    <span className="text-[#52525B] text-xs">
-                      {new Date(update.timestamp).toLocaleDateString('en-IN', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded uppercase tracking-wider ${
+                      isNew ? 'bg-[#C5A059] text-black' : 'bg-white/10 text-[#A1A1AA]'
+                    }`}>
+                      {update.type}
                     </span>
                   </div>
-                  <p className="text-white mt-2">{update.description}</p>
+                  <p className="text-[#C5A059] text-sm font-medium mt-2" data-testid="timeline-attribution">
+                    {attribution.label}
+                  </p>
+                  {update.type === 'updated' && Array.isArray(update.changes) && update.changes.length > 0 ? (
+                    <div className="mt-2 space-y-1.5" data-testid="timeline-changes">
+                      {update.changes.map((c, i) => (
+                        <div key={`${c.field || 'field'}-${i}`} className="text-sm text-white/90 flex flex-wrap gap-2">
+                          <span className="text-[#A1A1AA]">{changeLabel(c.field)}:</span>
+                          <span className="text-white">{changeValue(c.from)}</span>
+                          <span className="text-[#52525B]">→</span>
+                          <span className="text-white">{changeValue(c.to)}</span>
+                        </div>
+                      ))}
+                      {update.description && (
+                        <p className="text-[#52525B] text-xs mt-2">{update.description}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-white mt-2">{update.description}</p>
+                  )}
                   
                   {/* Call specific details */}
                   {update.type === 'call' && update.key_points && (
@@ -946,7 +918,7 @@ const DigitalTwinPage = () => {
                       msg.direction === 'outbound' ? 'text-green-200' : 'text-[#52525B]'
                     }`}>
                       <span>
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {formatTimeIST(msg.created_at) || '—'}
                       </span>
                       {msg.direction === 'outbound' && msg.status && (
                         <span className="capitalize">• {msg.status}</span>

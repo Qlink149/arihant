@@ -1,29 +1,24 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import HTTPException
 
 from crm.core.platform_ops import assert_assignee_allowed, get_blocked_assignee_values, is_blocked_assignee_name
-from crm.core.state import AssignmentRule, db, get_current_user, iso_utc_now, resolve_user_id_by_full_name, utc_now
+from crm.core.state import db, resolve_user_id_by_full_name
+from crm.models.schemas.assignment_schemas import AssignmentRule
+from crm.utils.helpers import iso_utc_now, utc_now
 
 
-router = APIRouter()
+async def list_rules() -> list:
+    return await db.assignment_rules.find({}, {"_id": 0}).to_list(100)
 
 
-@router.get("/assignment-rules")
-async def get_assignment_rules(current_user: dict = Depends(get_current_user)):
-    rules = await db.assignment_rules.find({}, {"_id": 0}).to_list(100)
-    return rules
-
-
-@router.post("/assignment-rules")
-async def create_assignment_rule(rule: AssignmentRule, current_user: dict = Depends(get_current_user)):
+async def create_rule(rule: AssignmentRule) -> dict:
     rule_dict = rule.model_dump()
     await db.assignment_rules.insert_one(rule_dict)
     return rule_dict
 
 
-@router.post("/leads/auto-assign")
-async def auto_assign_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
+async def auto_assign_lead(lead_id: str) -> dict:
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -100,4 +95,3 @@ async def auto_assign_lead(lead_id: str, current_user: dict = Depends(get_curren
     )
 
     return {"assigned_to": assigned_to, "active_leads": int(min_count)}
-

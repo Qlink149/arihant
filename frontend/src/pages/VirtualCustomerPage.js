@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { leadsAPI } from '../services/api';
+import { leadsAPI, tasksAPI } from '../services/api';
+import { LeadDataTable } from '../components/leads/LeadDataTable';
+import { buildPendingTaskMap } from '../utils/leadTable';
+import { METRIC_LABELS } from '../utils/leadOverview';
+import { isNurturingStatus, NURTURE_LABELS, NURTURING_STATUS } from '../utils/nurtureLabel';
 import { toast } from 'sonner';
 import {
   Search,
   Filter,
   ChevronDown,
-  Flame,
-  Snowflake,
-  Sun,
   Crown,
   User,
   Building,
@@ -21,7 +22,9 @@ import {
   Plus,
   Copy,
   UserPlus,
-  Users
+  Users,
+  CircleDot,
+  Calendar
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -46,8 +49,46 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { Calendar as CalendarUI } from '../components/ui/calendar';
 
 const VC_PAGE = 50;
+
+const formatLocalDate = (date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const addDays = (date, delta) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + delta);
+  return next;
+};
+
+const parseYmd = (value) => {
+  if (!value) return null;
+  const [y, m, d] = value.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+};
+
+const getDateFilterLabel = (filters) => {
+  if (filters.days) {
+    const n = parseInt(filters.days, 10);
+    if (Number.isFinite(n) && n > 0) return `Last ${n} days`;
+  }
+  if (filters.created_from || filters.created_to) {
+    const from = filters.created_from || '…';
+    const to = filters.created_to || '…';
+    if (from === to) return from;
+    return `${from} – ${to}`;
+  }
+  return 'Date';
+};
+
+const isDateFilterActive = (filters) =>
+  Boolean(filters.days || filters.created_from || filters.created_to);
 
 const parseTotalFromResponse = (response) => {
   const headers = response?.headers;
@@ -65,20 +106,43 @@ const emptyLeadFilters = () => ({
   budget: '',
   location: '',
   project: '',
-  temperature: '',
   intent: '',
   vip: null,
+  status: '',
+  days: '',
+  created_from: '',
+  created_to: '',
+  metric: '',
 });
 
 const filtersFromSearchParams = (searchParams) => ({
   ...emptyLeadFilters(),
   project: searchParams.get('project') || '',
   location: searchParams.get('location') || '',
+  status: searchParams.get('status') || '',
+  days: searchParams.get('days') || '',
+  created_from: searchParams.get('created_from') || '',
+  created_to: searchParams.get('created_to') || '',
+  metric: searchParams.get('metric') || '',
 });
+
+const filtersToSearchParams = (filters, agentQuery) => {
+  const params = new URLSearchParams();
+  if (filters.project) params.set('project', filters.project);
+  if (filters.location) params.set('location', filters.location);
+  if (filters.status) params.set('status', filters.status);
+  if (filters.days) params.set('days', String(filters.days));
+  if (filters.created_from) params.set('created_from', filters.created_from);
+  if (filters.created_to) params.set('created_to', filters.created_to);
+  if (filters.metric) params.set('metric', filters.metric);
+  const agent = (agentQuery || '').trim();
+  if (agent) params.set('agent', agent);
+  return params;
+};
 
 const VirtualCustomerPage = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [leads, setLeads] = useState([]);
   const [totalLeads, setTotalLeads] = useState(0);
   const [hasMoreLeads, setHasMoreLeads] = useState(true);
@@ -99,7 +163,13 @@ const VirtualCustomerPage = () => {
   const [uploadingFile, setUploadingFile] = useState(false);
   const [submittingCustomer, setSubmittingCustomer] = useState(false);
   const [leadStatusTouched, setLeadStatusTouched] = useState(false);
-  
+  const [createNurtureLabel, setCreateNurtureLabel] = useState('');
+  const [pendingTasks, setPendingTasks] = useState([]);
+  const [pendingTaskMap, setPendingTaskMap] = useState(() => new Map());
+  const [noteLeadId, setNoteLeadId] = useState(null);
+  const [quickNote, setQuickNote] = useState('');
+  const [savingQuickNote, setSavingQuickNote] = useState(false);
+
   // New customer form state
   const [newCustomer, setNewCustomer] = useState({
     first_name: '',
@@ -117,31 +187,70 @@ const VirtualCustomerPage = () => {
   });
   
   const [filters, setFilters] = useState(() => filtersFromSearchParams(searchParams));
+  const [customDateRange, setCustomDateRange] = useState(null);
+  const [dateMenuMode, setDateMenuMode] = useState('presets');
+  const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
 
   const budgetRanges = ['Under 1Cr', '1-2 Cr', '2-5 Cr', '5 Cr+'];
   const locations = ['ECR', 'Abhiramapuram', 'OMR', 'Saligramam', 'Kilpauk'];
   const projects = ['ECR - Reserve 16', 'Saligramam Melange', 'OMR - Vivriti', 'Abhiramapuram - Krishna', 'Flowers Road - Kilpauk'];
-  const temperatures = ['Hot', 'Warm', 'Cold'];
   const intents = ['Investor', 'Self-Occupation', 'Not Decided'];
   const leadSources = ['Facebook Lead Form', 'facebook_ad', 'google', 'website', 'instagram', 'whatsapp', 'newspaper', 'direct-walkin', 'propmart', 'management reference', 'CREDAI FAIRPRO 2026'];
   const salesManagers = ['Narendran S', 'Piyush', 'Malathy', 'Anusha Omprakash', 'jigar', 'shariff', 'Roshini'];
-  const LEAD_STATUSES = ['Open', 'Contacted', 'Follow Up', 'Site Visit', 'Lost', 'Won'];
+  const LEAD_STATUSES = [
+    'New',
+    'RNR',
+    'Contacted',
+    'Nurturing',
+    'Site Visit Scheduled',
+    'Visit Completed',
+    'Negotiation',
+    'Gone Cold',
+    'Future Prospect',
+    'Closed Won',
+    'Closed Lost',
+  ];
 
   useEffect(() => {
-    const projectParam = searchParams.get('project');
-    const locationParam = searchParams.get('location');
-    const agentParam = searchParams.get('agent');
-    if (!projectParam && !locationParam && !agentParam) return;
-
-    setFilters((prev) => ({
-      ...prev,
-      project: projectParam || '',
-      location: locationParam || '',
-    }));
-    if (agentParam) {
-      setSearchQuery(agentParam);
+    if (filters.created_from || filters.created_to) {
+      const from = parseYmd(filters.created_from);
+      const to = parseYmd(filters.created_to) || from;
+      if (from) setCustomDateRange({ from, to: to || from });
+    } else {
+      setCustomDateRange(null);
     }
+  }, [filters.created_from, filters.created_to]);
+
+  useEffect(() => {
+    const fromUrl = filtersFromSearchParams(searchParams);
+    setFilters((prev) => {
+      const prevKey = JSON.stringify(prev);
+      const nextKey = JSON.stringify(fromUrl);
+      return prevKey === nextKey ? prev : fromUrl;
+    });
+    const agent = searchParams.get('agent') || '';
+    setSearchQuery(agent);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (showDuplicates) return;
+    setSearchParams(filtersToSearchParams(filters, debouncedSearch), { replace: true });
+  }, [filters, debouncedSearch, showDuplicates, setSearchParams]);
+
+  const fetchPendingTasks = useCallback(async () => {
+    try {
+      const { data } = await tasksAPI.getAll({ status: 'pending', mine: true });
+      const list = data || [];
+      setPendingTasks(list);
+      setPendingTaskMap(buildPendingTaskMap(list));
+    } catch {
+      /* non-blocking */
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPendingTasks();
+  }, [fetchPendingTasks]);
 
   useEffect(() => {
     const delay = searchQuery.trim() ? 400 : 0;
@@ -158,9 +267,17 @@ const VirtualCustomerPage = () => {
     if (filters.budget) params.budget = filters.budget;
     if (filters.location) params.location = filters.location;
     if (filters.project) params.project = filters.project;
-    if (filters.temperature) params.temperature = filters.temperature;
     if (filters.intent) params.intent = filters.intent;
     if (filters.vip !== null) params.vip = filters.vip;
+    if (filters.status) params.status = filters.status;
+    if (filters.days) {
+      const d = parseInt(filters.days, 10);
+      if (Number.isFinite(d) && d > 0) params.days = d;
+    } else {
+      if (filters.created_from) params.created_from = filters.created_from;
+      if (filters.created_to) params.created_to = filters.created_to;
+    }
+    if (filters.metric) params.metric = filters.metric;
     if (debouncedSearch) params.search = debouncedSearch;
     return params;
   }, [filters, debouncedSearch]);
@@ -359,10 +476,90 @@ const VirtualCustomerPage = () => {
   };
 
   const clearFilters = () => {
-    setFilters(emptyLeadFilters());
+    const empty = emptyLeadFilters();
+    setFilters(empty);
+    setCustomDateRange(null);
+    setDateMenuMode('presets');
+    setDateDropdownOpen(false);
     setSearchQuery('');
     setDebouncedSearch('');
     setShowDuplicates(false);
+    setSearchParams(new URLSearchParams(), { replace: true });
+  };
+
+  const applyDatePreset = (preset) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const clearDateFields = { days: '', created_from: '', created_to: '' };
+
+    setDateMenuMode('presets');
+
+    if (preset === 'all') {
+      setCustomDateRange(null);
+      setFilters((prev) => ({ ...prev, ...clearDateFields }));
+      return;
+    }
+
+    setCustomDateRange(null);
+
+    if (['7', '30', '60', '90'].includes(preset)) {
+      setFilters((prev) => ({ ...prev, ...clearDateFields, days: preset }));
+      return;
+    }
+
+    let target = today;
+    if (preset === 'yesterday') target = addDays(today, -1);
+    if (preset === 'day_before') target = addDays(today, -2);
+    const ymd = formatLocalDate(target);
+    setFilters((prev) => ({ ...prev, ...clearDateFields, created_from: ymd, created_to: ymd }));
+  };
+
+  const handleCustomRangeSelect = (range) => {
+    setCustomDateRange(range);
+    if (!range?.from) return;
+
+    const from = formatLocalDate(range.from);
+    const to = range.to ? formatLocalDate(range.to) : from;
+    setFilters((prev) => ({
+      ...prev,
+      days: '',
+      created_from: from,
+      created_to: to,
+    }));
+
+    if (range.to) {
+      setDateMenuMode('presets');
+      setDateDropdownOpen(false);
+    }
+  };
+
+  const handleViewLead = (id) => navigate(`/lead/${id}`);
+
+  const handleOpenNote = (id) => {
+    setNoteLeadId(id);
+    setQuickNote('');
+  };
+
+  const handleSaveQuickNote = async () => {
+    if (!noteLeadId || !quickNote.trim()) {
+      toast.error('Please enter a note');
+      return;
+    }
+    setSavingQuickNote(true);
+    try {
+      await leadsAPI.addContext(noteLeadId, {
+        note: quickNote.trim(),
+        update_type: 'general_note',
+      });
+      toast.success('Note added');
+      setNoteLeadId(null);
+      setQuickNote('');
+      await fetchPendingTasks();
+    } catch {
+      toast.error('Failed to save note');
+    } finally {
+      setSavingQuickNote(false);
+    }
   };
 
   const handleFileUpload = async (e) => {
@@ -390,9 +587,20 @@ const VirtualCustomerPage = () => {
       return;
     }
 
+    if (isNurturingStatus(newCustomer.lead_status) && !createNurtureLabel) {
+      toast.error('Select a nurture label (Hot or Warm) for Nurturing leads');
+      return;
+    }
+
     setSubmittingCustomer(true);
     try {
-      const created = await leadsAPI.create(newCustomer);
+      const payload = { ...newCustomer };
+      if (isNurturingStatus(newCustomer.lead_status)) {
+        payload.temperature = createNurtureLabel;
+      } else {
+        delete payload.temperature;
+      }
+      const created = await leadsAPI.create(payload);
       const createdLeadId = created?.data?.id;
       const shouldAppendStatusNote = leadStatusTouched && !!createdLeadId && !!newCustomer.lead_status;
 
@@ -422,34 +630,13 @@ const VirtualCustomerPage = () => {
         lead_status: '',
       });
       setLeadStatusTouched(false);
+      setCreateNurtureLabel('');
       fetchLeads();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add customer');
     } finally {
       setSubmittingCustomer(false);
     }
-  };
-
-  const getTemperatureIcon = (temp) => {
-    switch (temp) {
-      case 'Hot':
-        return <Flame className="text-red-500" size={14} />;
-      case 'Warm':
-        return <Sun className="text-orange-500" size={14} />;
-      case 'Cold':
-        return <Snowflake className="text-blue-500" size={14} />;
-      default:
-        return null;
-    }
-  };
-
-  const getTemperatureBadge = (temp) => {
-    const classes = {
-      Hot: 'badge-hot',
-      Warm: 'badge-warm',
-      Cold: 'badge-cold'
-    };
-    return classes[temp] || 'bg-gray-500';
   };
 
   const activeFiltersCount = Object.values(filters).filter(v => v !== '' && v !== null).length + (showDuplicates ? 1 : 0);
@@ -514,6 +701,25 @@ const VirtualCustomerPage = () => {
           </Button>
         </div>
       </motion.div>
+
+      {filters.metric ? (
+        <div
+          className="flex items-center gap-2 flex-wrap"
+          data-testid="lead-overview-filter-chip"
+        >
+          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#C5A059]/30 bg-[#C5A059]/10 text-[#C5A059] text-xs font-medium">
+            Lead overview: {METRIC_LABELS[filters.metric] || filters.metric}
+            <button
+              type="button"
+              onClick={() => setFilters((prev) => ({ ...prev, metric: '' }))}
+              className="ml-1 text-[#C5A059]/80 hover:text-[#C5A059] underline-offset-2 hover:underline"
+              aria-label="Clear lead overview filter"
+            >
+              Clear
+            </button>
+          </span>
+        </div>
+      ) : null}
 
       {/* Search & Filters Bar */}
       <motion.div
@@ -642,36 +848,146 @@ const VirtualCustomerPage = () => {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Temperature Filter */}
+            {/* Status Filter */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
                   className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
-                    filters.temperature ? 'border-[#C5A059] text-[#C5A059]' : ''
+                    filters.status ? 'border-[#C5A059] text-[#C5A059]' : ''
                   }`}
-                  data-testid="temperature-filter"
+                  data-testid="status-filter"
                 >
-                  {getTemperatureIcon(filters.temperature) || <Flame size={14} className="mr-2 text-[#52525B]" />}
-                  <span className="ml-2">{filters.temperature || 'Temperature'}</span>
+                  <CircleDot size={14} className="mr-2" />
+                  {filters.status ? `Status: ${filters.status}` : 'Status'}
                   <ChevronDown size={14} className="ml-2" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
-                <DropdownMenuLabel className="text-[#A1A1AA]">Lead Temperature</DropdownMenuLabel>
+              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10 max-h-[min(24rem,70vh)] overflow-y-auto">
+                <DropdownMenuLabel className="text-[#A1A1AA]">Lead Status</DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-white/10" />
-                {temperatures.map((temp) => (
+                <DropdownMenuItem
+                  onClick={() => setFilters({ ...filters, status: '' })}
+                  className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                >
+                  All Statuses
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-white/10" />
+                {LEAD_STATUSES.map((status) => (
                   <DropdownMenuItem
-                    key={temp}
-                    onClick={() => setFilters({ ...filters, temperature: temp })}
+                    key={status}
+                    onClick={() => setFilters({ ...filters, status })}
                     className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
                   >
-                    <span className="flex items-center gap-2">
-                      {getTemperatureIcon(temp)}
-                      {temp}
-                    </span>
+                    {status}
                   </DropdownMenuItem>
                 ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Date Filter */}
+            <DropdownMenu
+              open={dateDropdownOpen}
+              onOpenChange={(open) => {
+                setDateDropdownOpen(open);
+                if (!open) setDateMenuMode('presets');
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
+                    isDateFilterActive(filters) ? 'border-[#C5A059] text-[#C5A059]' : ''
+                  }`}
+                  data-testid="date-filter"
+                >
+                  <Calendar size={14} className="mr-2" />
+                  {getDateFilterLabel(filters)}
+                  <ChevronDown size={14} className="ml-2" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="bg-[#1A1A1A] border-white/10"
+                align="start"
+                data-testid="date-filter-menu"
+              >
+                {dateMenuMode === 'presets' ? (
+                  <>
+                    <DropdownMenuLabel className="text-[#A1A1AA]">Created date</DropdownMenuLabel>
+                    <DropdownMenuSeparator className="bg-white/10" />
+                    <DropdownMenuItem
+                      onClick={() => applyDatePreset('today')}
+                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                    >
+                      Today
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => applyDatePreset('yesterday')}
+                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                    >
+                      Yesterday
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => applyDatePreset('day_before')}
+                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                    >
+                      Day before yesterday
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-white/10" />
+                    {[7, 30, 60, 90].map((n) => (
+                      <DropdownMenuItem
+                        key={n}
+                        onClick={() => applyDatePreset(String(n))}
+                        className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                      >
+                        Last {n} days
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator className="bg-white/10" />
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setDateMenuMode('custom');
+                      }}
+                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                      data-testid="date-filter-custom"
+                    >
+                      Custom range
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => applyDatePreset('all')}
+                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                    >
+                      All time
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setDateMenuMode('presets');
+                      }}
+                      className="text-[#A1A1AA] hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                    >
+                      ← Back to presets
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-white/10" />
+                    <DropdownMenuItem
+                      className="p-0 focus:bg-transparent cursor-default"
+                      onSelect={(e) => e.preventDefault()}
+                      onPointerDown={(e) => e.preventDefault()}
+                    >
+                      <CalendarUI
+                        mode="range"
+                        selected={customDateRange}
+                        onSelect={handleCustomRangeSelect}
+                        className="bg-[#1A1A1A] text-white"
+                        data-testid="date-range-calendar"
+                      />
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -762,117 +1078,70 @@ const VirtualCustomerPage = () => {
         </motion.div>
       )}
 
-      {/* Lead Cards Grid */}
+      {/* Lead table */}
       {!showDuplicates && (
         <>
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-        >
-          {loading ? (
-            [...Array(6)].map((_, i) => (
-              <div key={i} className="glass-card rounded-lg p-6 animate-pulse">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-full bg-white/10" />
-                  <div className="flex-1">
-                    <div className="h-4 bg-white/10 rounded w-3/4" />
-                    <div className="h-3 bg-white/10 rounded w-1/2 mt-2" />
-                  </div>
-                </div>
-              </div>
-            ))
-          ) : leads.length === 0 ? (
-            <div className="col-span-full text-center py-12">
-              <User className="mx-auto text-[#52525B]" size={48} />
-              <p className="text-[#A1A1AA] mt-4">No leads found</p>
-              <p className="text-[#52525B] text-sm">Try adjusting your filters</p>
-            </div>
-          ) : (
-            leads.map((lead, index) => (
-              <motion.div
-                key={lead.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: Math.min(index * 0.05, 0.3) }}
-                onClick={() => navigate(`/lead/${lead.id}`)}
-                className="glass-card rounded-lg p-6 cursor-pointer card-hover group"
-                data-testid={`lead-card-${lead.id}`}
-              >
-                {/* Project Badge at Top */}
-                {lead.project && (
-                  <div className="flex items-center gap-2 mb-3 pb-3 border-b border-white/10">
-                    <Building className="text-[#C5A059]" size={14} />
-                    <span className="text-[#C5A059] text-sm font-medium">{lead.project}</span>
-                  </div>
-                )}
-                
-                <div className="flex items-start gap-4">
-                  {/* Avatar */}
-                  <div className="w-14 h-14 rounded-full bg-[#C5A059]/20 flex items-center justify-center text-[#C5A059] font-serif text-xl flex-shrink-0 group-hover:bg-[#C5A059]/30 transition-colors">
-                    {lead.first_name?.charAt(0)}{lead.last_name?.charAt(0)}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium text-white truncate group-hover:text-[#C5A059] transition-colors">
-                        {lead.first_name} {lead.last_name}
-                      </h3>
-                      {lead.vip && (
-                        <Crown className="text-purple-500 flex-shrink-0" size={14} />
-                      )}
-                    </div>
-                    
-                    {/* Assigned Sales Manager */}
-                    {lead.assigned_to && (
-                      <p className="text-[#52525B] text-xs mt-1">
-                        Assigned to: <span className="text-[#A1A1AA]">{lead.assigned_to}</span>
-                      </p>
-                    )}
-
-                    {/* Badges */}
-                    <div className="flex items-center gap-2 mt-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${getTemperatureBadge(lead.temperature)}`}>
-                        {lead.temperature}
-                      </span>
-                      <span className="px-2 py-1 rounded text-xs bg-white/10 text-[#A1A1AA]">
-                        {lead.intent}
-                      </span>
-                    </div>
-
-                    {/* Contact Info */}
-                    <div className="flex items-center gap-4 mt-3 text-[#52525B] text-xs">
-                      {lead.phone && (
-                        <span className="flex items-center gap-1">
-                          <Phone size={12} />
-                          {lead.phone.slice(-4)}
-                        </span>
-                      )}
-                      {lead.location && (
-                        <span className="flex items-center gap-1">
-                          <MapPin size={12} />
-                          {lead.location}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ))
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+          >
+            <LeadDataTable
+              leads={leads}
+              loading={loading}
+              pendingTaskMap={pendingTaskMap}
+              pendingTasksList={pendingTasks}
+              onRowClick={handleViewLead}
+              onView={handleViewLead}
+              onNote={handleOpenNote}
+            />
+          </motion.div>
+          {!loading && leads.length > 0 && (
+            <>
+              <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
+              {loadingMore && (
+                <p className="text-center text-[#52525B] text-sm py-3 w-full">Loading more leads…</p>
+              )}
+            </>
           )}
-        </motion.div>
-        {!loading && leads.length > 0 && (
-          <>
-            <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
-            {loadingMore && (
-              <p className="text-center text-[#52525B] text-sm py-3 w-full">Loading more leads…</p>
-            )}
-          </>
-        )}
         </>
       )}
+
+      {/* Quick note modal */}
+      <Dialog open={!!noteLeadId} onOpenChange={(open) => !open && setNoteLeadId(null)}>
+        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg" data-testid="quick-note-modal">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-xl">Add note</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <textarea
+              value={quickNote}
+              onChange={(e) => setQuickNote(e.target.value)}
+              placeholder="Write a note for this lead..."
+              rows={4}
+              className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none resize-none"
+              data-testid="quick-note-input"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setNoteLeadId(null)}
+                className="text-[#A1A1AA]"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveQuickNote}
+                disabled={savingQuickNote || !quickNote.trim()}
+                className="bg-[#C5A059] text-black hover:bg-[#E5C079]"
+                data-testid="quick-note-save"
+              >
+                {savingQuickNote ? 'Saving…' : 'Save note'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Add New Customer Modal */}
       <Dialog open={showAddCustomerModal} onOpenChange={setShowAddCustomerModal}>
@@ -1069,7 +1338,7 @@ const VirtualCustomerPage = () => {
                   );
                 })()}
 
-                <div className="grid grid-cols-6 gap-2 relative">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 relative">
                   {LEAD_STATUSES.map((status) => {
                     const isSelected = newCustomer.lead_status === status;
                     return (
@@ -1079,6 +1348,9 @@ const VirtualCustomerPage = () => {
                         onClick={() => {
                           setNewCustomer({ ...newCustomer, lead_status: status });
                           setLeadStatusTouched(true);
+                          if (status !== NURTURING_STATUS) {
+                            setCreateNurtureLabel('');
+                          }
                         }}
                         className={[
                           'group flex flex-col items-center gap-2 p-2 rounded-md transition-colors',
@@ -1107,6 +1379,29 @@ const VirtualCustomerPage = () => {
                   })}
                 </div>
               </div>
+
+              {isNurturingStatus(newCustomer.lead_status) && (
+                <div className="mt-4 p-4 rounded-lg border border-[#C5A059]/30 bg-[#C5A059]/5">
+                  <label className="text-[#C5A059] text-sm font-medium block mb-2">
+                    Nurture label <span className="text-red-400">*</span>
+                  </label>
+                  <div className="flex gap-4">
+                    {NURTURE_LABELS.map((label) => (
+                      <label key={label} className="flex items-center gap-2 cursor-pointer text-white text-sm">
+                        <input
+                          type="radio"
+                          name="create-nurture-label"
+                          value={label}
+                          checked={createNurtureLabel === label}
+                          onChange={() => setCreateNurtureLabel(label)}
+                          className="accent-[#C5A059]"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Notes */}

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { alertsAPI, assignmentAPI, remindersAPI } from '../services/api';
+import { alertsAPI, assignmentAPI, remindersAPI, notificationsAPI } from '../services/api';
 import { toast } from 'sonner';
+import { formatDateTimeIST } from '../utils/datetime';
 import {
   Bell,
   Users,
@@ -45,6 +46,7 @@ const SettingsPage = () => {
   const [reminderRules, setReminderRules] = useState([]);
   const [reminderHistory, setReminderHistory] = useState([]);
   const [triggering, setTriggering] = useState(false);
+  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true);
 
   // New alert form
   const [newAlert, setNewAlert] = useState({
@@ -68,22 +70,35 @@ const SettingsPage = () => {
 
   const fetchData = async () => {
     try {
-      const [alertsRes, rulesRes, pendingRes, remRulesRes, remHistRes] = await Promise.all([
+      const [alertsRes, rulesRes, pendingRes, remRulesRes, remHistRes, notifPrefsRes] = await Promise.all([
         alertsAPI.getConfig(),
         assignmentAPI.getRules(),
         alertsAPI.getPending(),
         remindersAPI.getRules(),
         remindersAPI.getHistory(20),
+        notificationsAPI.getPreferences(),
       ]);
       setAlerts(alertsRes.data);
       setAssignmentRules(rulesRes.data);
       setPendingAlerts(pendingRes.data);
       setReminderRules(remRulesRes.data || []);
       setReminderHistory(remHistRes.data || []);
+      setNotificationSoundEnabled(Boolean(notifPrefsRes.data?.notification_sound_enabled));
     } catch (error) {
       console.error('Failed to fetch settings:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleNotificationSound = async (enabled) => {
+    setNotificationSoundEnabled(enabled);
+    try {
+      await notificationsAPI.updatePreferences({ notification_sound_enabled: enabled });
+      toast.success(`Notification sound ${enabled ? 'enabled' : 'disabled'}`);
+    } catch {
+      toast.error('Failed to update notification settings');
+      setNotificationSoundEnabled((prev) => !prev);
     }
   };
 
@@ -352,6 +367,17 @@ const SettingsPage = () => {
               <span className="text-white">Push Notifications</span>
             </div>
             <Switch />
+          </div>
+          <div className="flex items-center justify-between p-4 bg-black/30 rounded-lg">
+            <div className="flex items-center gap-3">
+              <Play className="text-amber-400" size={20} />
+              <span className="text-white">Notification Sound</span>
+            </div>
+            <Switch
+              checked={notificationSoundEnabled}
+              onCheckedChange={handleToggleNotificationSound}
+              data-testid="notification-sound-toggle"
+            />
           </div>
         </div>
       </motion.div>
@@ -630,7 +656,7 @@ const SettingsPage = () => {
                     <p className="text-[#A1A1AA] text-xs">{r.message}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[#52525B] text-[10px]">{r.assigned_to}</span>
-                      <span className="text-[#52525B] text-[10px]">{new Date(r.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="text-[#52525B] text-[10px]">{formatDateTimeIST(r.created_at) || '—'}</span>
                       {r.whatsapp_sent && <span className="text-green-400 text-[10px]">WA sent</span>}
                     </div>
                   </div>

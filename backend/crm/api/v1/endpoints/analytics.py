@@ -15,6 +15,30 @@ router = APIRouter()
 
 DORMANT_INACTIVITY_DAYS = 7
 
+
+def _nurturing_label_flag(label: str) -> Dict[str, Any]:
+    """Count 1 when lead is Nurturing and temperature matches label (Hot/Warm)."""
+    return {
+        "$cond": [
+            {
+                "$and": [
+                    {"$eq": ["$ls", "nurturing"]},
+                    {"$eq": [{"$toLower": {"$ifNull": ["$temperature", ""]}}, label.lower()]},
+                ]
+            },
+            1,
+            0,
+        ]
+    }
+
+
+def _nurturing_temperature_query(base: dict, label: str) -> dict:
+    return {
+        **base,
+        "lead_status": {"$regex": r"^nurturing$", "$options": "i"},
+        "temperature": {"$regex": f"^{label}$", "$options": "i"},
+    }
+
 # Dashboard project distribution: exclude placeholders (case-insensitive match on whole string)
 _INVALID_PROJECT_REGEX = {"$regex": r"^(?i)\s*(unknown|na|n/a|others|null)\s*$"}
 
@@ -183,9 +207,9 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
         },
         {
             "$addFields": {
-                "hot": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$temperature", ""]}}, "hot"]}, 1, 0]},
-                "warm": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$temperature", ""]}}, "warm"]}, 1, 0]},
-                "cold": {"$cond": [{"$eq": [{"$toLower": {"$ifNull": ["$temperature", ""]}}, "cold"]}, 1, 0]},
+                "hot": _nurturing_label_flag("hot"),
+                "warm": _nurturing_label_flag("warm"),
+                "cold": {"$literal": 0},
                 "rnr": {
                     "$cond": [
                         {
@@ -355,9 +379,9 @@ async def get_dashboard_analytics(current_user: dict = Depends(get_current_user)
 
     total_leads = await db.leads.count_documents(query)
 
-    hot_leads = await db.leads.count_documents({**query, "temperature": {"$regex": "^hot$", "$options": "i"}})
-    warm_leads = await db.leads.count_documents({**query, "temperature": {"$regex": "^warm$", "$options": "i"}})
-    cold_leads = await db.leads.count_documents({**query, "temperature": {"$regex": "^cold$", "$options": "i"}})
+    hot_leads = await db.leads.count_documents(_nurturing_temperature_query(query, "hot"))
+    warm_leads = await db.leads.count_documents(_nurturing_temperature_query(query, "warm"))
+    cold_leads = 0
 
     vip_leads = await db.leads.count_documents({**query, "vip": True})
 

@@ -27,15 +27,15 @@ async def add_call_summary(lead_id: str, summary: CallSummary, current_user: dic
         "transcript": summary.transcript,
     }
 
-    new_temp = lead.get("temperature", "Warm")
-    if summary.intent_level == "high":
-        new_temp = "Hot"
-    elif summary.intent_level == "low":
-        new_temp = "Cold"
+    update_set = {"updated_at": now_iso, "updated_at_dt": now_dt}
+    status = (lead.get("lead_status") or "").strip().lower()
+    if status == "nurturing" and summary.intent_level in ("high", "low"):
+        new_temp = "Hot" if summary.intent_level == "high" else "Warm"
+        update_set["temperature"] = new_temp
 
     await db.leads.update_one(
         {"id": lead_id},
-        {"$push": {"context_updates": context_update}, "$set": {"temperature": new_temp, "updated_at": now_iso, "updated_at_dt": now_dt}},
+        {"$push": {"context_updates": context_update}, "$set": update_set},
     )
 
     return {"message": "Call summary added", "intent_level": summary.intent_level}

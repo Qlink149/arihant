@@ -1,43 +1,25 @@
-import os
-import re
 import json
+import os
 import uuid
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import HTTPException
 
 from crm.core.state import (
-    db,
-    logger,
-    get_current_user,
-    normalize_phone,
-    WhatsAppMessage,
-    GUPSHUP_TOKEN,
     GUPSHUP_API_KEY,
     GUPSHUP_APP_ID,
-    GUPSHUP_SOURCE_PHONE,
     GUPSHUP_BASE_URL,
     GUPSHUP_PARTNER_URL,
-    utc_now,
-    iso_utc_now,
+    GUPSHUP_SOURCE_PHONE,
+    GUPSHUP_TOKEN,
+    db,
+    logger,
 )
+from crm.models.schemas.whatsapp_schemas import WhatsAppMessage
+from crm.utils.helpers import format_phone_for_gupshup, iso_utc_now, normalize_phone, utc_now
 
 
-router = APIRouter()
-
-
-def format_phone_for_gupshup(phone: str) -> str:
-    if not phone:
-        return ""
-    digits = re.sub(r"\D", "", phone)
-    if not digits.startswith("91") and len(digits) == 10:
-        digits = "91" + digits
-    elif digits.startswith("0"):
-        digits = "91" + digits[1:]
-    return digits
-
-
-@router.get("/whatsapp/templates")
-async def get_whatsapp_templates(current_user: dict = Depends(get_current_user)):
+async def get_templates() -> dict:
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -63,8 +45,7 @@ async def get_whatsapp_templates(current_user: dict = Depends(get_current_user))
         return {"success": False, "error": str(e)}
 
 
-@router.post("/whatsapp/send")
-async def send_whatsapp_message(message: WhatsAppMessage, current_user: dict = Depends(get_current_user)):
+async def send_message(message: WhatsAppMessage, current_user: dict) -> dict:
     try:
         destination = format_phone_for_gupshup(message.destination)
 
@@ -142,13 +123,14 @@ async def send_whatsapp_message(message: WhatsAppMessage, current_user: dict = D
                 logger.error(f"Gupshup API error: {response.status_code} - {response.text}")
                 return {"success": False, "error": result.get("message", "Failed to send message"), "status_code": response.status_code, "details": result}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error sending WhatsApp message: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/whatsapp/send-to-lead/{lead_id}")
-async def send_whatsapp_to_lead(lead_id: str, message: WhatsAppMessage, current_user: dict = Depends(get_current_user)):
+async def send_to_lead(lead_id: str, message: WhatsAppMessage, current_user: dict) -> dict:
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -156,7 +138,7 @@ async def send_whatsapp_to_lead(lead_id: str, message: WhatsAppMessage, current_
     if not message.destination:
         message.destination = lead.get("phone", "")
 
-    result = await send_whatsapp_message(message, current_user)
+    result = await send_message(message, current_user)
 
     if result.get("success"):
         now_dt = utc_now()
@@ -179,8 +161,7 @@ async def send_whatsapp_to_lead(lead_id: str, message: WhatsAppMessage, current_
     return result
 
 
-@router.get("/whatsapp/chat-history/{phone}")
-async def get_chat_history(phone: str, current_user: dict = Depends(get_current_user), limit: int = 50):
+async def get_chat_history(phone: str, limit: int = 50) -> dict:
     normalized = format_phone_for_gupshup(phone)
     messages = (
         await db.whatsapp_messages.find({"$or": [{"destination": normalized}, {"source": normalized}]}, {"_id": 0})
@@ -191,8 +172,7 @@ async def get_chat_history(phone: str, current_user: dict = Depends(get_current_
     return {"phone": normalized, "messages": messages, "count": len(messages)}
 
 
-@router.get("/whatsapp/lead-chat/{lead_id}")
-async def get_lead_chat_history(lead_id: str, current_user: dict = Depends(get_current_user)):
+async def get_lead_chat_history(lead_id: str) -> dict:
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -201,7 +181,7 @@ async def get_lead_chat_history(lead_id: str, current_user: dict = Depends(get_c
     if not phone:
         return {"messages": [], "error": "Lead has no phone number"}
 
-    return await get_chat_history(phone, current_user)
+    return await get_chat_history(phone)
 
 
 async def get_gupshup_app_token() -> str:
@@ -227,8 +207,7 @@ async def get_gupshup_app_token() -> str:
         return ""
 
 
-@router.post("/integrations/gupshup/setup-webhook")
-async def setup_gupshup_webhook(current_user: dict = Depends(get_current_user)):
+async def setup_webhook(current_user: dict) -> dict:
     app_url = os.environ.get("REACT_APP_BACKEND_URL", "") or "https://crm-sales-next.preview.emergentagent.com"
     webhook_url = f"{app_url}/api/whatsapp/webhook"
     results = []
@@ -314,8 +293,7 @@ async def setup_gupshup_webhook(current_user: dict = Depends(get_current_user)):
         return {"success": False, "error": str(e), "webhook_url": webhook_url, "attempts": results}
 
 
-@router.get("/integrations/gupshup/subscriptions")
-async def get_gupshup_subscriptions(current_user: dict = Depends(get_current_user)):
+async def get_subscriptions() -> dict:
     try:
         app_token = await get_gupshup_app_token()
         async with httpx.AsyncClient() as http_client:
@@ -335,8 +313,7 @@ async def get_gupshup_subscriptions(current_user: dict = Depends(get_current_use
         return {"success": False, "error": str(e)}
 
 
-@router.get("/integrations/gupshup/webhook-status")
-async def get_webhook_status(current_user: dict = Depends(get_current_user)):
+async def get_webhook_status() -> dict:
     config = await db.webhook_configs.find_one({"app_id": GUPSHUP_APP_ID}, {"_id": 0})
     recent_messages = await db.whatsapp_messages.count_documents({"direction": "inbound"})
     return {
@@ -349,28 +326,11 @@ async def get_webhook_status(current_user: dict = Depends(get_current_user)):
     }
 
 
-@router.post("/whatsapp/webhook")
-async def whatsapp_webhook(request: Request):
-    try:
-        raw_body = await request.body()
-        try:
-            body = json.loads(raw_body)
-        except json.JSONDecodeError:
-            body_str = raw_body.decode("utf-8")
-            logger.info(f"Webhook received non-JSON body: {body_str[:200]}")
-            return {"status": "ok"}
-
-        logger.info(f"Received webhook: {json.dumps(body)[:500]}")
-
-        if "entry" in body and isinstance(body.get("entry"), list):
-            await handle_v3_webhook(body)
-        else:
-            await handle_v2_webhook(body)
-
-        return {"status": "ok"}
-    except Exception as e:
-        logger.error(f"Webhook error: {str(e)}")
-        return {"status": "error", "message": str(e)}
+async def process_webhook(body: dict) -> None:
+    if "entry" in body and isinstance(body.get("entry"), list):
+        await handle_v3_webhook(body)
+    else:
+        await handle_v2_webhook(body)
 
 
 async def handle_v3_webhook(body: dict):
@@ -529,4 +489,3 @@ async def handle_v2_webhook(body: dict):
                 )
     except Exception as e:
         logger.error(f"V2 webhook handler error: {str(e)}")
-

@@ -1,24 +1,47 @@
 import os
-import re
-import io
-import csv
-import json
 import uuid
 import jwt
 import bcrypt
-import httpx
 import asyncio
 import logging
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Dict, Any, Union, Literal
+from typing import Optional
 
-from bson import ObjectId
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
-from fastapi import HTTPException, Depends, UploadFile, File, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordBearer
+
+from crm.models.schemas import (
+    AlertConfig,
+    AssignmentRule,
+    CallSummary,
+    CampaignBase,
+    CampaignCreate,
+    CampaignResponse,
+    LeadBase,
+    LeadCreate,
+    LeadResponse,
+    LeadUpdatePatch,
+    RefreshTokenRequest,
+    Token,
+    UserBase,
+    UserCreate,
+    UserResponse,
+    WhatsAppMessage,
+    WhatsAppMessageResponse,
+)
+from crm.utils.helpers import (
+    coerce_datetime,
+    determine_lead_intent,
+    generate_ai_persona,
+    get_time_greeting,
+    iso_utc_now,
+    is_vip_lead,
+    normalize_phone,
+    utc_now,
+)
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -56,30 +79,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-
-# ==================== DATETIME HELPERS ====================
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def iso_utc_now() -> str:
-    # Keep legacy ISO string format for backwards compatibility in existing queries.
-    return utc_now().isoformat()
-
-
-def coerce_datetime(value: Union[None, str, datetime]) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
-    return None
 
 
 # ==================== PROJECT REGISTRY ====================
@@ -127,6 +126,12 @@ async def ensure_db_indexes():
         await db.leads.create_index([("updated_at", -1)], name="leads_updated_at_desc")
         await db.leads.create_index([("lead_status", 1), ("updated_at", -1)], name="leads_status_updatedAt")
         await db.leads.create_index([("assigned_to", 1), ("updated_at", -1)], name="leads_assignedTo_updatedAt")
+        await db.leads.create_index([("lead_status", 1), ("updated_at_dt", 1)], name="leads_status_updatedAtDt")
+        await db.leads.create_index(
+            [("lead_status", 1), ("temperature", 1), ("updated_at_dt", 1)],
+            name="leads_status_temperature_updatedAtDt",
+        )
+        await db.leads.create_index([("lead_status", 1), ("visit_date_dt", 1)], name="leads_status_visitDateDt")
 
         # tasks
         await db.tasks.create_index([("id", 1)], unique=True, name="tasks_id_uq")
@@ -134,6 +139,7 @@ async def ensure_db_indexes():
         await db.tasks.create_index([("assigned_to", 1), ("status", 1), ("due_date", 1)], name="tasks_assigned_status_dueDate")
         await db.tasks.create_index([("status", 1), ("due_date", 1)], name="tasks_status_dueDate")
         await db.tasks.create_index([("assigned_user_id", 1), ("status", 1), ("due_at_dt", 1)], name="tasks_assignedUser_status_dueAtDt")
+        await db.tasks.create_index([("dedupe_key", 1)], unique=True, sparse=True, name="tasks_dedupeKey_uq_sparse")
 
         # notifications
         await db.notifications.create_index([("id", 1)], unique=True, name="notifications_id_uq")
@@ -159,6 +165,15 @@ async def ensure_db_indexes():
         await db.lead_transfers.create_index([("to_rep", 1), ("acknowledged", 1), ("transferred_at", -1)], name="lead_transfers_to_ack_transferredAt")
         await db.lead_transfers.create_index([("to_user_id", 1), ("acknowledged", 1), ("transferred_at_dt", -1)], name="lead_transfers_toUser_ack_transferredAtDt")
         await db.lead_transfers.create_index([("lead_id", 1), ("transferred_at", -1)], name="lead_transfers_lead_transferredAt")
+        await db.lead_transfers.create_index(
+            [("from_user_id", 1), ("acknowledged", 1), ("transferred_at_dt", -1)],
+            name="lead_transfers_fromUser_ack_transferredAtDt",
+        )
+
+        # lead_events (audit log)
+        await db.lead_events.create_index([("id", 1)], unique=True, name="lead_events_id_uq")
+        await db.lead_events.create_index([("lead_id", 1), ("created_at_dt", -1)], name="lead_events_lead_createdAtDt")
+        await db.lead_events.create_index([("event_type", 1), ("created_at_dt", -1)], name="lead_events_type_createdAtDt")
 
         # reminder_rules / reminders
         await db.reminder_rules.create_index([("id", 1)], unique=True, name="reminder_rules_id_uq")
@@ -259,187 +274,11 @@ async def seed_default_alert_configs():
         logger.info("Seeded 6 default alert configurations")
 
 
-# ==================== MODELS ====================
-
-class UserBase(BaseModel):
-    email: EmailStr
-    full_name: str
-    phone: Optional[str] = None
-    role: Literal["admin", "manager", "rep"] = "rep"
-
-
-class UserCreate(UserBase):
-    password: str
-
-
-class UserResponse(UserBase):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    is_active: bool = True
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-
-class Token(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    user: dict
-
-
-class LeadBase(BaseModel):
-    first_name: str
-    last_name: str
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    project: Optional[str] = None
-    project_id: Optional[str] = None
-    pipeline_category: Optional[str] = None
-    lead_status: Optional[str] = "Open"
-    lead_source: Optional[str] = None
-    original_fw_status: Optional[str] = None
-    is_rnr: bool = False
-    budget: Optional[str] = None
-    configuration: Optional[str] = None
-    location: Optional[str] = None
-    ethnicity: Optional[str] = None
-    designation: Optional[str] = None
-    reason_for_purchase: Optional[str] = None
-    possession_requirement: Optional[str] = None
-    current_residence_type: Optional[str] = None
-    campaign_name: Optional[str] = None
-    presales_agent: Optional[str] = None
-    presales_description: Optional[str] = None
-    next_action_date: Optional[str] = None
-    assigned_user_id: Optional[str] = None
-    assigned_to_name: Optional[str] = None
-
-
-class LeadCreate(LeadBase):
-    model_config = ConfigDict(extra="ignore")
-
-
-class LeadUpdatePatch(BaseModel):
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    project: Optional[str] = None
-    pipeline_category: Optional[str] = None
-    lead_status: Optional[str] = None
-    lead_source: Optional[str] = None
-    budget: Optional[str] = None
-    configuration: Optional[str] = None
-    location: Optional[str] = None
-    ethnicity: Optional[str] = None
-    designation: Optional[str] = None
-    reason_for_purchase: Optional[str] = None
-    possession_requirement: Optional[str] = None
-    current_residence_type: Optional[str] = None
-    campaign_name: Optional[str] = None
-    presales_agent: Optional[str] = None
-    presales_description: Optional[str] = None
-    next_action_date: Optional[str] = None
-    assigned_to: Optional[str] = None
-    assigned_user_id: Optional[str] = None
-    assigned_to_name: Optional[str] = None
-
-
-class LeadResponse(LeadBase):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    normalized_phone: Optional[str] = None
-    temperature: str = "Warm"
-    intent: str = "Unknown"
-    vip: bool = False
-    assigned_to: Optional[str] = None
-    ai_persona_summary: Optional[str] = None
-    strategic_next_moves: List[Dict[str, Any]] = Field(default_factory=list)
-    ai_grounded_profile: Optional[Dict[str, str]] = None
-    ai_last_generated_at: Optional[datetime] = None
-    ai_configured: Optional[bool] = None
-    ai_stale: Optional[bool] = None
-    ai_generation_pending: Optional[bool] = None
-    context_updates: List[dict] = []
-    created_at: datetime
-    updated_at: datetime
-
-
 async def resolve_user_id_by_full_name(full_name: Optional[str]) -> Optional[str]:
     if not full_name:
         return None
     user = await db.users.find_one({"full_name": full_name}, {"_id": 0, "id": 1})
     return user.get("id") if user else None
-
-
-class CampaignBase(BaseModel):
-    name: str
-    agent_type: str
-    agent_prompt: Optional[str] = None
-    filters: dict = {}
-    lead_count: int = 0
-
-
-class CampaignCreate(CampaignBase):
-    lead_ids: List[str] = []
-
-
-class CampaignResponse(CampaignBase):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    status: str = "draft"
-    created_at: datetime
-    leads: List[dict] = []
-    stats: dict = {}
-
-
-class AssignmentRule(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str
-    rule_type: str
-    config: dict = {}
-    is_active: bool = True
-
-
-class AlertConfig(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    alert_type: str
-    threshold_hours: int = 24
-    notification_channels: List[str] = ["email"]
-    is_active: bool = True
-
-
-class CallSummary(BaseModel):
-    lead_id: str
-    transcript: str
-    summary: Optional[str] = None
-    intent_level: str = "neutral"
-    key_points: List[str] = []
-    next_steps: Optional[str] = None
-
-
-class WhatsAppMessage(BaseModel):
-    destination: str
-    message_type: str = "text"
-    text: Optional[str] = None
-    template_id: Optional[str] = None
-    template_params: Optional[List[str]] = None
-    media_url: Optional[str] = None
-    media_filename: Optional[str] = None
-
-
-class WhatsAppMessageResponse(BaseModel):
-    status: str
-    message_id: Optional[str] = None
-    error: Optional[str] = None
-
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-
-
-# NOTE: Additional request/response models exist in server.py today; they will be moved
-# into this module as part of the router split to preserve behavior.
 
 
 # ==================== AUTH HELPERS / DEPENDENCIES ====================
@@ -493,68 +332,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
     except jwt.InvalidTokenError:
         raise credentials_exception
-
-
-# ==================== GENERIC HELPERS (copied from server.py) ====================
-
-def normalize_phone(phone: str) -> str:
-    if not phone:
-        return ""
-    digits = re.sub(r"\D", "", phone)
-    if digits.startswith("91") and len(digits) > 10:
-        digits = digits[2:]
-    if digits.startswith("0"):
-        digits = digits[1:]
-    return digits[-10:] if len(digits) >= 10 else digits
-
-
-def get_time_greeting() -> str:
-    hour = datetime.now().hour
-    if hour < 12:
-        return "Good Morning"
-    if hour < 17:
-        return "Good Afternoon"
-    return "Good Evening"
-
-
-def determine_lead_temperature(lead: dict) -> str:
-    status_val = lead.get("lead_status", "").lower().strip()
-    if status_val in ["qualified", "hot", "interested", "site visit completed", "advance paid", "negotiation"]:
-        return "Hot"
-    if status_val in ["open", "new", "contacted", "follow up 1", "follow up 2", "site visit scheduled"]:
-        return "Warm"
-    return "Cold"
-
-
-def determine_lead_intent(lead: dict) -> str:
-    reason = (lead.get("reason_for_purchase") or "").lower()
-    if "invest" in reason or "rental" in reason:
-        return "Investor"
-    if "self" in reason or "own" in reason or "live" in reason:
-        return "End User"
-    return "Unknown"
-
-
-def is_vip_lead(lead: dict) -> bool:
-    budget = (lead.get("budget") or "").lower()
-    if "5 cr" in budget or "5cr" in budget or ">5" in budget or "5+" in budget:
-        return True
-    if "10" in budget or "15" in budget or "20" in budget:
-        return True
-    return False
-
-
-def generate_ai_persona(lead: dict) -> str:
-    name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
-    designation = lead.get("designation", "Professional")
-    location = lead.get("location", "Chennai")
-    budget = lead.get("budget", "Not specified")
-    intent = lead.get("intent", "Unknown")
-    project = lead.get("project", "Not specified")
-    return (
-        f"{name} is a {designation} based in {location} with a budget range of {budget}. "
-        f"Profile indicates {intent} intent with interest in {project}. {lead.get('presales_description', '')}"
-    )
 
 
 # ==================== REMINDERS (kept in shared state) ====================

@@ -110,6 +110,7 @@ function AppRoutes() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="virtual-customer" element={<VirtualCustomerPage />} />
+        <Route path="virtual-dashboard" element={<Navigate to="/virtual-customer" replace />} />
         <Route path="lead/:leadId" element={<DigitalTwinPage />} />
         <Route path="settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
         <Route path="sales-dashboard" element={<AdminRoute><SalesDashboardPage /></AdminRoute>} />

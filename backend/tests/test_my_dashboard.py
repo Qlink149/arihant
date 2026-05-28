@@ -134,7 +134,19 @@ class TestMyDashboard:
         data = response.json()
         
         metrics = data.get("metrics", {})
-        required_metrics = ["total_leads", "hot", "warm", "cold", "site_visits", "closed", "conversion_rate", "pending_tasks", "overdue_tasks"]
+        required_metrics = [
+            "total_leads",
+            "hot",
+            "warm",
+            "cold",
+            "site_visits",
+            "closed",
+            "conversion_rate",
+            "pending_tasks",
+            "overdue_tasks",
+            "leads_received",
+            "leads_transferred",
+        ]
         
         for metric in required_metrics:
             assert metric in metrics, f"Missing metric: {metric}"

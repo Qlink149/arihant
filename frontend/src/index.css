@@ -24,6 +24,19 @@
     --arihant-navy-light: #2D2D4A;
     --arihant-lime: #A3B352;
     --arihant-lime-light: #B8C76A;
+
+    /* Temperature badge tokens (default = dark mode) */
+    --temp-hot-bg: rgba(220, 38, 38, 0.18);
+    --temp-hot-border: rgba(239, 68, 68, 0.35);
+    --temp-hot-text: #FCA5A5;
+    --temp-hot-icon: #FB7185;
+    --temp-hot-hover-bg: rgba(220, 38, 38, 0.24);
+
+    --temp-warm-bg: rgba(217, 119, 6, 0.18);
+    --temp-warm-border: rgba(245, 158, 11, 0.35);
+    --temp-warm-text: #FCD34D;
+    --temp-warm-icon: #FDBA74;
+    --temp-warm-hover-bg: rgba(217, 119, 6, 0.24);
 }
 
 /* Light Mode Colors */
@@ -34,6 +47,19 @@
     --text-primary: #1A1A2E;
     --text-secondary: #4A4A5A;
     --text-muted: #71717A;
+
+    /* Temperature badge tokens (light mode) */
+    --temp-hot-bg: rgba(239, 68, 68, 0.10);
+    --temp-hot-border: rgba(239, 68, 68, 0.22);
+    --temp-hot-text: #7F1D1D;
+    --temp-hot-icon: #B91C1C;
+    --temp-hot-hover-bg: rgba(239, 68, 68, 0.14);
+
+    --temp-warm-bg: rgba(245, 158, 11, 0.12);
+    --temp-warm-border: rgba(245, 158, 11, 0.24);
+    --temp-warm-text: #7C2D12;
+    --temp-warm-icon: #B45309;
+    --temp-warm-hover-bg: rgba(245, 158, 11, 0.16);
 }
 
 .light-mode .glass-card {
@@ -225,6 +251,48 @@ body {
 }
 
 /* Temperature Badges */
+.temp-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    user-select: none;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.temp-badge__icon {
+    color: currentColor;
+    opacity: 0.95;
+}
+
+.temp-badge__text {
+    font-weight: 600;
+}
+
+.temp-badge--hot {
+    background-color: var(--temp-hot-bg);
+    border-color: var(--temp-hot-border);
+    color: var(--temp-hot-text);
+}
+.temp-badge--hot:hover {
+    background-color: var(--temp-hot-hover-bg);
+}
+
+.temp-badge--warm {
+    background-color: var(--temp-warm-bg);
+    border-color: var(--temp-warm-border);
+    color: var(--temp-warm-text);
+}
+.temp-badge--warm:hover {
+    background-color: var(--temp-warm-hover-bg);
+}
+
 .badge-hot {
     background: linear-gradient(135deg, #DC2626 0%, #EF4444 100%);
     color: white;

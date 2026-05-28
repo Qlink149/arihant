@@ -1,45 +1,63 @@
 import csv
 import io
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from datetime import date, datetime, timezone, timedelta
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, UploadFile, File
+from fastapi import HTTPException, UploadFile
 
 from crm.core.platform_ops import assert_assignee_allowed
-from crm.core.state import (
-    db,
-    LeadCreate,
-    LeadResponse,
-    LeadUpdatePatch,
-    get_current_user,
-    normalize_phone,
-    resolve_project_id,
-    determine_lead_temperature,
+from crm.core.state import db, resolve_project_id, resolve_user_id_by_full_name
+from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
+from crm.services.context_updates import dedupe_context_updates
+from crm.services.lead_events import log_lead_event
+from crm.services.lead_search import build_leads_list_query
+from crm.services.nurture_temperature import apply_nurture_temperature_rules
+from crm.utils.helpers import (
+    coerce_datetime,
     determine_lead_intent,
     is_vip_lead,
-    utc_now,
     iso_utc_now,
-    coerce_datetime,
-    resolve_user_id_by_full_name,
+    normalize_phone,
+    parse_csv_date,
+    utc_now,
 )
-from crm.services.ai_lead_regen import (
-    ai_insights_stale,
-    ai_refresh_in_progress,
-    grok_keys_configured,
-    schedule_lead_ai_refresh,
-)
-from crm.services.context_updates import dedupe_context_updates
-from crm.services.lead_search import build_leads_list_query
 
 
-router = APIRouter()
+def _parse_created_date_boundary(value: Optional[str], *, end_of_day: bool = False) -> Optional[str]:
+    """Parse YYYY-MM-DD into inclusive UTC ISO boundary for created_at filtering."""
+    if not value or not str(value).strip():
+        return None
+    raw = str(value).strip()[:10]
+    try:
+        d = date.fromisoformat(raw)
+    except ValueError:
+        return None
+    if end_of_day:
+        dt = datetime(d.year, d.month, d.day, 23, 59, 59, 999000, tzinfo=timezone.utc)
+    else:
+        dt = datetime(d.year, d.month, d.day, 0, 0, 0, 0, tzinfo=timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
 
 
-def _normalize_lead_for_response(lead: dict) -> dict:
+def _normalize_context_updates_for_response(updates: List[dict]) -> List[dict]:
+    normalized: List[dict] = []
+    for entry in updates:
+        item = dict(entry)
+        ts_dt = coerce_datetime(item.get("timestamp_dt")) or coerce_datetime(item.get("timestamp"))
+        if ts_dt is not None:
+            item["timestamp_dt"] = ts_dt
+            item["timestamp"] = ts_dt.isoformat().replace("+00:00", "Z")
+        normalized.append(item)
+    return normalized
+
+
+def normalize_lead_for_response(lead: dict) -> dict:
     if lead.get("strategic_next_moves") is None:
         lead["strategic_next_moves"] = []
-    lead["context_updates"] = dedupe_context_updates(lead.get("context_updates") or [])
+    lead["context_updates"] = _normalize_context_updates_for_response(
+        dedupe_context_updates(lead.get("context_updates") or [])
+    )
     dt = lead.get("ai_last_generated_at_dt")
     if isinstance(dt, datetime):
         lead["ai_last_generated_at"] = dt
@@ -52,8 +70,7 @@ def _normalize_lead_for_response(lead: dict) -> dict:
     return lead
 
 
-@router.post("/leads", response_model=LeadResponse)
-async def create_lead(lead: LeadCreate, current_user: dict = Depends(get_current_user)):
+async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     lead_id = str(uuid.uuid4())
     normalized_phone = normalize_phone(lead.phone) if lead.phone else None
 
@@ -65,13 +82,19 @@ async def create_lead(lead: LeadCreate, current_user: dict = Depends(get_current
     lead_dict = lead.model_dump()
     if not lead_dict.get("project_id"):
         lead_dict["project_id"] = resolve_project_id(lead_dict.get("project"))
+
+    temp_patch = {"lead_status": lead_dict.get("lead_status", "New")}
+    if lead_dict.get("temperature") is not None:
+        temp_patch["temperature"] = lead_dict.get("temperature")
+    apply_nurture_temperature_rules({}, temp_patch, is_create=True)
+    lead_dict["temperature"] = temp_patch.get("temperature")
+
     now_dt = utc_now()
     now_iso = iso_utc_now()
     lead_dict.update(
         {
             "id": lead_id,
             "normalized_phone": normalized_phone,
-            "temperature": determine_lead_temperature(lead_dict),
             "intent": determine_lead_intent(lead_dict),
             "vip": is_vip_lead(lead_dict),
             "assigned_to": None,
@@ -103,14 +126,11 @@ async def create_lead(lead: LeadCreate, current_user: dict = Depends(get_current
     await db.leads.insert_one(lead_dict)
     lead_dict["created_at"] = coerce_datetime(lead_dict["created_at"]) or utc_now()
     lead_dict["updated_at"] = coerce_datetime(lead_dict["updated_at"]) or utc_now()
-    _normalize_lead_for_response(lead_dict)
+    normalize_lead_for_response(lead_dict)
     return LeadResponse(**lead_dict)
 
 
-@router.get("/leads", response_model=List[LeadResponse])
-async def get_leads(
-    response: Response,
-    current_user: dict = Depends(get_current_user),
+async def list_leads(
     project: Optional[str] = None,
     project_id: Optional[str] = None,
     temperature: Optional[str] = None,
@@ -121,14 +141,21 @@ async def get_leads(
     status: Optional[str] = None,
     search: Optional[str] = None,
     days: Optional[int] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
-):
+    query_base: Optional[Dict[str, Any]] = None,
+) -> tuple[List[LeadResponse], int]:
+    created_at_from_iso = _parse_created_date_boundary(created_from, end_of_day=False)
+    created_at_to_iso = _parse_created_date_boundary(created_to, end_of_day=True)
+
     days_cutoff_iso = None
-    if days:
+    if days and not (created_at_from_iso or created_at_to_iso):
         days_cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
     query = build_leads_list_query(
+        query_base,
         temperature=temperature,
         search=search,
         project=project,
@@ -139,27 +166,22 @@ async def get_leads(
         vip=vip,
         status=status,
         days_cutoff_iso=days_cutoff_iso,
+        created_at_from_iso=created_at_from_iso,
+        created_at_to_iso=created_at_to_iso,
     )
 
     total = await db.leads.count_documents(query)
-    response.headers["X-Total-Count"] = str(total)
-
     leads = await db.leads.find(query, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
 
     for lead in leads:
         lead["created_at"] = coerce_datetime(lead.get("created_at")) or utc_now()
         lead["updated_at"] = coerce_datetime(lead.get("updated_at")) or utc_now()
-        _normalize_lead_for_response(lead)
+        normalize_lead_for_response(lead)
 
-    return [LeadResponse(**lead) for lead in leads]
+    return [LeadResponse(**lead) for lead in leads], total
 
 
-@router.get("/leads/{lead_id}", response_model=LeadResponse)
-async def get_lead(
-    lead_id: str,
-    background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user),
-):
+async def get_lead_by_id(lead_id: str) -> dict:
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -169,20 +191,10 @@ async def get_lead(
     if isinstance(lead.get("updated_at"), str):
         lead["updated_at"] = coerce_datetime(lead.get("updated_at")) or utc_now()
 
-    lead = _normalize_lead_for_response(lead)
-    cfg = grok_keys_configured()
-    stale = ai_insights_stale(lead)
-    lead["ai_configured"] = cfg
-    lead["ai_stale"] = stale
-    lead["ai_generation_pending"] = bool(cfg and (stale or ai_refresh_in_progress(lead_id)))
-    if cfg and stale:
-        schedule_lead_ai_refresh(lead_id, background_tasks)
-
-    return LeadResponse(**lead)
+    return normalize_lead_for_response(lead)
 
 
-@router.put("/leads/{lead_id}", response_model=LeadResponse)
-async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: dict = Depends(get_current_user)):
+async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: dict) -> LeadResponse:
     existing = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -194,14 +206,32 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     if "assigned_to" in patch and "assigned_to_name" not in patch:
         patch["assigned_to_name"] = patch["assigned_to"]
 
+    assignee_changed = False
     for field in ("assigned_to", "assigned_to_name", "presales_agent"):
         if field in patch:
             await assert_assignee_allowed(patch.get(field))
+            if existing.get(field) != patch.get(field):
+                assignee_changed = True
 
     now_dt = utc_now()
     now_iso = iso_utc_now()
 
     extra_ctx = []
+    if assignee_changed:
+        old_assignee = existing.get("assigned_to") or existing.get("presales_agent") or "—"
+        new_assignee = patch.get("assigned_to") or patch.get("presales_agent") or old_assignee
+        extra_ctx.append(
+            {
+                "type": "assigned",
+                "timestamp": now_iso,
+                "timestamp_dt": now_dt,
+                "description": f"Assignee changed: {old_assignee} → {new_assignee}",
+                "agent": current_user["full_name"],
+                "actor_user_id": current_user.get("id"),
+                "actor_name": current_user.get("full_name"),
+            }
+        )
+
     if "pipeline_category" in patch:
         old_pc = existing.get("pipeline_category")
         new_pc = patch.get("pipeline_category")
@@ -218,60 +248,103 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                 }
             )
 
+    # We'll generate a robust field-diff timeline entry after applying validation/rules,
+    # so that diffs reflect the final stored values (especially temperature for Nurturing).
+    diff_ignore = {
+        "updated_at",
+        "updated_at_dt",
+        "created_at",
+        "created_at_dt",
+        "context_updates",
+        "intent",
+        "vip",
+        "ai_configured",
+        "ai_stale",
+        "ai_generation_pending",
+    }
+    diff_candidate_fields = {k for k in patch.keys() if k not in diff_ignore}
+    # Ensure we capture nurture label changes even when auto-populated by rules.
+    if "lead_status" in patch or "temperature" in patch:
+        diff_candidate_fields.add("lead_status")
+        diff_candidate_fields.add("temperature")
+
+    # Nurturing workflow gate: when a lead transitions into Nurturing, require a fresh follow-up task
+    # before allowing new general notes. This resets on re-entry and clears when leaving Nurturing.
+    if "lead_status" in patch:
+        prev_status = (existing.get("lead_status") or "").strip()
+        next_status = (patch.get("lead_status") or "").strip()
+        was_nurturing = prev_status.lower() == "nurturing".lower()
+        is_nurturing = next_status.lower() == "nurturing".lower()
+        if not was_nurturing and is_nurturing:
+            patch["nurture_task_required_since_dt"] = now_dt
+            patch["nurture_task_required_task_id"] = None
+        elif was_nurturing and not is_nurturing:
+            patch["nurture_task_required_since_dt"] = None
+            patch["nurture_task_required_task_id"] = None
+
+    patch["updated_at"] = now_iso
+    patch["updated_at_dt"] = now_dt
+
+    apply_nurture_temperature_rules(existing, patch)
+    merged = {**existing, **patch}
+    patch["intent"] = determine_lead_intent(merged)
+    patch["vip"] = is_vip_lead(merged)
+
+    # Build structured field diffs (from -> to) for any changed fields in this update.
+    def _norm(v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
+
+    changes = []
+    for field in sorted(diff_candidate_fields):
+        before = _norm(existing.get(field))
+        after = _norm(patch.get(field, existing.get(field)))
+        if before != after:
+            changes.append({"field": field, "from": before, "to": after})
+
+    summary_fields = [c["field"] for c in changes]
+    description = f"Updated: {', '.join(summary_fields)}" if summary_fields else "Updated"
+
     context_update = {
         "type": "updated",
         "timestamp": now_iso,
         "timestamp_dt": now_dt,
-        "description": f"Lead updated: {', '.join(patch.keys())}",
+        "description": description,
+        "changes": changes,
         "agent": current_user["full_name"],
         "actor_user_id": current_user.get("id"),
         "actor_name": current_user.get("full_name"),
     }
 
-    patch["updated_at"] = now_iso
-    patch["updated_at_dt"] = now_dt
     patch["context_updates"] = existing.get("context_updates", []) + extra_ctx + [context_update]
 
-    merged = {**existing, **patch}
-    patch["temperature"] = determine_lead_temperature(merged)
-    patch["intent"] = determine_lead_intent(merged)
-    patch["vip"] = is_vip_lead(merged)
-
     await db.leads.update_one({"id": lead_id}, {"$set": patch})
+
+    if assignee_changed:
+        await log_lead_event(
+            "assignee_changed",
+            lead_id=lead_id,
+            actor_user_id=current_user.get("id"),
+            actor_name=current_user.get("full_name"),
+            payload={
+                "from": existing.get("assigned_to") or existing.get("presales_agent"),
+                "to": patch.get("assigned_to") or patch.get("presales_agent"),
+            },
+        )
 
     updated = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     updated["created_at"] = coerce_datetime(updated.get("created_at")) or utc_now()
     updated["updated_at"] = coerce_datetime(updated.get("updated_at")) or utc_now()
-    _normalize_lead_for_response(updated)
+    normalize_lead_for_response(updated)
 
     return LeadResponse(**updated)
 
 
-def determine_temperature_from_status(status_val: str) -> str:
-    s = status_val.lower().strip()
-    if s in ["interested", "site visit completed", "advance paid", "negotiation"]:
-        return "Hot"
-    if s in ["follow up 1", "follow up 2", "site visit scheduled", "contacted", "new", "open"]:
-        return "Warm"
-    return "Cold"
-
-
-def parse_csv_date(date_str: str) -> str:
-    for fmt in ["%d-%m-%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"]:
-        try:
-            dt = datetime.strptime(date_str.strip(), fmt)
-            return dt.replace(tzinfo=timezone.utc).isoformat()
-        except (ValueError, AttributeError):
-            continue
-    return datetime.now(timezone.utc).isoformat()
-
-
-@router.post("/leads/upload-csv")
-async def upload_leads_csv(
-    file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user),
-    replace_all: bool = False,
-):
+async def import_csv(file: UploadFile, current_user: dict, replace_all: bool = False) -> dict:
     contents = await file.read()
     decoded = contents.decode("utf-8")
     reader = csv.DictReader(io.StringIO(decoded))
@@ -345,7 +418,12 @@ async def upload_leads_csv(
                     duplicates += 1
                     continue
 
-            lead_dict["temperature"] = determine_temperature_from_status(status_val)
+            csv_temp = (row.get("Temperature") or row.get("temperature") or "").strip() or None
+            temp_patch = {"lead_status": status_val}
+            if csv_temp:
+                temp_patch["temperature"] = csv_temp
+            apply_nurture_temperature_rules({}, temp_patch, is_create=True)
+            lead_dict["temperature"] = temp_patch.get("temperature")
             lead_dict["intent"] = determine_lead_intent(lead_dict)
             lead_dict["vip"] = is_vip_lead(lead_dict)
             if sales_owner:
@@ -389,8 +467,7 @@ async def upload_leads_csv(
     return {"imported": imported, "duplicates": duplicates, "errors": errors, "replaced_existing": replace_all}
 
 
-@router.post("/leads/{lead_id}/merge/{duplicate_id}")
-async def merge_leads(lead_id: str, duplicate_id: str, current_user: dict = Depends(get_current_user)):
+async def merge_leads(lead_id: str, duplicate_id: str, current_user: dict) -> dict:
     primary = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     duplicate = await db.leads.find_one({"id": duplicate_id}, {"_id": 0})
     if not primary or not duplicate:
@@ -418,4 +495,3 @@ async def merge_leads(lead_id: str, duplicate_id: str, current_user: dict = Depe
 
     await db.leads.delete_one({"id": duplicate_id})
     return {"message": "Leads merged successfully"}
-

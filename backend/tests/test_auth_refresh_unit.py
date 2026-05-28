@@ -12,8 +12,8 @@ from crm.core.state import (
     RefreshTokenRequest,
     create_refresh_token,
 )
-from crm.routers import auth as auth_router
-from crm.routers.auth import refresh_token
+from crm.api.v1.endpoints import auth as auth_router
+from crm.api.v1.endpoints.auth import refresh_token
 
 
 def test_refresh_token_extracts_user_id_from_sub(monkeypatch):

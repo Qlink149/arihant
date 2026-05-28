@@ -41,3 +41,22 @@ def test_build_leads_list_query_budget_escaped():
     assert "$and" in q
     budget_part = next(p for p in q["$and"] if "budget" in p)
     assert budget_part["budget"]["$regex"] == "1\\-2\\ Cr"
+
+
+def test_build_leads_list_query_status_case_insensitive_exact():
+    q = build_leads_list_query(status="New")
+    parts = q["$and"] if "$and" in q else [q]
+    status_part = next(p for p in parts if "lead_status" in p)
+    assert status_part["lead_status"]["$regex"] == "^New$"
+    assert status_part["lead_status"]["$options"] == "i"
+
+
+def test_build_leads_list_query_created_at_range():
+    q = build_leads_list_query(
+        created_at_from_iso="2026-05-01T00:00:00.000Z",
+        created_at_to_iso="2026-05-27T23:59:59.999Z",
+    )
+    parts = q["$and"] if "$and" in q else [q]
+    created_part = next(p for p in parts if "created_at" in p)
+    assert created_part["created_at"]["$gte"] == "2026-05-01T00:00:00.000Z"
+    assert created_part["created_at"]["$lte"] == "2026-05-27T23:59:59.999Z"

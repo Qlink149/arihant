@@ -1,0 +1,52 @@
+from fastapi import APIRouter
+
+from crm.api.v1.endpoints import (
+    activity,
+    alerts,
+    analytics,
+    assignment_rules,
+    auth,
+    call_summary,
+    campaigns,
+    cron,
+    leads,
+    marketing,
+    misc,
+    my_dashboard,
+    notifications,
+    platform_ops,
+    projects,
+    reminders,
+    suggestions,
+    tasks,
+    transfers,
+    users,
+    whatsapp,
+)
+
+api_router = APIRouter()
+
+for r in [
+    auth.router,
+    projects.router,
+    leads.router,
+    analytics.router,
+    campaigns.router,
+    call_summary.router,
+    tasks.router,
+    notifications.router,
+    assignment_rules.router,
+    alerts.router,
+    suggestions.router,
+    whatsapp.router,
+    activity.router,
+    my_dashboard.router,
+    platform_ops.router,
+    transfers.router,
+    users.router,
+    marketing.router,
+    reminders.router,
+    cron.router,
+    misc.router,
+]:
+    api_router.include_router(r)

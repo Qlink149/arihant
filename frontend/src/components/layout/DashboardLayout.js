@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { notificationsAPI, activityAPI } from '../../services/api';
+import { connectNotificationsStream, playNotificationBeep } from '../../utils/notificationsSSE';
 import {
   LayoutDashboard,
   Users,
@@ -31,6 +32,8 @@ const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const soundEnabledRef = useRef(true);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? JSON.parse(saved) : true;
@@ -57,10 +60,40 @@ const DashboardLayout = () => {
   }, [isAdmin, user?.is_platform_operator, isImpersonating]);
 
   useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  useEffect(() => {
     fetchNotifications();
-    // Poll for notifications every 30 seconds
+    // Poll for notifications every 30 seconds (fallback)
     const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
+
+    // Load user notification preferences
+    notificationsAPI
+      .getPreferences()
+      .then(({ data }) => setSoundEnabled(Boolean(data?.notification_sound_enabled)))
+      .catch(() => {});
+
+    // SSE notifications stream (authenticated via fetch headers)
+    const stop = connectNotificationsStream({
+      url: `${process.env.REACT_APP_BACKEND_URL}/api/notifications/stream`,
+      onNotification: (n) => {
+        setNotifications((prev) => {
+          const id = n?.id;
+          if (id && prev.some((x) => x.id === id)) return prev;
+          return [n, ...prev].slice(0, 100);
+        });
+        if (soundEnabledRef.current) playNotificationBeep();
+      },
+      onError: () => {
+        /* keep polling fallback */
+      },
+    });
+
+    return () => {
+      clearInterval(interval);
+      stop?.();
+    };
   }, []);
 
   // Send heartbeat every 2 minutes
@@ -272,7 +305,7 @@ const DashboardLayout = () => {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-64">
+      <main className="flex-1 lg:ml-64 min-w-0">
         {isImpersonating && (
           <div
             className="sticky top-0 z-40 flex items-center justify-between gap-4 px-4 lg:px-8 py-2 bg-amber-500/15 border-b border-amber-500/30"
@@ -435,7 +468,7 @@ const DashboardLayout = () => {
         </header>
 
         {/* Page Content */}
-        <div className="p-4 lg:p-8">
+        <div className="p-4 lg:p-8 min-w-0">
           <Outlet />
         </div>
       </main>

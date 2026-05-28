@@ -108,7 +108,9 @@ export const tasksAPI = {
 export const notificationsAPI = {
   getAll: (params) => api.get('/notifications', { params }),
   markRead: (id) => api.put(`/notifications/${id}/read`),
-  markAllRead: () => api.put('/notifications/read-all')
+  markAllRead: () => api.put('/notifications/read-all'),
+  getPreferences: () => api.get('/notifications/preferences'),
+  updatePreferences: (data) => api.put('/notifications/preferences', data),
 };
 
 // Analytics API
@@ -158,10 +160,18 @@ export const platformOpsAPI = {
 
 export const myDashboardAPI = {
   getData: () => api.get('/my-dashboard'),
+  getLeadOverview: () => api.get('/my-dashboard/lead-overview'),
   getLeads: (params, config) => api.get('/my-dashboard/leads', { params, ...config }),
   transferLead: (data) => api.post('/leads/transfer', data),
-  acknowledgeTransfer: (transferId) => api.put(`/leads/transfer/${transferId}/acknowledge`),
   getReps: () => api.get('/activity/team-status'),
+};
+
+export const transfersAPI = {
+  list: (params) => api.get('/transfers', { params }),
+};
+
+export const usersAPI = {
+  listAssignees: () => api.get('/users/assignees'),
 };
 
 // Marketing API

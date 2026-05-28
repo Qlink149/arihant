@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -8,7 +8,6 @@ import {
   Crown,
   Flame,
   CheckCircle,
-  Snowflake,
   TrendingUp,
   TrendingDown,
   Calendar,
@@ -54,12 +53,6 @@ import {
 
 // Tooltip copy aligned with GET /api/analytics/dashboard counts
 const LEAD_CRITERIA = {
-  cold: {
-    title: "Cold leads (API: cold_leads)",
-    rules: [
-      'Temperature field matches "Cold" (case-insensitive).'
-    ]
-  },
   dormant: {
     title: "Dormant leads (API: dormant_leads)",
     rules: [
@@ -68,15 +61,15 @@ const LEAD_CRITERIA = {
     ]
   },
   hot: {
-    title: "Hot leads (API: hot_leads)",
+    title: "Nurturing — Hot (API: hot_leads)",
     rules: [
-      'Temperature field matches "Hot" (case-insensitive; same for warm/cold counts on the server).'
+      'lead_status is "Nurturing" and nurture label (temperature) is "Hot".'
     ]
   },
   warm: {
-    title: "Warm leads (API: warm_leads)",
+    title: "Nurturing — Warm (API: warm_leads)",
     rules: [
-      'Temperature field matches "Warm" (case-insensitive).'
+      'lead_status is "Nurturing" and nurture label (temperature) is "Warm".'
     ]
   },
   qualified: {
@@ -136,11 +129,7 @@ const DashboardPage = () => {
   // Dynamic project list from API data
   const projects = (analytics?.projects || []).map(p => p.name).filter(n => n !== 'Unknown');
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, [timeFilter]);
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       const params = {};
       if (timeFilter !== 'all' && timeFilter !== 'custom') {
@@ -153,7 +142,11 @@ const DashboardPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeFilter]);
+
+  useEffect(() => {
+    fetchAnalytics();
+  }, [fetchAnalytics]);
 
   // Navigate to Virtual Customer with project filter
   const handleProjectClick = (projectName) => {
@@ -359,29 +352,13 @@ const DashboardPage = () => {
           )}
       </motion.div>
 
-      {/* Cold & Dormant Alert Tiles with Info Tooltips */}
+      {/* Dormant alert tile */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        className="grid grid-cols-1 gap-4"
       >
-        <div className="glass-card rounded-lg p-6 border-l-4 border-blue-500 card-hover" data-testid="cold-leads-tile">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center">
-                <p className="text-[#A1A1AA] text-sm uppercase tracking-wider">Cold Leads</p>
-                <LeadCriteriaTooltip type="cold" />
-              </div>
-              <p className="font-serif text-4xl text-white mt-2">{analytics?.cold_leads || 0}</p>
-              <p className="text-blue-400 text-sm mt-1">Needs Re-engagement</p>
-            </div>
-            <div className="w-14 h-14 rounded-full bg-blue-500/20 flex items-center justify-center">
-              <Snowflake className="text-blue-500" size={28} />
-            </div>
-          </div>
-        </div>
-
         <div className="glass-card rounded-lg p-6 border-l-4 border-orange-500 card-hover" data-testid="dormant-leads-tile">
           <div className="flex items-center justify-between">
             <div>
@@ -447,7 +424,7 @@ const DashboardPage = () => {
             </div>
             <LeadCriteriaTooltip type="hot" />
           </div>
-          <p className="text-[#A1A1AA] text-sm">Hot Leads</p>
+          <p className="text-[#A1A1AA] text-sm">Nurturing (Hot)</p>
           <p className="font-serif text-3xl text-white mt-1">{analytics?.hot_leads || 0}</p>
         </div>
 

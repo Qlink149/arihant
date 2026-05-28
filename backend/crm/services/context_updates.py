@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
-from crm.core.state import coerce_datetime
+from crm.utils.helpers import coerce_datetime
 
 
 def normalize_description(text: str) -> str:
@@ -34,7 +34,9 @@ def _dedupe_key(entry: Dict[str, Any]) -> Tuple:
     if note_id:
         return ("id", note_id)
     desc = normalize_description(entry.get("description") or "")
-    return ("content", desc)
+    etype = (entry.get("type") or "").strip().lower()
+    agent = (entry.get("agent") or entry.get("actor_name") or "").strip().lower()
+    return ("content", etype, agent, desc)
 
 
 def dedupe_context_updates(updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

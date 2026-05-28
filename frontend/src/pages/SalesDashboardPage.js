@@ -5,10 +5,12 @@ import { analyticsAPI } from '../services/api';
 import { toast } from 'sonner';
 import {
   Users, TrendingUp, TrendingDown, Award,
-  Clock, Flame, Snowflake, Sun,
+  Clock, Flame, Sun,
   ChevronUp, ChevronDown, ArrowUpDown, X, Eye, MapPin,
   CheckCircle, PhoneOff
 } from 'lucide-react';
+import { formatStatusDisplay } from '../utils/nurtureLabel';
+import { formatDateIST } from '../utils/datetime';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
@@ -16,12 +18,12 @@ import {
 import { Button } from '../components/ui/button';
 
 const PERSON_COLORS = ['#C5A059', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#14B8A6', '#EF4444'];
-const TEMP_COLORS = { Hot: '#EF4444', Warm: '#F59E0B', Cold: '#3B82F6', Dormant: '#6B7280' };
+const NURTURE_COLORS = { Hot: '#EF4444', Warm: '#F59E0B' };
 
 const REP_LEADS_PAGE = 150;
 
 const emptyTotals = () => ({
-  total: 0, hot: 0, warm: 0, cold: 0, dormant: 0, rnr: 0, site_visits: 0, deals_closed: 0
+  total: 0, hot: 0, warm: 0, dormant: 0, rnr: 0, site_visits: 0, deals_closed: 0
 });
 
 const SalesDashboardPage = () => {
@@ -178,12 +180,10 @@ const SalesDashboardPage = () => {
     }));
   }, [salesData]);
 
-  const tempDistribution = useMemo(() => {
+  const nurtureDistribution = useMemo(() => {
     return [
-      { name: 'Hot', value: totalStats.hot, color: TEMP_COLORS.Hot },
-      { name: 'Warm', value: totalStats.warm, color: TEMP_COLORS.Warm },
-      { name: 'Cold', value: totalStats.cold, color: TEMP_COLORS.Cold },
-      { name: 'Dormant', value: totalStats.dormant, color: TEMP_COLORS.Dormant }
+      { name: 'Nurturing (Hot)', value: totalStats.hot, color: NURTURE_COLORS.Hot },
+      { name: 'Nurturing (Warm)', value: totalStats.warm, color: NURTURE_COLORS.Warm },
     ].filter(d => d.value > 0);
   }, [totalStats]);
 
@@ -201,9 +201,7 @@ const SalesDashboardPage = () => {
 
   const formatDate = (d) => {
     if (!d) return 'N/A';
-    try {
-      return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    } catch { return 'N/A'; }
+    return formatDateIST(d) || 'N/A';
   };
 
   const onLeadListScroll = () => {
@@ -220,7 +218,7 @@ const SalesDashboardPage = () => {
     <div className="space-y-6 max-w-6xl mx-auto p-2">
       <div className="h-10 w-64 rounded bg-white/5 animate-pulse" />
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-        {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => <div key={i} className="h-20 rounded-lg bg-white/5 animate-pulse" />)}
+        {[1, 2, 3, 4, 5, 6, 7].map((i) => <div key={i} className="h-20 rounded-lg bg-white/5 animate-pulse" />)}
       </div>
       <div className="h-48 rounded-lg bg-white/5 animate-pulse" />
     </div>
@@ -236,12 +234,11 @@ const SalesDashboardPage = () => {
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-        className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+        className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {[
           { label: 'Total Leads', value: totalStats.total, icon: Users, color: 'text-[#C5A059]' },
-          { label: 'Hot', value: totalStats.hot, icon: Flame, color: 'text-red-500' },
-          { label: 'Warm', value: totalStats.warm, icon: Sun, color: 'text-orange-500' },
-          { label: 'Cold', value: totalStats.cold, icon: Snowflake, color: 'text-blue-500' },
+          { label: 'Nurturing Hot', value: totalStats.hot, icon: Flame, color: 'text-red-500' },
+          { label: 'Nurturing Warm', value: totalStats.warm, icon: Sun, color: 'text-orange-500' },
           { label: 'Dormant', value: totalStats.dormant, icon: Clock, color: 'text-gray-500' },
           { label: 'RNR', value: totalStats.rnr, icon: PhoneOff, color: 'text-yellow-500' },
           { label: 'Site Visits', value: totalStats.site_visits, icon: MapPin, color: 'text-teal-500' },
@@ -265,9 +262,8 @@ const SalesDashboardPage = () => {
                   { key: 'rank', label: '#' },
                   { key: 'name', label: 'Sales Person' },
                   { key: 'total', label: 'Total' },
-                  { key: 'hot', label: 'Hot', icon: <Flame size={11} className="text-red-500" /> },
-                  { key: 'warm', label: 'Warm', icon: <Sun size={11} className="text-orange-500" /> },
-                  { key: 'cold', label: 'Cold', icon: <Snowflake size={11} className="text-blue-500" /> },
+                  { key: 'hot', label: 'Nurture Hot', icon: <Flame size={11} className="text-red-500" /> },
+                  { key: 'warm', label: 'Nurture Warm', icon: <Sun size={11} className="text-orange-500" /> },
                   { key: 'dormant', label: 'Dormant', icon: <Clock size={11} className="text-gray-400" /> },
                   { key: 'rnr', label: 'RNR', icon: <PhoneOff size={11} className="text-yellow-500" /> },
                   { key: 'site_visits', label: 'Site Visits' },
@@ -301,7 +297,6 @@ const SalesDashboardPage = () => {
                   <td className="py-3 px-3 text-center text-white font-medium text-sm">{s.total}</td>
                   <td className="py-3 px-3 text-center text-red-500 text-sm">{s.hot}</td>
                   <td className="py-3 px-3 text-center text-orange-500 text-sm">{s.warm}</td>
-                  <td className="py-3 px-3 text-center text-blue-500 text-sm">{s.cold}</td>
                   <td className="py-3 px-3 text-center text-gray-400 text-sm">{s.dormant}</td>
                   <td className="py-3 px-3 text-center text-yellow-500 text-sm">{s.rnr}</td>
                   <td className="py-3 px-3 text-center text-teal-400 text-sm">{s.site_visits}</td>
@@ -370,11 +365,11 @@ const SalesDashboardPage = () => {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }} className="glass-card rounded-lg p-6">
-          <h3 className="font-serif text-xl text-white mb-6">Team Lead Temperature Distribution</h3>
+          <h3 className="font-serif text-xl text-white mb-6">Nurturing Label Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
-              <Pie data={tempDistribution} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={4} dataKey="value">
-                {tempDistribution.map((e, i) => <Cell key={i} fill={e.color} />)}
+              <Pie data={nurtureDistribution} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={4} dataKey="value">
+                {nurtureDistribution.map((e, i) => <Cell key={i} fill={e.color} />)}
               </Pie>
               <Tooltip content={({ active, payload }) => active && payload?.length ? (
                 <div className="bg-[#1A1A1A] border border-white/10 rounded-lg p-3 shadow-xl">
@@ -441,8 +436,7 @@ const SalesDashboardPage = () => {
                       <p className="text-white text-sm font-medium truncate group-hover:text-[#C5A059] transition-colors">{lead.first_name} {lead.last_name}</p>
                       <p className="text-[#52525B] text-xs truncate">{lead.project || 'No project'}</p>
                     </div>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${lead.temperature === 'Hot' ? 'bg-red-500/20 text-red-400' : lead.temperature === 'Warm' ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>{lead.temperature}</span>
-                    <span className="text-[#52525B] text-xs">{lead.lead_status}</span>
+                    <span className="text-[#A1A1AA] text-xs">{formatStatusDisplay(lead.lead_status, lead.temperature)}</span>
                     <span className="text-[#52525B] text-[10px]">{formatDate(lead.updated_at || lead.created_at)}</span>
                   </div>
                 ))}

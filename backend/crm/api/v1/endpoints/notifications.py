@@ -1,14 +1,24 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends
+from starlette.responses import StreamingResponse
+from pydantic import BaseModel
 
+from fastapi import APIRouter, Depends, HTTPException
+
+from crm.services.dashboard_scope import resolve_leads_base_filter
+from crm.core.platform_ops import is_platform_operator
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now
+from crm.services.notifications_stream import notifications_stream
 
 
 router = APIRouter()
 
 _MAX_DISMISSALS = 4000
+
+
+class NotificationPreferences(BaseModel):
+    notification_sound_enabled: bool = True
 
 
 def _parse_lead_ts(val: Any, fallback: datetime) -> datetime:
@@ -22,7 +32,17 @@ def _parse_lead_ts(val: Any, fallback: datetime) -> datetime:
     return fallback
 
 
-async def _build_auto_notifications() -> List[Dict[str, Any]]:
+def _recipient_filter(uid: str, name: str) -> Dict[str, Any]:
+    return {
+        "$or": [
+            {"recipient_user_id": uid},
+            {"assigned_to": name},
+            {"recipient_name": name},
+        ],
+    }
+
+
+async def _build_auto_notifications(current_user: dict) -> List[Dict[str, Any]]:
     auto_notifications: List[Dict[str, Any]] = []
     now_dt = utc_now()
     now_iso = iso_utc_now()
@@ -94,7 +114,24 @@ async def _build_auto_notifications() -> List[Dict[str, Any]]:
             }
         )
 
-    overdue_tasks = await db.tasks.find({"status": "pending", "due_date": {"$lt": now_dt.strftime("%Y-%m-%d")}}, {"_id": 0}).to_list(50)
+    uid = current_user["id"]
+    name = current_user["full_name"]
+    _, is_manager = await resolve_leads_base_filter(uid, name, current_user)
+    overdue_query: Dict[str, Any] = {"status": "pending", "due_date": {"$lt": now_dt.strftime("%Y-%m-%d")}}
+    if not is_manager and not is_platform_operator(current_user):
+        overdue_query = {
+            "$and": [
+                overdue_query,
+                {
+                    "$or": [
+                        {"assigned_user_id": uid},
+                        {"assigned_to": name},
+                        {"assigned_to_name": name},
+                    ],
+                },
+            ]
+        }
+    overdue_tasks = await db.tasks.find(overdue_query, {"_id": 0}).to_list(50)
     for task in overdue_tasks:
         auto_notifications.append(
             {
@@ -119,18 +156,49 @@ async def _build_auto_notifications() -> List[Dict[str, Any]]:
 
 @router.get("/notifications")
 async def get_notifications(current_user: dict = Depends(get_current_user), unread_only: bool = False):
-    query: Dict[str, Any] = {}
+    uid = current_user["id"]
+    name = current_user["full_name"]
+    recipient = _recipient_filter(uid, name)
+    query: Dict[str, Any] = dict(recipient)
     if unread_only:
-        query["is_read"] = False
+        query = {"$and": [recipient, {"is_read": False}]}
 
     stored = await db.notifications.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
 
     dismissed = set(current_user.get("notification_dismissals") or [])
-    auto_notifications = [n for n in await _build_auto_notifications() if n.get("id") not in dismissed]
+    auto_notifications = [n for n in await _build_auto_notifications(current_user) if n.get("id") not in dismissed]
 
     all_notifications = stored + auto_notifications
     all_notifications.sort(key=lambda n: n.get("created_at", ""), reverse=True)
     return all_notifications[:100]
+
+
+@router.get("/notifications/preferences")
+async def get_notification_preferences(current_user: dict = Depends(get_current_user)) -> Dict[str, Any]:
+    uid = current_user["id"]
+    user = await db.users.find_one({"id": uid}, {"_id": 0, "notification_sound_enabled": 1}) or {}
+    return {"notification_sound_enabled": bool(user.get("notification_sound_enabled", True))}
+
+
+@router.put("/notifications/preferences")
+async def update_notification_preferences(
+    body: NotificationPreferences, current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    uid = current_user["id"]
+    await db.users.update_one({"id": uid}, {"$set": {"notification_sound_enabled": body.notification_sound_enabled}})
+    return {"notification_sound_enabled": body.notification_sound_enabled}
+
+
+@router.get("/notifications/stream")
+async def notifications_sse(current_user: dict = Depends(get_current_user)):
+    """Server-Sent Events stream of stored notification documents as they are created."""
+    uid = current_user["id"]
+
+    async def gen():
+        async for chunk in notifications_stream.stream(uid):
+            yield chunk
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @router.put("/notifications/{notification_id}/read")
@@ -144,16 +212,25 @@ async def mark_notification_read(notification_id: str, current_user: dict = Depe
             cur = cur[-_MAX_DISMISSALS:]
             await db.users.update_one({"id": uid}, {"$set": {"notification_dismissals": cur}})
         return {"message": "Notification marked as read"}
-    await db.notifications.update_one({"id": notification_id}, {"$set": {"is_read": True}})
+    uid = current_user["id"]
+    name = current_user["full_name"]
+    result = await db.notifications.update_one(
+        {"id": notification_id, **_recipient_filter(uid, name)},
+        {"$set": {"is_read": True}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
     return {"message": "Notification marked as read"}
 
 
 @router.put("/notifications/read-all")
 async def mark_all_notifications_read(current_user: dict = Depends(get_current_user)):
     uid = current_user["id"]
-    auto_ids = [n["id"] for n in await _build_auto_notifications()]
+    name = current_user["full_name"]
+    recipient = _recipient_filter(uid, name)
+    auto_ids = [n["id"] for n in await _build_auto_notifications(current_user)]
     user = await db.users.find_one({"id": uid}, {"_id": 0, "notification_dismissals": 1}) or {}
     merged = list(dict.fromkeys((user.get("notification_dismissals") or []) + auto_ids))[-_MAX_DISMISSALS:]
     await db.users.update_one({"id": uid}, {"$set": {"notification_dismissals": merged}})
-    await db.notifications.update_many({"is_read": False}, {"$set": {"is_read": True}})
+    await db.notifications.update_many({**recipient, "is_read": False}, {"$set": {"is_read": True}})
     return {"message": "All notifications marked as read"}

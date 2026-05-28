@@ -63,11 +63,16 @@ def merge_query(base: Optional[Dict[str, Any]], *clauses: Dict[str, Any]) -> Dic
     return {"$and": parts}
 
 
-def case_insensitive_regex_filter(field: str, value: Optional[str]) -> Dict[str, Any]:
+def case_insensitive_regex_filter(
+    field: str, value: Optional[str], *, exact: bool = False
+) -> Dict[str, Any]:
     """Build a single-field case-insensitive regex filter with escaped literal."""
     if not value or not value.strip():
         return {}
-    return {field: {"$regex": escape_regex_literal(value), "$options": "i"}}
+    pattern = escape_regex_literal(value)
+    if exact:
+        pattern = f"^{pattern}$"
+    return {field: {"$regex": pattern, "$options": "i"}}
 
 
 def build_leads_list_query(
@@ -83,6 +88,8 @@ def build_leads_list_query(
     vip: Optional[bool] = None,
     status: Optional[str] = None,
     days_cutoff_iso: Optional[str] = None,
+    created_at_from_iso: Optional[str] = None,
+    created_at_to_iso: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Compose a full leads query for list endpoints."""
     extra: list[Dict[str, Any]] = []
@@ -102,9 +109,16 @@ def build_leads_list_query(
     if vip is not None:
         extra.append({"vip": vip})
     if status:
-        extra.append({"lead_status": status})
+        extra.append(case_insensitive_regex_filter("lead_status", status, exact=True))
     if days_cutoff_iso:
         extra.append({"created_at": {"$gte": days_cutoff_iso}})
+    if created_at_from_iso or created_at_to_iso:
+        created_clause: Dict[str, Any] = {}
+        if created_at_from_iso:
+            created_clause["$gte"] = created_at_from_iso
+        if created_at_to_iso:
+            created_clause["$lte"] = created_at_to_iso
+        extra.append({"created_at": created_clause})
 
     search_clause = build_text_search_clause(search)
     if search_clause:

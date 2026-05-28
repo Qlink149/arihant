@@ -5,8 +5,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from crm.core.platform_ops import assert_assignee_allowed
+from crm.services.dashboard_scope import resolve_leads_base_filter
+from crm.core.platform_ops import assert_assignee_allowed, is_platform_operator
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now, resolve_user_id_by_full_name
+from crm.services.lead_events import log_lead_event
 
 
 router = APIRouter()
@@ -54,6 +56,19 @@ async def add_context_update(lead_id: str, update: ContextUpdateCreate, current_
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
+    # Nurturing workflow rule: after transitioning into Nurturing, user must create a fresh task
+    # before adding a new general note. Other update types remain allowed.
+    if update.update_type == "general_note":
+        status = (lead.get("lead_status") or "").strip().lower()
+        if status == "nurturing":
+            required_since = lead.get("nurture_task_required_since_dt")
+            required_task_id = lead.get("nurture_task_required_task_id")
+            if required_since and not required_task_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Create a follow-up task first after moving lead to Nurturing.",
+                )
+
     type_labels = {
         "call_note": "call",
         "site_visit_note": "site_visit",
@@ -79,6 +94,14 @@ async def add_context_update(lead_id: str, update: ContextUpdateCreate, current_
     await db.leads.update_one(
         {"id": lead_id},
         {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
+    )
+
+    await log_lead_event(
+        "note_added",
+        lead_id=lead_id,
+        actor_user_id=current_user.get("id"),
+        actor_name=current_user.get("full_name"),
+        payload={"update_type": update.update_type},
     )
 
     return {"message": "Context updated", "context_entry": context_entry}
@@ -119,6 +142,21 @@ async def add_task(lead_id: str, task: TaskCreate, current_user: dict = Depends(
         "created_at_dt": now_dt,
     }
     await db.tasks.insert_one(task_doc)
+
+    # If lead is in the post-nurturing task-required state, satisfy it atomically with this new task.
+    await db.leads.update_one(
+        {
+            "id": lead_id,
+            "lead_status": "Nurturing",
+            "nurture_task_required_since_dt": {"$ne": None},
+            "$or": [
+                {"nurture_task_required_task_id": {"$exists": False}},
+                {"nurture_task_required_task_id": None},
+                {"nurture_task_required_task_id": ""},
+            ],
+        },
+        {"$set": {"nurture_task_required_task_id": task_id}},
+    )
 
     due_str = task.due_date
     if task.due_time:
@@ -196,16 +234,67 @@ async def create_standalone_task(task: StandaloneTaskCreate, current_user: dict 
         "created_at_dt": now_dt,
     }
     await db.tasks.insert_one(task_doc)
+
+    if task.lead_id:
+        due_str = task.due_date
+        if task.due_time:
+            due_str += f" at {task.due_time}"
+        context_entry = {
+            "type": "task",
+            "timestamp": now_iso,
+            "timestamp_dt": now_dt,
+            "description": f"Task: {task.description} | Due: {due_str} | Priority: {task.priority}",
+            "agent": current_user["full_name"],
+            "task_id": task_id,
+            "actor_user_id": current_user.get("id"),
+            "actor_name": current_user.get("full_name"),
+        }
+        await db.leads.update_one(
+            {"id": task.lead_id},
+            {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
+        )
+
+    await log_lead_event(
+        "task_created",
+        lead_id=task.lead_id or None,
+        actor_user_id=current_user.get("id"),
+        actor_name=current_user.get("full_name"),
+        payload={"task_id": task_id},
+    )
     return {"message": "Task created", "task_id": task_id}
 
 
+def _task_scope_for_user(current_user: dict, is_manager: bool) -> dict:
+    uid = current_user["id"]
+    name = current_user["full_name"]
+    if is_manager or is_platform_operator(current_user):
+        return {}
+    return {
+        "$or": [
+            {"assigned_user_id": uid},
+            {"assigned_to": name},
+            {"assigned_to_name": name},
+        ],
+    }
+
+
 @router.get("/tasks")
-async def get_tasks(current_user: dict = Depends(get_current_user), status: Optional[str] = None, lead_id: Optional[str] = None):
-    query = {}
+async def get_tasks(
+    current_user: dict = Depends(get_current_user),
+    status: Optional[str] = None,
+    lead_id: Optional[str] = None,
+    mine: bool = False,
+):
+    uid = current_user["id"]
+    name = current_user["full_name"]
+    _, is_manager = await resolve_leads_base_filter(uid, name, current_user)
+
+    query: dict = _task_scope_for_user(current_user, False if mine else is_manager)
     if status:
-        query["status"] = status
+        query = {"$and": [query, {"status": status}]} if query else {"status": status}
     if lead_id:
-        query["lead_id"] = lead_id
+        lead_clause = {"lead_id": lead_id}
+        query = {"$and": [query, lead_clause]} if query else lead_clause
     tasks = await db.tasks.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     return tasks
 
@@ -230,6 +319,41 @@ async def update_task(task_id: str, update: TaskUpdatePatch, current_user: dict 
     now_iso = iso_utc_now()
     patch["updated_at"] = now_iso
     patch["updated_at_dt"] = now_dt
+
+    terminal = {"done", "completed", "cancelled"}
+    if "status" in patch and patch["status"] in terminal:
+        if patch["status"] == "done":
+            patch["status"] = "completed"
+        patch["completed_at"] = now_iso
+        patch["completed_at_dt"] = now_dt
+
     await db.tasks.update_one({"id": task_id}, {"$set": patch})
+
+    new_status = patch.get("status")
+    if new_status == "completed" and task.get("lead_id"):
+        context_entry = {
+            "type": "task_completed",
+            "timestamp": now_iso,
+            "timestamp_dt": now_dt,
+            "description": f"Task completed: {task.get('description', '')[:200]}",
+            "agent": current_user["full_name"],
+            "task_id": task_id,
+            "actor_user_id": current_user.get("id"),
+            "actor_name": current_user.get("full_name"),
+        }
+        await db.leads.update_one(
+            {"id": task["lead_id"]},
+            {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
+        )
+
+    if new_status:
+        await log_lead_event(
+            "task_updated",
+            lead_id=task.get("lead_id") or None,
+            actor_user_id=current_user.get("id"),
+            actor_name=current_user.get("full_name"),
+            payload={"task_id": task_id, "status": new_status},
+        )
+
     return {"message": "Task updated"}
 
