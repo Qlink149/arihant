@@ -1,14 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "pip install -r requirements.txt",
-  "crons": [
-    {
-      "path": "/api/v1/cron/process-slas",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/v1/cron/nurturing-review",
-      "schedule": "30 3 * * *"
-    }
-  ]
+  "installCommand": "pip install -r requirements.txt"
 }
