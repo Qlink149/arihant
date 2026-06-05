@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from starlette.responses import StreamingResponse
@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from crm.services.dashboard_scope import resolve_leads_base_filter
 from crm.core.platform_ops import is_platform_operator
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now
+from crm.services.notification_service import enrich_notification
 from crm.services.notifications_stream import notifications_stream
 
 
@@ -22,11 +23,17 @@ class NotificationPreferences(BaseModel):
 
 
 def _parse_lead_ts(val: Any, fallback: datetime) -> datetime:
+    """Always return a timezone-aware UTC datetime to avoid naive vs aware comparison errors."""
     if isinstance(val, datetime):
-        return val
+        if val.tzinfo is None:
+            return val.replace(tzinfo=timezone.utc)
+        return val.astimezone(timezone.utc)
     if isinstance(val, str):
         try:
-            return datetime.fromisoformat(val.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
         except ValueError:
             return fallback
     return fallback
@@ -155,7 +162,10 @@ async def _build_auto_notifications(current_user: dict) -> List[Dict[str, Any]]:
 
 
 @router.get("/notifications")
-async def get_notifications(current_user: dict = Depends(get_current_user), unread_only: bool = False):
+async def get_notifications(
+    current_user: dict = Depends(get_current_user),
+    unread_only: bool = True,
+):
     uid = current_user["id"]
     name = current_user["full_name"]
     recipient = _recipient_filter(uid, name)
@@ -163,13 +173,34 @@ async def get_notifications(current_user: dict = Depends(get_current_user), unre
     if unread_only:
         query = {"$and": [recipient, {"is_read": False}]}
 
-    stored = await db.notifications.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    now_dt = utc_now()
+    stored = await db.notifications.find(query, {"_id": 0}).sort("fired_at_dt", -1).to_list(200)
+    stored = [enrich_notification(n, now_dt) for n in stored]
 
     dismissed = set(current_user.get("notification_dismissals") or [])
     auto_notifications = [n for n in await _build_auto_notifications(current_user) if n.get("id") not in dismissed]
+    for n in auto_notifications:
+        n["is_overdue"] = False
 
     all_notifications = stored + auto_notifications
-    all_notifications.sort(key=lambda n: n.get("created_at", ""), reverse=True)
+
+    def _sort_key(n: dict):
+        """Return a timezone-aware datetime for sorting; normalize naive datetimes from MongoDB."""
+        val = n.get("fired_at_dt") or n.get("created_at_dt") or n.get("created_at") or ""
+        if isinstance(val, datetime):
+            if val.tzinfo is None:
+                val = val.replace(tzinfo=timezone.utc)
+            return val
+        # ISO string fallback — convert so datetimes and strings aren't mixed
+        if isinstance(val, str) and val:
+            try:
+                dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+            except ValueError:
+                pass
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+    all_notifications.sort(key=_sort_key, reverse=True)
     return all_notifications[:100]
 
 

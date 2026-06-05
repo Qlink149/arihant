@@ -2,6 +2,8 @@ import os
 
 from fastapi import APIRouter, Header, HTTPException, status
 
+from crm.services.brevo_service import process_failed_email_queue
+from crm.services.nurturing_review import process_nurturing_review
 from crm.services.sla_engine import SLAEngineService
 
 router = APIRouter(prefix="/v1/cron", tags=["cron"])
@@ -33,4 +35,12 @@ def _verify_cron_secret(authorization: str | None) -> None:
 async def process_slas(authorization: str | None = Header(default=None)):
     _verify_cron_secret(authorization)
     result = await SLAEngineService().process_all_slas()
+    return result
+
+
+@router.post("/nurturing-review")
+async def nurturing_review(authorization: str | None = Header(default=None)):
+    _verify_cron_secret(authorization)
+    result = await process_nurturing_review()
+    await process_failed_email_queue()
     return result

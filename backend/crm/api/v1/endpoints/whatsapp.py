@@ -1,12 +1,35 @@
+import hashlib
+import hmac
 import json
+import os
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from crm.core.state import get_current_user, logger
+from crm.services.dashboard_scope import resolve_lead_or_403
 from crm.models.schemas.whatsapp_schemas import WhatsAppMessage
 from crm.services import whatsapp_service
 
 router = APIRouter()
+
+
+async def verify_webhook_signature(
+    request: Request,
+    x_hub_signature: str | None = Header(None, alias="x-hub-signature-256"),
+):
+    if not x_hub_signature:
+        raise HTTPException(status_code=401, detail="Missing webhook signature")
+
+    secret = os.getenv("WHATSAPP_WEBHOOK_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=500, detail="Webhook secret not configured")
+
+    body = await request.body()
+    request.state.raw_body = body
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(expected, x_hub_signature):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
 
 @router.get("/whatsapp/templates")
@@ -21,6 +44,7 @@ async def send_whatsapp_message(message: WhatsAppMessage, current_user: dict = D
 
 @router.post("/whatsapp/send-to-lead/{lead_id}")
 async def send_whatsapp_to_lead(lead_id: str, message: WhatsAppMessage, current_user: dict = Depends(get_current_user)):
+    await resolve_lead_or_403(lead_id, current_user)
     return await whatsapp_service.send_to_lead(lead_id, message, current_user)
 
 
@@ -31,6 +55,7 @@ async def get_chat_history(phone: str, current_user: dict = Depends(get_current_
 
 @router.get("/whatsapp/lead-chat/{lead_id}")
 async def get_lead_chat_history(lead_id: str, current_user: dict = Depends(get_current_user)):
+    await resolve_lead_or_403(lead_id, current_user)
     return await whatsapp_service.get_lead_chat_history(lead_id)
 
 
@@ -49,10 +74,10 @@ async def get_webhook_status(current_user: dict = Depends(get_current_user)):
     return await whatsapp_service.get_webhook_status()
 
 
-@router.post("/whatsapp/webhook")
+@router.post("/whatsapp/webhook", dependencies=[Depends(verify_webhook_signature)])
 async def whatsapp_webhook(request: Request):
     try:
-        raw_body = await request.body()
+        raw_body = getattr(request.state, "raw_body", None) or await request.body()
         try:
             body = json.loads(raw_body)
         except json.JSONDecodeError:
@@ -64,5 +89,5 @@ async def whatsapp_webhook(request: Request):
         await whatsapp_service.process_webhook(body)
         return {"status": "ok"}
     except Exception as e:
-        logger.error(f"Webhook error: {str(e)}")
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Webhook processing error: {str(e)}")
+        return {"status": "ok"}

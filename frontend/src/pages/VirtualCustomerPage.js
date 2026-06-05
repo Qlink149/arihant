@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { leadsAPI, tasksAPI } from '../services/api';
+import { leadsAPI, tasksAPI, usersAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { LeadDataTable } from '../components/leads/LeadDataTable';
-import { buildPendingTaskMap } from '../utils/leadTable';
+import { buildEarliestPendingTaskMap, buildPendingTaskMap } from '../utils/leadTable';
 import { LeadTasksDrawer } from '../components/tasks/LeadTasksDrawer';
 import { METRIC_LABELS } from '../utils/leadOverview';
 import { isNurturingStatus, NURTURE_LABELS, NURTURING_STATUS } from '../utils/nurtureLabel';
+import { UI_LEAD_STATUSES as LEAD_STATUSES } from '../constants/leadStatus';
 import { toast } from 'sonner';
 import {
   Search,
@@ -110,10 +112,12 @@ const emptyLeadFilters = () => ({
   intent: '',
   vip: null,
   status: '',
+  temperature: '',
   days: '',
   created_from: '',
   created_to: '',
   metric: '',
+  dormant: false,
 });
 
 const filtersFromSearchParams = (searchParams) => ({
@@ -121,10 +125,12 @@ const filtersFromSearchParams = (searchParams) => ({
   project: searchParams.get('project') || '',
   location: searchParams.get('location') || '',
   status: searchParams.get('status') || '',
+  temperature: searchParams.get('temperature') || '',
   days: searchParams.get('days') || '',
   created_from: searchParams.get('created_from') || '',
   created_to: searchParams.get('created_to') || '',
   metric: searchParams.get('metric') || '',
+  dormant: searchParams.get('dormant') === '1' || searchParams.get('dormant') === 'true',
 });
 
 const filtersToSearchParams = (filters, agentQuery) => {
@@ -132,16 +138,20 @@ const filtersToSearchParams = (filters, agentQuery) => {
   if (filters.project) params.set('project', filters.project);
   if (filters.location) params.set('location', filters.location);
   if (filters.status) params.set('status', filters.status);
+  if (filters.temperature) params.set('temperature', filters.temperature);
   if (filters.days) params.set('days', String(filters.days));
   if (filters.created_from) params.set('created_from', filters.created_from);
   if (filters.created_to) params.set('created_to', filters.created_to);
   if (filters.metric) params.set('metric', filters.metric);
+  if (filters.dormant) params.set('dormant', '1');
   const agent = (agentQuery || '').trim();
   if (agent) params.set('agent', agent);
   return params;
 };
 
 const VirtualCustomerPage = () => {
+  const { user } = useAuth();
+  const isAdmin = (user?.role || '').toLowerCase() === 'admin';
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [leads, setLeads] = useState([]);
@@ -154,6 +164,8 @@ const VirtualCustomerPage = () => {
   const leadsLengthRef = useRef(0);
   const leadsFetchBusy = useRef(false);
   const leadsFetchGeneration = useRef(0);
+  const lastFetchedLeadsKey = useRef('');
+  const prevShowDuplicates = useRef(false);
   const [duplicateGroups, setDuplicateGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('agent') || '');
@@ -162,11 +174,12 @@ const VirtualCustomerPage = () => {
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [csvReplaceAll, setCsvReplaceAll] = useState(false);
+  const [csvReplaceConfirm, setCsvReplaceConfirm] = useState('');
   const [submittingCustomer, setSubmittingCustomer] = useState(false);
   const [leadStatusTouched, setLeadStatusTouched] = useState(false);
   const [createNurtureLabel, setCreateNurtureLabel] = useState('');
   const [pendingTasks, setPendingTasks] = useState([]);
-  const [pendingTaskMap, setPendingTaskMap] = useState(() => new Map());
   const [leadTasksDrawerOpen, setLeadTasksDrawerOpen] = useState(false);
   const [leadTasksDrawerLead, setLeadTasksDrawerLead] = useState(null);
   const [leadTasksDrawerTasks, setLeadTasksDrawerTasks] = useState([]);
@@ -188,6 +201,7 @@ const VirtualCustomerPage = () => {
     location: '',
     lead_source: '',
     presales_agent: '',
+    assigned_user_id: '',
     presales_description: '',
     lead_status: '',
   });
@@ -198,24 +212,44 @@ const VirtualCustomerPage = () => {
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
 
   const budgetRanges = ['Under 1Cr', '1-2 Cr', '2-5 Cr', '5 Cr+'];
-  const locations = ['ECR', 'Abhiramapuram', 'OMR', 'Saligramam', 'Kilpauk'];
-  const projects = ['ECR - Reserve 16', 'Saligramam Melange', 'OMR - Vivriti', 'Abhiramapuram - Krishna', 'Flowers Road - Kilpauk'];
+  const [locationOptions, setLocationOptions] = useState([]);
+  const [projectOptions, setProjectOptions] = useState([]);
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(true);
+  const [assigneeOptions, setAssigneeOptions] = useState([]);
+  const [assigneesLoading, setAssigneesLoading] = useState(true);
   const intents = ['Investor', 'Self-Occupation', 'Not Decided'];
   const leadSources = ['Facebook Lead Form', 'facebook_ad', 'google', 'website', 'instagram', 'whatsapp', 'newspaper', 'direct-walkin', 'propmart', 'management reference', 'CREDAI FAIRPRO 2026'];
-  const salesManagers = ['Narendran S', 'Piyush', 'Malathy', 'Anusha Omprakash', 'jigar', 'shariff', 'Roshini'];
-  const LEAD_STATUSES = [
-    'New',
-    'RNR',
-    'Contacted',
-    'Nurturing',
-    'Site Visit Scheduled',
-    'Visit Completed',
-    'Negotiation',
-    'Gone Cold',
-    'Future Prospect',
-    'Closed Won',
-    'Closed Lost',
-  ];
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [filterRes, assigneeRes] = await Promise.all([
+          leadsAPI.getFilterOptions(),
+          usersAPI.listAssignees(),
+        ]);
+        if (cancelled) return;
+        const filterData = filterRes?.data;
+        setLocationOptions(Array.isArray(filterData?.locations) ? filterData.locations : []);
+        setProjectOptions(Array.isArray(filterData?.projects) ? filterData.projects : []);
+        setAssigneeOptions(Array.isArray(assigneeRes?.data) ? assigneeRes.data : []);
+      } catch {
+        if (!cancelled) {
+          setLocationOptions([]);
+          setProjectOptions([]);
+          setAssigneeOptions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setFilterOptionsLoading(false);
+          setAssigneesLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (filters.created_from || filters.created_to) {
@@ -246,9 +280,7 @@ const VirtualCustomerPage = () => {
   const fetchPendingTasks = useCallback(async () => {
     try {
       const { data } = await tasksAPI.getAll({ status: 'pending', mine: true });
-      const list = data || [];
-      setPendingTasks(list);
-      setPendingTaskMap(buildPendingTaskMap(list));
+      setPendingTasks(data || []);
     } catch {
       /* non-blocking */
     }
@@ -323,6 +355,12 @@ const VirtualCustomerPage = () => {
     fetchPendingTasks();
   }, [fetchPendingTasks]);
 
+  const pendingTaskMap = useMemo(() => buildPendingTaskMap(pendingTasks), [pendingTasks]);
+  const earliestTaskMap = useMemo(
+    () => buildEarliestPendingTaskMap(pendingTasks),
+    [pendingTasks]
+  );
+
   useEffect(() => {
     const delay = searchQuery.trim() ? 400 : 0;
     const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), delay);
@@ -341,6 +379,8 @@ const VirtualCustomerPage = () => {
     if (filters.intent) params.intent = filters.intent;
     if (filters.vip !== null) params.vip = filters.vip;
     if (filters.status) params.status = filters.status;
+    if (filters.temperature) params.temperature = filters.temperature;
+    if (filters.dormant) params.dormant = true;
     if (filters.days) {
       const d = parseInt(filters.days, 10);
       if (Number.isFinite(d) && d > 0) params.days = d;
@@ -353,7 +393,10 @@ const VirtualCustomerPage = () => {
     return params;
   }, [filters, debouncedSearch]);
 
-  const prefetchKey = () => JSON.stringify(buildLeadQueryParams(0));
+  const prefetchKey = useCallback(
+    () => JSON.stringify(buildLeadQueryParams(0)),
+    [buildLeadQueryParams]
+  );
 
   const prefetchNextVcPage = useCallback(
     (skip) => {
@@ -372,7 +415,7 @@ const VirtualCustomerPage = () => {
         })
         .catch(() => {});
     },
-    [buildLeadQueryParams]
+    [buildLeadQueryParams, prefetchKey]
   );
 
   const resetAndFetchLeads = useCallback(async () => {
@@ -463,7 +506,7 @@ const VirtualCustomerPage = () => {
       }
       leadsFetchBusy.current = false;
     }
-  }, [loadingMore, hasMoreLeads, totalLeads, buildLeadQueryParams, prefetchNextVcPage]);
+  }, [loadingMore, hasMoreLeads, totalLeads, buildLeadQueryParams, prefetchNextVcPage, prefetchKey]);
 
   useEffect(() => {
     const el = loadMoreSentinelRef.current;
@@ -478,38 +521,11 @@ const VirtualCustomerPage = () => {
     return () => obs.disconnect();
   }, [showDuplicates, loading, leads.length, hasMoreLeads, appendLeadsPage]);
 
-  useEffect(() => {
-    if (showDuplicates || loading) return;
-    const onScroll = () => {
-      const { scrollTop, clientHeight, scrollHeight } = document.documentElement;
-      if (scrollTop + clientHeight >= scrollHeight - 200) {
-        appendLeadsPage();
-      }
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, [showDuplicates, loading, appendLeadsPage]);
-
   const findDuplicates = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await leadsAPI.getAll({ skip: 0, limit: 5000 });
-      const allLeads = response.data;
-      
-      // Group by normalized phone
-      const phoneGroups = {};
-      allLeads.forEach(lead => {
-        if (lead.normalized_phone) {
-          if (!phoneGroups[lead.normalized_phone]) {
-            phoneGroups[lead.normalized_phone] = [];
-          }
-          phoneGroups[lead.normalized_phone].push(lead);
-        }
-      });
-      
-      // Filter only groups with more than 1 lead
-      const duplicates = Object.values(phoneGroups).filter(group => group.length > 1);
-      setDuplicateGroups(duplicates);
+      const { data } = await leadsAPI.getDuplicateGroups({ skip: 0, limit: 100 });
+      setDuplicateGroups(data?.groups || []);
       setLeads([]);
     } catch (error) {
       console.error('Failed to find duplicates:', error);
@@ -520,12 +536,22 @@ const VirtualCustomerPage = () => {
   }, []);
 
   useEffect(() => {
-    if (!showDuplicates) {
-      resetAndFetchLeads();
-    } else {
+    if (showDuplicates) {
       findDuplicates();
+      prevShowDuplicates.current = true;
+      return;
     }
-  }, [showDuplicates, resetAndFetchLeads, findDuplicates]);
+
+    const key = prefetchKey();
+    const exitedDuplicateMode = prevShowDuplicates.current;
+    prevShowDuplicates.current = false;
+
+    if (!exitedDuplicateMode && key === lastFetchedLeadsKey.current) {
+      return;
+    }
+    lastFetchedLeadsKey.current = key;
+    resetAndFetchLeads();
+  }, [showDuplicates, prefetchKey, resetAndFetchLeads, findDuplicates]);
 
   const fetchLeads = async () => {
     await resetAndFetchLeads();
@@ -637,14 +663,22 @@ const VirtualCustomerPage = () => {
     const file = e.target.files[0];
     if (!file) return;
 
+    if (csvReplaceAll && csvReplaceConfirm.trim() !== 'REPLACE ALL') {
+      toast.error('Type REPLACE ALL to confirm wiping all existing leads');
+      return;
+    }
+
     setUploadingFile(true);
     try {
-      const result = await leadsAPI.uploadCSV(file);
+      const confirmReplace = csvReplaceAll ? 'CONFIRM_REPLACE_ALL' : null;
+      const result = await leadsAPI.uploadCSV(file, csvReplaceAll, confirmReplace);
       toast.success(`Imported ${result.data.imported} leads. ${result.data.duplicates} duplicates skipped.`);
       setShowUploadModal(false);
+      setCsvReplaceAll(false);
+      setCsvReplaceConfirm('');
       fetchLeads();
     } catch (error) {
-      toast.error('Failed to upload CSV');
+      toast.error(error.response?.data?.detail || 'Failed to upload CSV');
     } finally {
       setUploadingFile(false);
     }
@@ -670,6 +704,17 @@ const VirtualCustomerPage = () => {
         payload.temperature = createNurtureLabel;
       } else {
         delete payload.temperature;
+      }
+      if (payload.assigned_user_id) {
+        const assignee = assigneeOptions.find((a) => a.id === payload.assigned_user_id);
+        if (assignee?.full_name) {
+          payload.presales_agent = assignee.full_name;
+          payload.assigned_to_name = assignee.full_name;
+        }
+      } else {
+        delete payload.assigned_user_id;
+        delete payload.assigned_to_name;
+        if (!payload.presales_agent) delete payload.presales_agent;
       }
       const created = await leadsAPI.create(payload);
       const createdLeadId = created?.data?.id;
@@ -697,6 +742,7 @@ const VirtualCustomerPage = () => {
         location: '',
         lead_source: '',
         presales_agent: '',
+        assigned_user_id: '',
         presales_description: '',
         lead_status: '',
       });
@@ -762,33 +808,54 @@ const VirtualCustomerPage = () => {
             Add New Customer
           </Button>
           
-          <Button
-            onClick={() => setShowUploadModal(true)}
-            className="bg-[#1A1A1A] border border-white/10 text-white hover:bg-white/5"
-            data-testid="upload-csv-btn"
-          >
-            <Upload size={16} className="mr-2" />
-            Upload CSV
-          </Button>
+          {isAdmin && (
+            <Button
+              onClick={() => {
+                setCsvReplaceAll(false);
+                setCsvReplaceConfirm('');
+                setShowUploadModal(true);
+              }}
+              className="bg-[#1A1A1A] border border-white/10 text-white hover:bg-white/5"
+              data-testid="upload-csv-btn"
+            >
+              <Upload size={16} className="mr-2" />
+              Upload CSV
+            </Button>
+          )}
         </div>
       </motion.div>
 
-      {filters.metric ? (
+      {(filters.metric || filters.dormant) ? (
         <div
           className="flex items-center gap-2 flex-wrap"
           data-testid="lead-overview-filter-chip"
         >
-          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#C5A059]/30 bg-[#C5A059]/10 text-[#C5A059] text-xs font-medium">
-            Lead overview: {METRIC_LABELS[filters.metric] || filters.metric}
-            <button
-              type="button"
-              onClick={() => setFilters((prev) => ({ ...prev, metric: '' }))}
-              className="ml-1 text-[#C5A059]/80 hover:text-[#C5A059] underline-offset-2 hover:underline"
-              aria-label="Clear lead overview filter"
-            >
-              Clear
-            </button>
-          </span>
+          {filters.metric ? (
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#C5A059]/30 bg-[#C5A059]/10 text-[#C5A059] text-xs font-medium">
+              Lead overview: {METRIC_LABELS[filters.metric] || filters.metric}
+              <button
+                type="button"
+                onClick={() => setFilters((prev) => ({ ...prev, metric: '' }))}
+                className="ml-1 text-[#C5A059]/80 hover:text-[#C5A059] underline-offset-2 hover:underline"
+                aria-label="Clear lead overview filter"
+              >
+                Clear
+              </button>
+            </span>
+          ) : null}
+          {filters.dormant ? (
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 text-orange-400 text-xs font-medium">
+              {METRIC_LABELS.dormant || 'Dormant leads'}
+              <button
+                type="button"
+                onClick={() => setFilters((prev) => ({ ...prev, dormant: false }))}
+                className="ml-1 text-orange-400/80 hover:text-orange-300 underline-offset-2 hover:underline"
+                aria-label="Clear dormant filter"
+              >
+                Clear
+              </button>
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -819,7 +886,15 @@ const VirtualCustomerPage = () => {
             {/* Duplicate Filter */}
             <Button
               variant="outline"
-              onClick={() => setShowDuplicates(!showDuplicates)}
+              onClick={() => {
+                if (!showDuplicates) {
+                  const ok = window.confirm(
+                    'Finding duplicates loads up to 5,000 leads and may take a while on large databases. Continue?'
+                  );
+                  if (!ok) return;
+                }
+                setShowDuplicates(!showDuplicates);
+              }}
               className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
                 showDuplicates ? 'border-red-500 text-red-500' : ''
               }`}
@@ -847,6 +922,12 @@ const VirtualCustomerPage = () => {
               <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
                 <DropdownMenuLabel className="text-[#A1A1AA]">Budget Range</DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-white/10" />
+                <DropdownMenuItem
+                  onClick={() => setFilters({ ...filters, budget: '' })}
+                  className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                >
+                  All budgets
+                </DropdownMenuItem>
                 {budgetRanges.map((range) => (
                   <DropdownMenuItem
                     key={range}
@@ -874,18 +955,33 @@ const VirtualCustomerPage = () => {
                   <ChevronDown size={14} className="ml-2" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
+              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10 max-h-72 overflow-y-auto">
                 <DropdownMenuLabel className="text-[#A1A1AA]">Location</DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-white/10" />
-                {locations.map((loc) => (
-                  <DropdownMenuItem
-                    key={loc}
-                    onClick={() => setFilters({ ...filters, location: loc })}
-                    className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                  >
-                    {loc}
+                <DropdownMenuItem
+                  onClick={() => setFilters({ ...filters, location: '' })}
+                  className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                >
+                  All locations
+                </DropdownMenuItem>
+                {filterOptionsLoading ? (
+                  <DropdownMenuItem disabled className="text-[#52525B]">
+                    Loading…
                   </DropdownMenuItem>
-                ))}
+                ) : (
+                  locationOptions.map((item) => (
+                    <DropdownMenuItem
+                      key={item.name}
+                      onClick={() => setFilters({ ...filters, location: item.name })}
+                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                    >
+                      {item.name}
+                      {item.count != null ? (
+                        <span className="ml-2 text-[#52525B] text-xs">({item.count})</span>
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -904,18 +1000,33 @@ const VirtualCustomerPage = () => {
                   <ChevronDown size={14} className="ml-2" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
+              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10 max-h-72 overflow-y-auto">
                 <DropdownMenuLabel className="text-[#A1A1AA]">Project Interest</DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-white/10" />
-                {projects.map((proj) => (
-                  <DropdownMenuItem
-                    key={proj}
-                    onClick={() => setFilters({ ...filters, project: proj })}
-                    className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                  >
-                    {proj}
+                <DropdownMenuItem
+                  onClick={() => setFilters({ ...filters, project: '' })}
+                  className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                >
+                  All projects
+                </DropdownMenuItem>
+                {filterOptionsLoading ? (
+                  <DropdownMenuItem disabled className="text-[#52525B]">
+                    Loading…
                   </DropdownMenuItem>
-                ))}
+                ) : (
+                  projectOptions.map((item) => (
+                    <DropdownMenuItem
+                      key={item.name}
+                      onClick={() => setFilters({ ...filters, project: item.name })}
+                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                    >
+                      {item.name}
+                      {item.count != null ? (
+                        <span className="ml-2 text-[#52525B] text-xs">({item.count})</span>
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -1162,6 +1273,7 @@ const VirtualCustomerPage = () => {
               loading={loading}
               pendingTaskMap={pendingTaskMap}
               pendingTasksList={pendingTasks}
+              earliestTaskMap={earliestTaskMap}
               onRowClick={handleViewLead}
               onView={handleViewLead}
               onNote={handleOpenNote}
@@ -1302,12 +1414,22 @@ const VirtualCustomerPage = () => {
                   <SelectTrigger className="bg-black/50 border-white/10 text-white">
                     <SelectValue placeholder="Select Project" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10">
-                    {projects.map((proj) => (
-                      <SelectItem key={proj} value={proj} className="text-white hover:bg-[#C5A059]/10">
-                        {proj}
+                  <SelectContent className="bg-[#1A1A1A] border-white/10 max-h-60 overflow-y-auto">
+                    {filterOptionsLoading ? (
+                      <SelectItem value="__loading" disabled className="text-[#52525B]">
+                        Loading projects…
                       </SelectItem>
-                    ))}
+                    ) : (
+                      projectOptions.map((item) => (
+                        <SelectItem
+                          key={item.name}
+                          value={item.name}
+                          className="text-white hover:bg-[#C5A059]/10"
+                        >
+                          {item.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -1358,12 +1480,22 @@ const VirtualCustomerPage = () => {
                   <SelectTrigger className="bg-black/50 border-white/10 text-white">
                     <SelectValue placeholder="Select Location" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10">
-                    {locations.map((loc) => (
-                      <SelectItem key={loc} value={loc} className="text-white hover:bg-[#C5A059]/10">
-                        {loc}
+                  <SelectContent className="bg-[#1A1A1A] border-white/10 max-h-60 overflow-y-auto">
+                    {filterOptionsLoading ? (
+                      <SelectItem value="__loading_loc" disabled className="text-[#52525B]">
+                        Loading locations…
                       </SelectItem>
-                    ))}
+                    ) : (
+                      locationOptions.map((item) => (
+                        <SelectItem
+                          key={item.name}
+                          value={item.name}
+                          className="text-white hover:bg-[#C5A059]/10"
+                        >
+                          {item.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -1392,18 +1524,49 @@ const VirtualCustomerPage = () => {
               <div>
                 <label className="text-[#A1A1AA] text-sm mb-2 block">Assigned Sales Manager</label>
                 <Select
-                  value={newCustomer.presales_agent}
-                  onValueChange={(value) => setNewCustomer({ ...newCustomer, presales_agent: value })}
+                  value={newCustomer.assigned_user_id || '__unassigned__'}
+                  onValueChange={(value) => {
+                    if (value === '__unassigned__') {
+                      setNewCustomer({
+                        ...newCustomer,
+                        assigned_user_id: '',
+                        presales_agent: '',
+                      });
+                      return;
+                    }
+                    const assignee = assigneeOptions.find((a) => a.id === value);
+                    setNewCustomer({
+                      ...newCustomer,
+                      assigned_user_id: value,
+                      presales_agent: assignee?.full_name || '',
+                    });
+                  }}
                 >
                   <SelectTrigger className="bg-black/50 border-white/10 text-white">
                     <SelectValue placeholder="Select Manager" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10">
-                    {salesManagers.map((manager) => (
-                      <SelectItem key={manager} value={manager} className="text-white hover:bg-[#C5A059]/10">
-                        {manager}
+                  <SelectContent className="bg-[#1A1A1A] border-white/10 max-h-60 overflow-y-auto">
+                    <SelectItem value="__unassigned__" className="text-white hover:bg-[#C5A059]/10">
+                      Unassigned
+                    </SelectItem>
+                    {assigneesLoading ? (
+                      <SelectItem value="__loading_mgr" disabled className="text-[#52525B]">
+                        Loading managers…
                       </SelectItem>
-                    ))}
+                    ) : (
+                      assigneeOptions.map((user) => (
+                        <SelectItem
+                          key={user.id}
+                          value={user.id}
+                          className="text-white hover:bg-[#C5A059]/10"
+                        >
+                          {user.full_name}
+                          {user.role ? (
+                            <span className="ml-2 text-[#52525B] text-xs">({user.role})</span>
+                          ) : null}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -1538,6 +1701,33 @@ const VirtualCustomerPage = () => {
             <p className="text-[#A1A1AA] text-sm">
               Upload a CSV file with lead data. The system will automatically detect and skip duplicates.
             </p>
+            <label className="flex items-center gap-2 text-sm text-[#A1A1AA] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={csvReplaceAll}
+                onChange={(e) => {
+                  setCsvReplaceAll(e.target.checked);
+                  if (!e.target.checked) setCsvReplaceConfirm('');
+                }}
+                className="accent-[#C5A059]"
+              />
+              Replace all existing leads with CSV (destructive)
+            </label>
+            {csvReplaceAll && (
+              <div className="space-y-2 p-3 rounded-lg border border-red-500/40 bg-red-500/10">
+                <p className="text-red-300 text-sm">
+                  This will permanently delete ALL existing leads and replace them with the CSV contents.
+                  This cannot be undone.
+                </p>
+                <Input
+                  value={csvReplaceConfirm}
+                  onChange={(e) => setCsvReplaceConfirm(e.target.value)}
+                  placeholder='Type REPLACE ALL to confirm'
+                  className="bg-black/50 border-white/10 text-white"
+                  data-testid="csv-replace-confirm"
+                />
+              </div>
+            )}
             <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center hover:border-[#C5A059]/50 transition-colors">
               <input
                 type="file"

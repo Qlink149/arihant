@@ -57,7 +57,7 @@ db = client[os.environ["DB_NAME"]]
 # JWT Configuration
 SECRET_KEY = os.environ.get("SECRET_KEY", "arihant-secret-key-change-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "720"))
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 
@@ -190,9 +190,30 @@ async def ensure_db_indexes():
         # webhook_configs
         await db.webhook_configs.create_index([("app_id", 1)], unique=True, name="webhook_configs_app_id_uq")
 
+        # cron_locks — TTL auto-expire at expires_at
+        await db.cron_locks.create_index(
+            "expires_at",
+            expireAfterSeconds=0,
+            name="cron_locks_ttl",
+        )
+
+        # user_activity — active agent routing
+        await db.user_activity.create_index(
+            [("user_id", 1), ("last_heartbeat_dt", -1)],
+            name="user_activity_routing",
+        )
+
+        # app_settings — frequent key lookups
+        await db.app_settings.create_index(
+            "key",
+            unique=True,
+            sparse=True,
+            name="app_settings_key",
+        )
+
         logger.info("DB indexes ensured")
     except Exception as e:
-        logger.error(f"Failed ensuring DB indexes: {e}")
+        logger.critical(f"FATAL: Index creation failed: {e}. DB may be misconfigured.")
 
 
 async def seed_default_alert_configs():

@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { alertsAPI, assignmentAPI, remindersAPI, notificationsAPI } from '../services/api';
+import { alertsAPI, remindersAPI, notificationsAPI, settingsAPI } from '../services/api';
 import { toast } from 'sonner';
 import { formatDateTimeIST } from '../utils/datetime';
 import {
   Bell,
-  Users,
   Clock,
   Mail,
   MessageCircle,
@@ -18,7 +17,6 @@ import {
   Play,
   History,
   Zap,
-  FileCode
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -38,15 +36,22 @@ import {
 const SettingsPage = () => {
   const navigate = useNavigate();
   const [alerts, setAlerts] = useState([]);
-  const [assignmentRules, setAssignmentRules] = useState([]);
   const [pendingAlerts, setPendingAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddAlert, setShowAddAlert] = useState(false);
-  const [showAddRule, setShowAddRule] = useState(false);
   const [reminderRules, setReminderRules] = useState([]);
   const [reminderHistory, setReminderHistory] = useState([]);
   const [triggering, setTriggering] = useState(false);
   const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true);
+  const [brevo, setBrevo] = useState({
+    brevo_enabled: false,
+    brevo_api_key: '',
+    alert_email: '',
+    sender_email: '',
+    dashboard_url: '',
+  });
+  const [routingCap, setRoutingCap] = useState(10);
+  const [savingBrevo, setSavingBrevo] = useState(false);
 
   // New alert form
   const [newAlert, setNewAlert] = useState({
@@ -56,34 +61,28 @@ const SettingsPage = () => {
     is_active: true
   });
 
-  // New rule form
-  const [newRule, setNewRule] = useState({
-    name: '',
-    rule_type: 'round_robin',
-    config: { agents: [] },
-    is_active: true
-  });
-
   useEffect(() => {
     fetchData();
   }, []);
 
   const fetchData = async () => {
     try {
-      const [alertsRes, rulesRes, pendingRes, remRulesRes, remHistRes, notifPrefsRes] = await Promise.all([
+      const [alertsRes, pendingRes, remRulesRes, remHistRes, notifPrefsRes, brevoRes, routingRes] = await Promise.all([
         alertsAPI.getConfig(),
-        assignmentAPI.getRules(),
         alertsAPI.getPending(),
         remindersAPI.getRules(),
         remindersAPI.getHistory(20),
         notificationsAPI.getPreferences(),
+        settingsAPI.getBrevo().catch(() => ({ data: {} })),
+        settingsAPI.getRouting().catch(() => ({ data: {} })),
       ]);
       setAlerts(alertsRes.data);
-      setAssignmentRules(rulesRes.data);
       setPendingAlerts(pendingRes.data);
       setReminderRules(remRulesRes.data || []);
       setReminderHistory(remHistRes.data || []);
       setNotificationSoundEnabled(Boolean(notifPrefsRes.data?.notification_sound_enabled));
+      if (brevoRes?.data) setBrevo((p) => ({ ...p, ...brevoRes.data }));
+      if (routingRes?.data?.capacity_cap) setRoutingCap(routingRes.data.capacity_cap);
     } catch (error) {
       console.error('Failed to fetch settings:', error);
     } finally {
@@ -110,21 +109,6 @@ const SettingsPage = () => {
       fetchData();
     } catch (error) {
       toast.error('Failed to add alert');
-    }
-  };
-
-  const handleAddRule = async () => {
-    if (!newRule.name) {
-      toast.error('Please enter a rule name');
-      return;
-    }
-    try {
-      await assignmentAPI.createRule(newRule);
-      toast.success('Assignment rule added');
-      setShowAddRule(false);
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to add rule');
     }
   };
 
@@ -169,12 +153,6 @@ const SettingsPage = () => {
     { value: 'intent_notification', label: 'Intent Notification', description: 'Notify on high/low intent detection' }
   ];
 
-  const ruleTypes = [
-    { value: 'round_robin', label: 'Round Robin', description: 'Distribute leads equally among agents' },
-    { value: 'project_based', label: 'Project Based', description: 'Assign based on project interest' },
-    { value: 'location_based', label: 'Location Based', description: 'Assign based on lead location' }
-  ];
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -193,7 +171,7 @@ const SettingsPage = () => {
         <h1 className="font-serif text-3xl text-white" data-testid="settings-title">
           Settings
         </h1>
-        <p className="text-[#A1A1AA] mt-2">Configure alerts, assignment rules, and notifications</p>
+        <p className="text-[#A1A1AA] mt-2">Configure alerts and notifications</p>
       </motion.div>
 
       {/* Pending Alerts Banner */}
@@ -275,60 +253,6 @@ const SettingsPage = () => {
         </div>
       </motion.div>
 
-      {/* Assignment Rules */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="glass-card rounded-lg p-6"
-      >
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-[#C5A059]/20 flex items-center justify-center">
-              <Users className="text-[#C5A059]" size={20} />
-            </div>
-            <div>
-              <h2 className="font-serif text-xl text-white">Auto-Assignment Rules</h2>
-              <p className="text-[#52525B] text-sm">Configure how leads are automatically assigned</p>
-            </div>
-          </div>
-          <Button
-            onClick={() => setShowAddRule(true)}
-            className="bg-[#C5A059] text-black hover:bg-[#E5C079]"
-            data-testid="add-rule-btn"
-          >
-            <Plus size={16} className="mr-2" />
-            Add Rule
-          </Button>
-        </div>
-
-        <div className="space-y-4">
-          {assignmentRules.length === 0 ? (
-            <div className="text-center py-8 text-[#52525B]">
-              No assignment rules configured. Add one to automate lead distribution.
-            </div>
-          ) : (
-            assignmentRules.map((rule, idx) => (
-              <div
-                key={rule.id || idx}
-                className="flex items-center justify-between p-4 bg-black/30 rounded-lg"
-              >
-                <div className="flex items-center gap-4">
-                  <div className={`w-3 h-3 rounded-full ${rule.is_active ? 'bg-green-500' : 'bg-gray-500'}`} />
-                  <div>
-                    <p className="text-white font-medium">{rule.name}</p>
-                    <p className="text-[#52525B] text-sm">
-                      Type: {ruleTypes.find(t => t.value === rule.rule_type)?.label || rule.rule_type}
-                    </p>
-                  </div>
-                </div>
-                <Switch checked={rule.is_active} />
-              </div>
-            ))
-          )}
-        </div>
-      </motion.div>
-
       {/* Notification Channels */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -377,42 +301,6 @@ const SettingsPage = () => {
               checked={notificationSoundEnabled}
               onCheckedChange={handleToggleNotificationSound}
               data-testid="notification-sound-toggle"
-            />
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Freshworks Integration Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="glass-card rounded-lg p-6"
-      >
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
-            <Users className="text-blue-500" size={20} />
-          </div>
-          <div>
-            <h2 className="font-serif text-xl text-white">Freshworks Integration</h2>
-            <p className="text-[#52525B] text-sm">Parallel CRM sync during transition period</p>
-          </div>
-        </div>
-
-        <div className="p-4 bg-black/30 rounded-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-white font-medium">Sync to Freshworks CRM</p>
-              <p className="text-[#52525B] text-sm">
-                Automatically push lead data to Freshworks for 2-3 month transition period
-              </p>
-            </div>
-            <Switch />
-          </div>
-          <div className="mt-4 pt-4 border-t border-white/10">
-            <Input
-              placeholder="Freshworks API Key"
-              className="bg-black/50 border-white/10 text-white placeholder:text-[#52525B]"
             />
           </div>
         </div>
@@ -493,77 +381,6 @@ const SettingsPage = () => {
             >
               <Save size={16} className="mr-2" />
               Save Alert
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Rule Dialog */}
-      <Dialog open={showAddRule} onOpenChange={setShowAddRule}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white">
-          <DialogHeader>
-            <DialogTitle className="font-serif text-xl">Add Assignment Rule</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-[#A1A1AA] text-sm mb-2 block">Rule Name</label>
-              <Input
-                value={newRule.name}
-                onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
-                placeholder="e.g., Sales Team Round Robin"
-                className="bg-black/50 border-white/10 text-white placeholder:text-[#52525B]"
-              />
-            </div>
-
-            <div>
-              <label className="text-[#A1A1AA] text-sm mb-2 block">Rule Type</label>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-between bg-black/50 border-white/10 text-white"
-                  >
-                    {ruleTypes.find(t => t.value === newRule.rule_type)?.label || 'Select type'}
-                    <ChevronDown size={14} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
-                  {ruleTypes.map((type) => (
-                    <DropdownMenuItem
-                      key={type.value}
-                      onClick={() => setNewRule({ ...newRule, rule_type: type.value })}
-                      className="text-white hover:bg-[#C5A059]/10 cursor-pointer"
-                    >
-                      <div>
-                        <p>{type.label}</p>
-                        <p className="text-[#52525B] text-xs">{type.description}</p>
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {newRule.rule_type === 'round_robin' && (
-              <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Agents (comma separated)</label>
-                <Input
-                  placeholder="Priya, Rahul, Amit"
-                  onChange={(e) => setNewRule({
-                    ...newRule,
-                    config: { agents: e.target.value.split(',').map(a => a.trim()) }
-                  })}
-                  className="bg-black/50 border-white/10 text-white placeholder:text-[#52525B]"
-                />
-              </div>
-            )}
-
-            <Button
-              onClick={handleAddRule}
-              className="w-full bg-[#C5A059] text-black hover:bg-[#E5C079]"
-            >
-              <Save size={16} className="mr-2" />
-              Save Rule
             </Button>
           </div>
         </DialogContent>
@@ -667,32 +484,88 @@ const SettingsPage = () => {
         </div>
       </motion.div>
 
-      {/* Developer Resources */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.35 }}
-        className="glass-card rounded-lg p-6"
-        data-testid="developer-resources-section"
+        className="glass-card rounded-xl p-6 border border-white/10 space-y-4"
       >
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-[#C5A059]/20 flex items-center justify-center">
-            <FileCode className="text-[#C5A059]" size={20} />
-          </div>
-          <div>
-            <h2 className="font-serif text-xl text-white">Developer Resources</h2>
-            <p className="text-[#52525B] text-sm">API reference and integration notes for developers</p>
-          </div>
+        <h2 className="font-serif text-xl text-white flex items-center gap-2">
+          <Mail className="text-[#C5A059]" size={20} />
+          Brevo (Admin alerts)
+        </h2>
+        <p className="text-[#52525B] text-sm">
+          Nurturing 14-day review digest. Create template <code className="text-[#A1A1AA]">nurturing_review_alert</code> in Brevo or use default HTML body.
+        </p>
+        <div className="flex items-center justify-between">
+          <span className="text-[#A1A1AA] text-sm">Enable Brevo</span>
+          <Switch
+            checked={brevo.brevo_enabled}
+            onCheckedChange={(v) => setBrevo((p) => ({ ...p, brevo_enabled: v }))}
+          />
         </div>
-        <Button
-          type="button"
-          onClick={() => navigate('/developer-docs')}
-          className="bg-[#C5A059] text-black hover:bg-[#E5C079]"
-          data-testid="view-developer-docs-btn"
-        >
-          <FileCode size={16} className="mr-2" />
-          View Developer Documentation
-        </Button>
+        <Input
+          placeholder="Alert email"
+          value={brevo.alert_email}
+          onChange={(e) => setBrevo((p) => ({ ...p, alert_email: e.target.value }))}
+          className="bg-[#0F0F0F] border-white/10 text-white"
+        />
+        <Input
+          placeholder="API key (leave *** to keep)"
+          value={brevo.brevo_api_key}
+          onChange={(e) => setBrevo((p) => ({ ...p, brevo_api_key: e.target.value }))}
+          className="bg-[#0F0F0F] border-white/10 text-white"
+        />
+        <Input
+          placeholder="Dashboard URL"
+          value={brevo.dashboard_url}
+          onChange={(e) => setBrevo((p) => ({ ...p, dashboard_url: e.target.value }))}
+          className="bg-[#0F0F0F] border-white/10 text-white"
+        />
+        <div className="flex gap-2">
+          <Button
+            className="bg-[#C5A059] text-black"
+            disabled={savingBrevo}
+            onClick={async () => {
+              setSavingBrevo(true);
+              try {
+                await settingsAPI.updateBrevo(brevo);
+                await settingsAPI.updateRouting({ capacity_cap: Number(routingCap) || 10 });
+                toast.success('Settings saved');
+              } catch {
+                toast.error('Save failed (admin only)');
+              } finally {
+                setSavingBrevo(false);
+              }
+            }}
+          >
+            <Save size={14} className="mr-2" />
+            Save
+          </Button>
+          <Button
+            variant="outline"
+            className="border-white/10 text-white"
+            onClick={async () => {
+              try {
+                const { data } = await settingsAPI.testBrevo();
+                toast[data?.ok ? 'success' : 'error'](data?.ok ? 'Test email sent' : 'Test failed');
+              } catch {
+                toast.error('Test send failed');
+              }
+            }}
+          >
+            Test send
+          </Button>
+        </div>
+        <div>
+          <label className="text-[#A1A1AA] text-xs">Routing capacity cap (open New leads per rep)</label>
+          <Input
+            type="number"
+            min={1}
+            value={routingCap}
+            onChange={(e) => setRoutingCap(e.target.value)}
+            className="mt-1 bg-[#0F0F0F] border-white/10 text-white max-w-[120px]"
+          />
+        </div>
       </motion.div>
     </div>
   );

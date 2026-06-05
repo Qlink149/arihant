@@ -16,27 +16,14 @@ from crm.services.transfer_queries import (
     incoming_transfer_filter,
     outgoing_transfer_filter,
 )
+from crm.services.lead_projections import LEAD_LIST_SORT, MY_DASHBOARD_LEAD_PROJECTION
+from crm.services.task_enrichment import enrich_tasks
 
 
 router = APIRouter()
 
-LEAD_PROJECTION = {
-    "_id": 0,
-    "id": 1,
-    "first_name": 1,
-    "last_name": 1,
-    "project": 1,
-    "phone": 1,
-    "temperature": 1,
-    "lead_status": 1,
-    "vip": 1,
-    "assigned_to": 1,
-    "assigned_to_name": 1,
-    "next_action_date": 1,
-    "updated_at": 1,
-}
-
-LEAD_SORT = [("updated_at_dt", -1), ("updated_at", -1), ("created_at_dt", -1)]
+LEAD_PROJECTION = MY_DASHBOARD_LEAD_PROJECTION
+LEAD_SORT = LEAD_LIST_SORT
 
 
 def _transfer_at(t: dict) -> datetime:
@@ -78,7 +65,7 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
     closed = await db.leads.count_documents(
         {
             **base_filter,
-            "lead_status": {"$regex": CLOSED_LEAD_STATUS_REGEX, "$options": "i"},
+            "lead_status": {"$regex": CLOSED_LEAD_STATUS_REGEX.pattern, "$options": "i"},
         }
     )
     conversion_rate = round((closed / total_leads * 100), 1) if total_leads > 0 else 0
@@ -95,6 +82,7 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
 
     task_query = _task_scope_filter(uid, name)
     my_tasks = await db.tasks.find(task_query, {"_id": 0}).sort("due_date", 1).to_list(100)
+    my_tasks = await enrich_tasks(my_tasks)
 
     pending_tasks = [t for t in my_tasks if t.get("status") == "pending"]
     overdue_tasks = [t for t in pending_tasks if t.get("due_date", "9999") < now.strftime("%Y-%m-%d")]

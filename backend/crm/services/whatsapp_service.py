@@ -403,9 +403,12 @@ async def handle_v3_webhook(body: dict):
                             "agent": sender_name or "Customer",
                             "direction": "inbound",
                         }
+                        # WhatsApp integration is not yet live: do not auto-transition lead_status
+                        # based on inbound webhooks. We only append the context update.
+                        set_fields = {"updated_at": now_iso, "updated_at_dt": now_dt}
                         await db.leads.update_one(
                             {"id": lead["id"]},
-                            {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
+                            {"$push": {"context_updates": context_update}, "$set": set_fields},
                         )
 
                 statuses = value.get("statuses", [])

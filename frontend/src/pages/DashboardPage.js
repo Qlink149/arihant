@@ -1,20 +1,21 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { analyticsAPI } from '../services/api';
 import {
   Users,
-  Crown,
   Flame,
-  CheckCircle,
-  TrendingUp,
-  TrendingDown,
   Calendar,
   ChevronDown,
   Info,
   Building,
-  Layers
+  Layers,
+  AlertCircle,
+  MapPin,
+  PhoneOff,
+  Briefcase,
+  UserPlus,
 } from 'lucide-react';
 import {
   BarChart,
@@ -50,40 +51,68 @@ import {
   DialogTitle,
   DialogDescription,
 } from '../components/ui/dialog';
+import {
+  buildDashboardAnalyticsParams,
+  buildVirtualCustomerDrillPath,
+} from '../utils/dashboardDrillDown';
 
 // Tooltip copy aligned with GET /api/analytics/dashboard counts
 const LEAD_CRITERIA = {
-  dormant: {
-    title: "Dormant leads (API: dormant_leads)",
+  missed_follow_up: {
+    title: 'Missed follow-ups',
     rules: [
-      "No meaningful activity for 7+ days (uses updated_at_dt / updated_at, then created dates for legacy rows).",
-      "Excludes leads whose status is exactly Won, Lost, Advance Paid, Closed, Booked, Dropped, or Unqualified (case-insensitive)."
-    ]
+      'Active pipeline leads where next_action_date is before today (IST).',
+      'Uses snapshot scope: project filter only — not limited by lead intake period.',
+    ],
+  },
+  todays_site_visits: {
+    title: "Today's site visits",
+    rules: [
+      'Site visit scheduled status with visit_date_dt on today\'s IST calendar day.',
+      'Snapshot scope: project filter only.',
+    ],
+  },
+  rnr: {
+    title: 'RNR queue',
+    rules: [
+      'is_rnr flag or RNR-like text on lead_status / original_fw_status.',
+      'Snapshot scope: project filter only.',
+    ],
+  },
+  negotiation: {
+    title: 'In negotiation',
+    rules: [
+      'lead_status contains "negotiat" (case-insensitive).',
+      'Snapshot scope: project filter only.',
+    ],
+  },
+  follow_up_today: {
+    title: 'Follow up today',
+    rules: [
+      'Active pipeline leads where next_action_date equals today (IST).',
+      'Snapshot scope: project filter only.',
+    ],
+  },
+  todays_leads: {
+    title: "Today's new leads",
+    rules: [
+      'Leads created on today\'s IST calendar day.',
+      'Snapshot scope: project filter only.',
+    ],
   },
   hot: {
-    title: "Nurturing — Hot (API: hot_leads)",
+    title: 'Nurturing — Hot',
     rules: [
-      'lead_status is "Nurturing" and nurture label (temperature) is "Hot".'
-    ]
+      'lead_status is "Nurturing" and nurture label (temperature) is "Hot".',
+      'Respects intake period and project filters.',
+    ],
   },
-  warm: {
-    title: "Nurturing — Warm (API: warm_leads)",
+  total: {
+    title: 'Total leads',
     rules: [
-      'lead_status is "Nurturing" and nurture label (temperature) is "Warm".'
-    ]
+      'All leads matching the selected project and intake period filters.',
+    ],
   },
-  qualified: {
-    title: "Qualified leads (API: qualified_leads)",
-    rules: [
-      'lead_status matches "qualified" anywhere in the string (case-insensitive regex on the server).'
-    ]
-  },
-  vip: {
-    title: "VIP pipeline (API: vip_leads)",
-    rules: [
-      "vip flag is true on the lead document (budget / VIP rules evaluated server-side)."
-    ]
-  }
 };
 
 // Regional colors - more distinct and accessible
@@ -113,6 +142,9 @@ const DashboardPage = () => {
   const navigate = useNavigate();
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const analyticsRef = useRef(null);
+  analyticsRef.current = analytics;
   const [timeFilter, setTimeFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
   const [dateRange, setDateRange] = useState(null);
@@ -129,28 +161,53 @@ const DashboardPage = () => {
   // Dynamic project list from API data
   const projects = (analytics?.projects || []).map(p => p.name).filter(n => n !== 'Unknown');
 
+  const dashboardFilterState = useMemo(
+    () => ({ timeFilter, dateRange, projectFilter }),
+    [timeFilter, dateRange, projectFilter]
+  );
+
   const fetchAnalytics = useCallback(async () => {
+    if (analyticsRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
-      const params = {};
-      if (timeFilter !== 'all' && timeFilter !== 'custom') {
-        params.days = parseInt(timeFilter);
-      }
+      const params = buildDashboardAnalyticsParams(dashboardFilterState);
       const response = await analyticsAPI.getDashboard(params);
       setAnalytics(response.data);
     } catch (error) {
       console.error('Failed to fetch analytics:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [timeFilter]);
+  }, [dashboardFilterState]);
 
   useEffect(() => {
     fetchAnalytics();
   }, [fetchAnalytics]);
 
+  const drillToVirtualCustomer = useCallback(
+    (tile) => {
+      navigate(buildVirtualCustomerDrillPath(tile, dashboardFilterState));
+    },
+    [navigate, dashboardFilterState]
+  );
+
   // Navigate to Virtual Customer with project filter
   const handleProjectClick = (projectName) => {
-    navigate(`/virtual-customer?project=${encodeURIComponent(projectName)}`);
+    const params = buildDashboardAnalyticsParams({
+      ...dashboardFilterState,
+      projectFilter: projectName,
+    });
+    const qs = new URLSearchParams();
+    if (params.project) qs.set('project', params.project);
+    if (params.days) qs.set('days', String(params.days));
+    if (params.created_from) qs.set('created_from', params.created_from);
+    if (params.created_to) qs.set('created_to', params.created_to);
+    const suffix = qs.toString();
+    navigate(suffix ? `/virtual-customer?${suffix}` : '/virtual-customer');
   };
 
   const { topProjects, otherProjects, otherTotal, maxProjectCount } = useMemo(() => {
@@ -224,7 +281,35 @@ const DashboardPage = () => {
     );
   };
 
-  if (loading) {
+  const operational = analytics?.operational || {};
+
+  const StatTile = ({ tile, testId, title, subtitle, value, icon: Icon, iconClass, iconBg, tooltipType }) => (
+    <div
+      role="button"
+      tabIndex={0}
+      title={subtitle ? `${title} — ${subtitle}` : title}
+      className="glass-card rounded-lg p-6 card-hover cursor-pointer"
+      data-testid={testId}
+      onClick={() => drillToVirtualCustomer(tile)}
+      onKeyDown={(e) => e.key === 'Enter' && drillToVirtualCustomer(tile)}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div className={`w-12 h-12 rounded-lg ${iconBg} flex items-center justify-center`}>
+          <Icon className={iconClass} size={24} />
+        </div>
+        {tooltipType ? (
+          <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            <LeadCriteriaTooltip type={tooltipType} />
+          </span>
+        ) : null}
+      </div>
+      <p className="text-[#A1A1AA] text-sm">{title}</p>
+      <p className="font-serif text-3xl text-white mt-1">{value ?? 0}</p>
+      {subtitle ? <p className="text-[#52525B] text-xs mt-1">{subtitle}</p> : null}
+    </div>
+  );
+
+  if (loading && !analytics) {
     return (
       <div className="space-y-6 p-2 max-w-6xl mx-auto">
         <div className="h-40 rounded-xl bg-white/5 animate-pulse" />
@@ -239,12 +324,20 @@ const DashboardPage = () => {
   }
 
   return (
-    <div className="space-y-8">
+    <div className={`space-y-8 relative transition-opacity duration-200 ${refreshing ? 'opacity-80' : ''}`}>
+      {refreshing && (
+        <div
+          className="absolute top-0 right-0 z-20 px-3 py-1 rounded-md bg-[#1A1A1A]/90 border border-white/10 text-[#C5A059] text-xs animate-pulse"
+          aria-live="polite"
+        >
+          Updating…
+        </div>
+      )}
       {/* Hero Banner */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="relative rounded-xl overflow-hidden h-40 md:h-48"
+        className="dashboard-hero relative rounded-xl overflow-hidden h-40 md:h-48"
         data-testid="hero-banner"
       >
         <img
@@ -252,14 +345,19 @@ const DashboardPage = () => {
           alt="Luxury property"
           className="absolute inset-0 w-full h-full object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/30" />
+        <div className="hero-overlay absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/30" />
         <div className="relative z-10 h-full flex items-center px-8">
           <div>
             <p className="text-[#C5A059] text-sm font-medium tracking-widest uppercase">Arihant Spaces</p>
-            <h1 className="font-serif text-3xl lg:text-4xl text-white mt-1" data-testid="dashboard-greeting">
-              Hello, {user?.full_name?.split(' ')[0] || 'Roshini'}
+            <h1
+              className="hero-greeting font-serif text-3xl lg:text-4xl mt-1"
+              data-testid="dashboard-greeting"
+            >
+              Hello, {user?.full_name?.split(' ')[0] || 'there'}
             </h1>
-            <p className="text-white/70 mt-1 text-sm">Here's your sales intelligence overview — crafting memorable spaces since 1995</p>
+            <p className="hero-subtitle mt-1 text-sm">
+              Here's your sales intelligence overview — crafting memorable spaces since 1995
+            </p>
           </div>
         </div>
       </motion.div>
@@ -352,97 +450,115 @@ const DashboardPage = () => {
           )}
       </motion.div>
 
-      {/* Dormant alert tile */}
+      {/* Primary row — operational KPIs (snapshot; project filter only on drill-down) */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="grid grid-cols-1 gap-4"
+        className="space-y-2"
       >
-        <div className="glass-card rounded-lg p-6 border-l-4 border-orange-500 card-hover" data-testid="dormant-leads-tile">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center">
-                <p className="text-[#A1A1AA] text-sm uppercase tracking-wider">Dormant Leads</p>
-                <LeadCriteriaTooltip type="dormant" />
-              </div>
-              <p className="font-serif text-4xl text-white mt-2">
-                {analytics?.dormant_leads ?? 0}
-              </p>
-              <p className="text-orange-400 text-sm mt-1">No activity in 7+ days</p>
-            </div>
-            <div className="w-14 h-14 rounded-full bg-orange-500/20 flex items-center justify-center">
-              <TrendingDown className="text-orange-500" size={28} />
-            </div>
-          </div>
+        <p className="text-[#52525B] text-xs uppercase tracking-wider">Action today</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatTile
+            tile="missed_follow_up"
+            testId="missed-follow-up-tile"
+            title="Missed Follow-ups"
+            subtitle="Overdue follow-ups"
+            value={operational.missed_follow_up}
+            icon={AlertCircle}
+            iconClass="text-red-500"
+            iconBg="bg-red-500/20"
+            tooltipType="missed_follow_up"
+          />
+          <StatTile
+            tile="todays_site_visits"
+            testId="todays-site-visits-tile"
+            title="Today's Site Visits"
+            subtitle="Scheduled today (IST)"
+            value={operational.todays_site_visits}
+            icon={MapPin}
+            iconClass="text-purple-500"
+            iconBg="bg-purple-500/20"
+            tooltipType="todays_site_visits"
+          />
+          <StatTile
+            tile="rnr"
+            testId="rnr-tile"
+            title="RNR Queue"
+            subtitle="Ring no response"
+            value={operational.rnr}
+            icon={PhoneOff}
+            iconClass="text-orange-500"
+            iconBg="bg-orange-500/20"
+            tooltipType="rnr"
+          />
+          <StatTile
+            tile="negotiation"
+            testId="negotiation-tile"
+            title="In Negotiation"
+            subtitle="Active deal discussions"
+            value={operational.negotiation}
+            icon={Briefcase}
+            iconClass="text-emerald-500"
+            iconBg="bg-emerald-500/20"
+            tooltipType="negotiation"
+          />
         </div>
       </motion.div>
 
-      {/* Key Metrics Grid with Info Tooltips */}
+      {/* Secondary row — pipeline context (cohort filters apply) */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+        transition={{ delay: 0.15 }}
+        className="space-y-2"
       >
-        {/* Total Leads */}
-        <div className="glass-card rounded-lg p-6 card-hover" data-testid="total-leads-tile">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-lg bg-[#C5A059]/20 flex items-center justify-center">
-              <Users className="text-[#C5A059]" size={24} />
-            </div>
-            <span className="flex items-center gap-1 text-green-500 text-sm">
-              <TrendingUp size={14} /> +12%
-            </span>
-          </div>
-          <p className="text-[#A1A1AA] text-sm">Total Leads</p>
-          <p className="font-serif text-3xl text-white mt-1">{analytics?.total_leads || 0}</p>
-        </div>
-
-        {/* VIP Pipeline */}
-        <div className="glass-card rounded-lg p-6 card-hover" data-testid="vip-leads-tile">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-lg bg-purple-500/20 flex items-center justify-center">
-              <Crown className="text-purple-500" size={24} />
-            </div>
-            <span className="flex items-center gap-1 text-green-500 text-sm">
-              <TrendingUp size={14} /> +8%
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            <p className="text-[#A1A1AA] text-sm">VIP Pipeline</p>
-            <LeadCriteriaTooltip type="vip" />
-          </div>
-          <p className="font-serif text-3xl text-white mt-1">{analytics?.vip_leads || 0}</p>
-        </div>
-
-        {/* Hot Leads */}
-        <div className="glass-card rounded-lg p-6 card-hover" data-testid="hot-leads-tile">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-lg bg-red-500/20 flex items-center justify-center">
-              <Flame className="text-red-500" size={24} />
-            </div>
-            <LeadCriteriaTooltip type="hot" />
-          </div>
-          <p className="text-[#A1A1AA] text-sm">Nurturing (Hot)</p>
-          <p className="font-serif text-3xl text-white mt-1">{analytics?.hot_leads || 0}</p>
-        </div>
-
-        {/* Qualified Leads */}
-        <div className="glass-card rounded-lg p-6 card-hover" data-testid="qualified-leads-tile">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-lg bg-green-500/20 flex items-center justify-center">
-              <CheckCircle className="text-green-500" size={24} />
-            </div>
-            <span className="flex items-center gap-1 text-green-500 text-sm">
-              <TrendingUp size={14} /> +5%
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            <p className="text-[#A1A1AA] text-sm">Qualified Leads</p>
-            <LeadCriteriaTooltip type="qualified" />
-          </div>
-          <p className="font-serif text-3xl text-white mt-1">{analytics?.qualified_leads || 0}</p>
+        <p className="text-[#52525B] text-xs uppercase tracking-wider">Pipeline context</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatTile
+            tile="total"
+            testId="total-leads-tile"
+            title="Total Leads"
+            subtitle="In selected intake period"
+            value={analytics?.total_leads}
+            icon={Users}
+            iconClass="text-[#C5A059]"
+            iconBg="bg-[#C5A059]/20"
+            tooltipType="total"
+          />
+          <StatTile
+            tile="hot"
+            testId="hot-leads-tile"
+            title="Nurturing (Hot)"
+            subtitle="High-intent nurture"
+            value={analytics?.hot_leads}
+            icon={Flame}
+            iconClass="text-red-500"
+            iconBg="bg-red-500/20"
+            tooltipType="hot"
+          />
+          <StatTile
+            tile="follow_up_today"
+            testId="follow-up-today-tile"
+            title="Follow Up Today"
+            subtitle="Due today (IST)"
+            value={operational.follow_up_today}
+            icon={Calendar}
+            iconClass="text-amber-500"
+            iconBg="bg-amber-500/20"
+            tooltipType="follow_up_today"
+          />
+          <StatTile
+            tile="todays_leads"
+            testId="todays-leads-tile"
+            title="Today's New Leads"
+            subtitle="Created today (IST)"
+            value={operational.todays_leads}
+            icon={UserPlus}
+            iconClass="text-teal-500"
+            iconBg="bg-teal-500/20"
+            tooltipType="todays_leads"
+          />
         </div>
       </motion.div>
 

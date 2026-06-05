@@ -13,7 +13,9 @@ export const STATUS_COLORS = {
   Interested: 'bg-cyan-500/20 text-cyan-400',
   'Site Visit': 'bg-purple-500/20 text-purple-400',
   'Site Visit Scheduled': 'bg-purple-500/20 text-purple-400',
-  'Site Visit Completed': 'bg-green-500/20 text-green-400',
+  'Visit Completed': 'bg-green-500/20 text-green-400',
+  'SV Completed – Follow Up': 'bg-teal-500/20 text-teal-400',
+  'Re-engaged': 'bg-cyan-500/20 text-cyan-400',
   'Advance Paid': 'bg-emerald-500/20 text-emerald-400',
   RNR: 'bg-red-500/20 text-red-400',
   Nurturing: 'bg-orange-500/20 text-orange-400',
@@ -31,22 +33,20 @@ export function getStatusBadgeClass(status) {
 }
 
 /**
- * Extremely subtle background tint classes for Nurturing + (Hot/Warm) leads.
- * Intended to work in both dark/light themes by relying on very low opacity.
+ * Row background tint for Nurturing + Hot/Warm leads.
+ * Uses theme CSS vars (--nurture-row-*) with deeper orange/amber hues for scanability.
  */
 export function getNurtureTemperatureTintClass(status, temperature, { includeHover = true } = {}) {
   const s = String(status || '').trim().toLowerCase();
   if (s !== 'nurturing') return '';
   const t = String(temperature || '').trim().toLowerCase();
   if (t === 'hot') {
-    return includeHover
-      ? 'bg-orange-500/5 hover:bg-orange-500/8'
-      : 'bg-orange-500/5';
+    const base = 'nurture-row-tint-hot';
+    return includeHover ? base : `${base} nurture-row-tint-static`;
   }
   if (t === 'warm') {
-    return includeHover
-      ? 'bg-amber-500/5 hover:bg-amber-500/8'
-      : 'bg-amber-500/5';
+    const base = 'nurture-row-tint-warm';
+    return includeHover ? base : `${base} nurture-row-tint-static`;
   }
   return '';
 }
@@ -90,6 +90,20 @@ export function buildPendingTaskMap(tasks) {
   return map;
 }
 
+/** One pass: earliest pending task with due_date per lead_id. */
+export function buildEarliestPendingTaskMap(tasks) {
+  const map = new Map();
+  if (!Array.isArray(tasks)) return map;
+  for (const t of tasks) {
+    if (t.status !== 'pending' || !t.lead_id || !t.due_date) continue;
+    const existing = map.get(t.lead_id);
+    if (!existing || String(t.due_date).localeCompare(String(existing.due_date)) < 0) {
+      map.set(t.lead_id, t);
+    }
+  }
+  return map;
+}
+
 export function getEarliestTaskDue(tasks, leadId) {
   if (!leadId || !Array.isArray(tasks)) return null;
   const pending = tasks.filter((t) => t.lead_id === leadId && t.status === 'pending' && t.due_date);
@@ -98,13 +112,15 @@ export function getEarliestTaskDue(tasks, leadId) {
   return pending[0];
 }
 
-export function formatFollowUp(lead, pendingTasks = [], taskMap = null) {
+export function formatFollowUp(lead, pendingTasks = [], taskMap = null, earliestTaskMap = null) {
   if (lead?.next_action_date) {
     return formatDateTime(lead.next_action_date);
   }
   const count = taskMap?.get(lead?.id);
-  if (count && Array.isArray(pendingTasks)) {
-    const earliest = getEarliestTaskDue(pendingTasks, lead.id);
+  if (count) {
+    const earliest =
+      earliestTaskMap?.get(lead?.id) ??
+      (Array.isArray(pendingTasks) ? getEarliestTaskDue(pendingTasks, lead.id) : null);
     if (earliest?.due_date) {
       return formatDueDateTime(earliest.due_date, earliest.due_time);
     }

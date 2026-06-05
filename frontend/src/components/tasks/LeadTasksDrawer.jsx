@@ -2,13 +2,15 @@ import React, { useMemo } from 'react';
 import { Calendar, ExternalLink, Flag, ListChecks } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet';
 import { Button } from '../ui/button';
-import { formatDueDateTime } from '../../utils/datetime';
-
-const isOverdueYmd = (ymd) => {
-  if (!ymd) return false;
-  const today = new Date().toISOString().slice(0, 10);
-  return String(ymd) < today;
-};
+import {
+  formatTaskDue,
+  getDueStatusBadge,
+  getPriorityBadge,
+  getTaskCardBorderClass,
+  getTaskDisplayTitle,
+  getTaskDueBucket,
+  getTaskReason,
+} from '../../utils/taskDisplay';
 
 function TaskRow({
   task,
@@ -17,54 +19,55 @@ function TaskRow({
   onComplete,
   onOpenLead,
 }) {
-  const overdue = isOverdueYmd(task?.due_date);
-  const due = task?.due_date ? formatDueDateTime(task.due_date, task.due_time) : null;
+  const dueBucket = getTaskDueBucket(task?.due_date);
+  const due = formatTaskDue(task);
+  const statusBadge = getDueStatusBadge(dueBucket);
+  const priorityBadge = getPriorityBadge(task?.priority);
+  const reason = getTaskReason(task);
   const isSla = (task?.source || '').toLowerCase() === 'sla';
 
   return (
     <div
       className={[
-        'rounded-lg border p-3 transition-colors',
-        overdue ? 'border-red-500/30 bg-red-500/5' : 'border-white/10 bg-black/20',
+        'rounded-lg border p-3 transition-colors bg-black/20',
+        getTaskCardBorderClass(dueBucket, 'pending'),
         isHighlighted ? 'ring-2 ring-[#C5A059]/40' : '',
       ].join(' ')}
       data-testid={`lead-task-${task?.id || 'unknown'}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-white text-sm break-words">
-              {task?.description || '—'}
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="text-white text-sm break-words font-medium">
+              {getTaskDisplayTitle(task)}
             </p>
-            {isSla && (
-              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/20 flex-shrink-0">
-                <Flag size={10} />
-                SLA
-              </span>
-            )}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0 ${statusBadge.className}`}>
+              {statusBadge.label}
+            </span>
           </div>
 
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-[#A1A1AA]">
+          {reason && (
+            <p className="text-[#A1A1AA] text-xs line-clamp-2">{reason}</p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[#A1A1AA]">
             {due ? (
-              <span className={overdue ? 'text-red-400' : 'text-[#A1A1AA]'}>
+              <span className={dueBucket === 'overdue' ? 'text-red-400' : 'text-[#A1A1AA]'}>
                 <Calendar size={12} className="inline mr-1" />
-                {due}
-                {overdue ? ' · Overdue' : ''}
+                Due: {due}
               </span>
             ) : (
               <span className="text-[#52525B]">No due date</span>
             )}
-            {task?.priority ? (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider bg-white/5 border border-white/10">
-                {task.priority}
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider ${priorityBadge.className}`}>
+              {priorityBadge.label}
+            </span>
+            {isSla && (
+              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/20">
+                <Flag size={10} />
+                SLA
               </span>
-            ) : null}
-            {isSla && (task?.sla_rule || task?.sla_threshold) ? (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10">
-                {String(task?.sla_rule || 'sla').toUpperCase()}
-                {task?.sla_threshold ? ` · ${task.sla_threshold}` : ''}
-              </span>
-            ) : null}
+            )}
           </div>
         </div>
 

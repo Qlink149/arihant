@@ -16,6 +16,7 @@ export function TaskDetailModal({
   task,
   onComplete,
   onOpenLead,
+  onEdit,
 }) {
   const overdue = isOverdueYmd(task?.due_date);
   const due = task?.due_date ? formatDueDateTime(task.due_date, task.due_time) : null;
@@ -90,7 +91,7 @@ export function TaskDetailModal({
             </div>
           ) : null}
 
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 flex-wrap">
             <Button
               type="button"
               variant="outline"
@@ -99,6 +100,16 @@ export function TaskDetailModal({
             >
               Close
             </Button>
+            {task?.status === 'pending' && onEdit ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/10 text-white hover:bg-white/5"
+                onClick={() => onEdit?.(task)}
+              >
+                Edit
+              </Button>
+            ) : null}
             {task?.status === 'pending' ? (
               <Button
                 type="button"

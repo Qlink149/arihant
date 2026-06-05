@@ -1,0 +1,50 @@
+name: pytest
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      mongodb:
+        image: mongo:6
+        ports:
+          - 27017:27017
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+          MONGO_URL: mongodb://localhost:27017
+          DB_NAME: arihant_crm_test
+          SECRET_KEY: ci-test-secret-key-min-32-chars-long
+          CRON_SECRET: ci-cron-secret-16ch
+          ENVIRONMENT: test
+        run: |
+          pytest tests/ -v --tb=short --no-header -q --ignore=tests/test_gupshup_whatsapp.py
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: backend/pytest-results.xml

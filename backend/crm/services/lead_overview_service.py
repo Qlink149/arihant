@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from crm.constants.lead_kpi import RNR_STATUS_REGEX, SITE_VISIT_STATUS_REGEX
 from crm.constants.lead_status import CLOSED_LEAD_STATUS_REGEX
 from crm.core.state import db
+from crm.services.lead_analytics_queries import qualified_leads_filter
 from crm.services.lead_search import merge_query
 from crm.services.transfer_queries import incoming_transfer_filter, outgoing_transfer_filter
 
@@ -19,6 +20,7 @@ _RE_JUNK = {"$regex": r"junk", "$options": "i"}
 _RE_GONE_COLD = {"$regex": r"gone\s*cold", "$options": "i"}
 _RE_RE_ENGAGED_STATUS = {"$regex": r"re[\s\-]*engag", "$options": "i"}
 _RE_SV_CONDUCTED = {"$regex": r"(site\s*visit\s*completed|visit\s*completed|office\s*visit\s*completed)", "$options": "i"}
+_RE_NEGOTIATION = {"$regex": r"negotiat", "$options": "i"}
 _RE_ACTIVE_RE_ENGAGE_STATUS = {
     "$regex": r"(contacted|nurtur|follow\s*up)",
     "$options": "i",
@@ -41,7 +43,7 @@ def ist_day_window(now_dt: Optional[datetime] = None) -> Tuple[str, datetime, da
 def _active_pipeline_clause() -> dict:
     return {
         "lead_status": {
-            "$not": {"$regex": CLOSED_LEAD_STATUS_REGEX, "$options": "i"},
+            "$not": {"$regex": CLOSED_LEAD_STATUS_REGEX.pattern, "$options": "i"},
         }
     }
 
@@ -100,6 +102,16 @@ def _re_engaged_clause(recent_cutoff_utc: datetime) -> dict:
 
 
 METRIC_SPECS: List[Dict[str, Any]] = [
+    {
+        "key": "qualified_leads",
+        "label": "Qualified leads",
+        "subtitle": "Status contains qualified",
+        "accent": "green",
+        "drill_down": {"type": "virtual_customer", "params": {"metric": "qualified_leads"}},
+        "build_filter": lambda ctx: qualified_leads_filter(),
+        "collection": "leads",
+        "org_wide": True,
+    },
     {
         "key": "all_leads",
         "label": "All leads",
@@ -179,6 +191,19 @@ METRIC_SPECS: List[Dict[str, Any]] = [
         "build_filter": lambda ctx: merge_query(
             ctx["base_filter"],
             {"lead_status": _RE_SV_CONDUCTED},
+        ),
+        "collection": "leads",
+    },
+    {
+        "key": "negotiation",
+        "label": "In negotiation",
+        "subtitle": "Active deal discussions",
+        "accent": "green",
+        "org_wide": True,
+        "drill_down": {"type": "virtual_customer", "params": {"metric": "negotiation"}},
+        "build_filter": lambda ctx: merge_query(
+            ctx["base_filter"],
+            {"lead_status": _RE_NEGOTIATION},
         ),
         "collection": "leads",
     },
@@ -291,6 +316,67 @@ async def _count_for_spec(spec: dict, ctx: dict) -> int:
     if spec["collection"] == "transfers":
         return await db.lead_transfers.count_documents(filt)
     return await db.leads.count_documents(filt)
+
+
+async def count_org_wide_metrics(
+    snapshot_base: dict,
+    metric_keys: tuple[str, ...],
+    *,
+    now_dt: Optional[datetime] = None,
+) -> Dict[str, int]:
+    """Count operational KPIs org-wide using snapshot base (project filter only)."""
+    return await count_dashboard_operational_metrics(
+        snapshot_base, metric_keys, now_dt=now_dt
+    )
+
+
+def build_dashboard_operational_facet_pipeline(
+    snapshot_base: dict,
+    metric_keys: tuple[str, ...],
+    *,
+    now_dt: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    ctx = build_metric_context(
+        snapshot_base or {},
+        uid="",
+        name="",
+        is_manager=False,
+        now_dt=now_dt,
+    )
+    facet: Dict[str, List[dict]] = {}
+    for key in metric_keys:
+        spec = _METRIC_BY_KEY.get(key)
+        if not spec or spec.get("collection") != "leads":
+            facet[key] = [{"$limit": 0}, {"$count": "n"}]
+        else:
+            facet[key] = [{"$match": spec["build_filter"](ctx)}, {"$count": "n"}]
+    return [{"$facet": facet}]
+
+
+def _operational_facet_count(facet_doc: dict, key: str) -> int:
+    branch = facet_doc.get(key) or []
+    if not branch:
+        return 0
+    return int(branch[0].get("n", 0))
+
+
+async def count_dashboard_operational_metrics(
+    snapshot_base: dict,
+    metric_keys: tuple[str, ...],
+    *,
+    now_dt: Optional[datetime] = None,
+) -> Dict[str, int]:
+    """One aggregation for dashboard operational tiles (same filters as count_org_wide_metrics)."""
+    if not metric_keys:
+        return {}
+    pipeline = build_dashboard_operational_facet_pipeline(
+        snapshot_base, metric_keys, now_dt=now_dt
+    )
+    rows = await db.leads.aggregate(pipeline).to_list(1)
+    if not rows:
+        return {key: 0 for key in metric_keys}
+    doc = rows[0]
+    return {key: _operational_facet_count(doc, key) for key in metric_keys}
 
 
 async def build_lead_overview_metrics(

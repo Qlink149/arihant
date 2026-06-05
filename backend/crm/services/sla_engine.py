@@ -4,28 +4,60 @@ Event-driven SLA engine: bulk Mongo writes, BSON datetime queries, idempotent fl
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from pymongo import InsertOne, UpdateOne
+from pymongo import InsertOne, ReturnDocument, UpdateOne
 from pymongo.errors import BulkWriteError
 
 from crm.constants.lead_kpi import RNR_STATUS_REGEX
+from crm.constants.lead_status import SV_FOLLOWUP_STATUS_QUERY, terminal_exclusion_clause
 from crm.core.state import db, logger
+from crm.services.assignment_router import reassign_new_lead
+from crm.services.lead_sla_utils import is_booking_progress_status
+from crm.services.notifications_stream import notifications_stream
+from crm.services.sla_helpers import assign_lead_to_admin
+from crm.utils.business_time import business_seconds_elapsed, is_business_hours_ist as _bh_ist
 from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now
 
 IST = ZoneInfo("Asia/Kolkata")
+_CRON_LOCK_JOB = "process_slas"
+_CRON_LOCK_TTL_MINUTES = 4
 
 # Status matchers (case-insensitive)
 _RE_CONTACTED = {"$regex": r"^\s*contacted\s*$", "$options": "i"}
 _RE_NURTURING = {"$regex": r"nurtur", "$options": "i"}
-_RE_VISIT_SCHEDULED = {"$regex": r"site\s*visit\s*scheduled", "$options": "i"}
-_RE_VISIT_COMPLETED = {"$regex": r"site\s*visit\s*completed", "$options": "i"}
+_RE_VISIT_SCHEDULED = {"$regex": r"(site\s*)?visit\s*scheduled", "$options": "i"}
+_RE_VISIT_COMPLETED = {"$regex": r"(site\s*)?visit\s*completed", "$options": "i"}
+_RE_VISIT_COMPLETED_PY = re.compile(r"(site\s*)?visit\s*completed", re.IGNORECASE)
 _RE_NEGOTIATION = {"$regex": r"negotiat", "$options": "i"}
 _RE_GONE_COLD = {"$regex": r"gone\s*cold", "$options": "i"}
 _RE_FUTURE_PROSPECT = {"$regex": r"future\s*prospect", "$options": "i"}
+_RE_REENGAGED = {"$regex": r"re[\s\-]*engaged", "$options": "i"}
+_SV_FOLLOWUP_STATUS = SV_FOLLOWUP_STATUS_QUERY
+
+
+async def _paginate_leads(
+    collection,
+    query: dict,
+    *,
+    projection: Optional[dict] = None,
+    batch_size: int = 200,
+) -> AsyncIterator[List[dict]]:
+    """Yield lead batches using cursor pagination (stable sort on Mongo _id)."""
+    proj = projection if projection is not None else {"_id": 0}
+    cursor = collection.find(query, proj).sort("_id", 1)
+    batch: List[dict] = []
+    async for doc in cursor:
+        batch.append(doc)
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
 def _new_lead_filter() -> dict:
@@ -60,12 +92,30 @@ def _missing_dt(field: str) -> dict:
     return {"$or": [{field: {"$exists": False}}, {field: None}]}
 
 
+def _entered_at_or_updated_fallback(field: str, cutoff: datetime) -> dict:
+    return {
+        "$or": [
+            {field: {"$lt": cutoff}},
+            {field: {"$exists": False}, "updated_at_dt": {"$lt": cutoff}},
+            {field: None, "updated_at_dt": {"$lt": cutoff}},
+        ],
+    }
+
+
 def is_business_hours_ist(now_dt: datetime) -> bool:
-    ist = now_dt.astimezone(IST)
+    return _bh_ist(now_dt)
+
+
+def is_new_lead_intake_window_ist(created_at_dt: datetime) -> bool:
+    """
+    Client rule: 2h hard-cap (admin alert) only applies to leads created between
+    10:00–17:00 IST (Mon–Sat). The alert itself may fire after-hours.
+    """
+    ist = created_at_dt.astimezone(IST)
+    if ist.weekday() == 6:
+        return False
     minutes = ist.hour * 60 + ist.minute
-    start = 10 * 60
-    end = 17 * 60 + 30
-    return start <= minutes <= end
+    return (10 * 60) <= minutes <= (17 * 60)
 
 
 def build_task_doc(
@@ -88,7 +138,6 @@ def build_task_doc(
     if not assigned_user_id and assigned:
         assigned_user_id = name_to_user_id.get(assigned.strip())
 
-    # Escalation routing override (admin/manager). Falls back to normal assignee if missing.
     if escalation_user and escalation_user.get("id"):
         assigned_user_id = escalation_user["id"]
         if escalation_user.get("full_name"):
@@ -98,10 +147,13 @@ def build_task_doc(
 
     due_date = due_date or now_dt.strftime("%Y-%m-%d")
     due_at_dt = datetime.fromisoformat(f"{due_date}T{due_time}:00").replace(tzinfo=timezone.utc)
+    lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
 
     doc = {
         "id": str(uuid.uuid4()),
         "lead_id": lead["id"],
+        "lead_name": lead_name,
+        "project": (lead.get("project") or "").strip(),
         "description": description,
         "due_date": due_date,
         "due_time": due_time,
@@ -129,13 +181,57 @@ def build_task_doc(
 class SLAEngineService:
     def __init__(self) -> None:
         self._task_ops: List[InsertOne] = []
+        self._notif_ops: List[InsertOne] = []
         self._lead_ops: List[UpdateOne] = []
+        self._event_ops: List[InsertOne] = []
+        self._notif_publish: List[Tuple[str, dict]] = []
         self._summary: Dict[str, int] = {}
         self._skipped_no_assignee = 0
         self._escalation_targets: Dict[str, dict] = {}
+        self._terminal_exclusion = terminal_exclusion_clause()
+
+    def _rule_query(self, base: dict) -> dict:
+        return {"$and": [base, {"lead_status": self._terminal_exclusion}]}
 
     def _bump(self, key: str, n: int = 1) -> None:
         self._summary[key] = self._summary.get(key, 0) + n
+
+    def _queue_admin_notification(
+        self,
+        lead: dict,
+        title: str,
+        message: str,
+        dedupe_key: str,
+        now_dt: datetime,
+        now_iso: str,
+    ) -> None:
+        admin = self._escalation_targets.get("admin")
+        if not admin or not admin.get("id"):
+            return
+        notif = {
+            "id": str(uuid.uuid4()),
+            "type": "sla_alert",
+            "notification_type": "escalation",
+            "title": title,
+            "message": message,
+            "lead_id": lead["id"],
+            "lead_name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip(),
+            "task_id": None,
+            "stage": "sla",
+            "sla_threshold": "",
+            "severity": "high",
+            "urgency": "action_needed",
+            "assigned_to": admin.get("full_name", ""),
+            "recipient_name": admin.get("full_name", ""),
+            "recipient_user_id": admin["id"],
+            "is_read": False,
+            "fired_at_dt": now_dt,
+            "created_at": now_iso,
+            "created_at_dt": now_dt,
+            "dedupe_key": dedupe_key,
+        }
+        self._notif_ops.append(InsertOne(notif))
+        self._notif_publish.append((admin["id"], notif))
 
     def _queue_task(
         self,
@@ -150,6 +246,7 @@ class SLAEngineService:
         priority: str = "medium",
         sla_rule: str = "",
         sla_threshold: str = "",
+        extra_lead_set: Optional[dict] = None,
     ) -> None:
         escalation_user = None
         if escalation_target:
@@ -170,10 +267,70 @@ class SLAEngineService:
             self._skipped_no_assignee += 1
             return
         self._task_ops.append(InsertOne(task))
+
+        due_str = task.get("due_date") or now_dt.strftime("%Y-%m-%d")
+        if task.get("due_time"):
+            due_str += f" at {task['due_time']}"
+        notif_type = "escalation" if escalation_target else "action_required"
+        notif = {
+            "id": str(uuid.uuid4()),
+            "type": "sla_task",
+            "notification_type": notif_type,
+            "title": f"SLA: {description[:50]}",
+            "message": f"Due {due_str} for {task.get('lead_name', '')}",
+            "lead_id": lead["id"],
+            "lead_name": task.get("lead_name", ""),
+            "task_id": task["id"],
+            "stage": sla_rule,
+            "sla_threshold": sla_threshold,
+            "severity": "high" if priority == "high" else "medium" if priority == "medium" else "low",
+            "urgency": "action_needed",
+            "assigned_to": task.get("assigned_to", ""),
+            "recipient_name": task.get("assigned_to", ""),
+            "recipient_user_id": task.get("assigned_user_id", ""),
+            "is_read": False,
+            "fired_at_dt": now_dt,
+            "created_at": now_iso,
+            "created_at_dt": now_dt,
+            "dedupe_key": f"notif:{dedupe_key}",
+        }
+        self._notif_ops.append(InsertOne(notif))
+        if notif.get("recipient_user_id"):
+            self._notif_publish.append((notif["recipient_user_id"], notif))
+
+        self._event_ops.append(
+            InsertOne(
+                {
+                    "id": str(uuid.uuid4()),
+                    "event_type": "sla_action",
+                    "lead_id": lead["id"],
+                    "actor_user_id": "",
+                    "actor_name": "SLA Engine",
+                    "payload": {
+                        "action": "task_created",
+                        "sla_rule": sla_rule,
+                        "sla_threshold": sla_threshold,
+                        "dedupe_key": dedupe_key,
+                        "task_id": task["id"],
+                        "assigned_user_id": task.get("assigned_user_id"),
+                    },
+                    "created_at": now_iso,
+                    "created_at_dt": now_dt,
+                }
+            )
+        )
+
         self._lead_ops.append(
             UpdateOne(
                 {"id": lead["id"]},
-                {"$set": {flag_path: now_dt, "updated_at": now_iso, "updated_at_dt": now_dt}},
+                {
+                    "$set": {
+                        flag_path: now_dt,
+                        "updated_at": now_iso,
+                        "updated_at_dt": now_dt,
+                        **(extra_lead_set or {}),
+                    }
+                },
             )
         )
         self._bump(f"task:{sla_rule}:{sla_threshold}")
@@ -189,7 +346,46 @@ class SLAEngineService:
     ) -> None:
         patch = {**set_fields, flag_path: now_dt, "updated_at": now_iso, "updated_at_dt": now_dt}
         self._lead_ops.append(UpdateOne({"id": lead_id}, {"$set": patch}))
+        self._event_ops.append(
+            InsertOne(
+                {
+                    "id": str(uuid.uuid4()),
+                    "event_type": "sla_action",
+                    "lead_id": lead_id,
+                    "actor_user_id": "",
+                    "actor_name": "SLA Engine",
+                    "payload": {"action": "lead_mutation", "set_fields": set_fields, "flag_path": flag_path},
+                    "created_at": now_iso,
+                    "created_at_dt": now_dt,
+                }
+            )
+        )
         self._bump(summary_key)
+
+    async def _acquire_cron_lock(self, now_dt: datetime) -> bool:
+        expires = now_dt + timedelta(minutes=_CRON_LOCK_TTL_MINUTES)
+        result = await db.cron_locks.find_one_and_update(
+            {
+                "job": _CRON_LOCK_JOB,
+                "$or": [
+                    {"expires_at": {"$lt": now_dt}},
+                    {"expires_at": {"$exists": False}},
+                ],
+            },
+            {
+                "$set": {
+                    "job": _CRON_LOCK_JOB,
+                    "locked_at": now_dt,
+                    "expires_at": expires,
+                }
+            },
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        locked_at = coerce_datetime((result or {}).get("locked_at"))
+        if locked_at and locked_at.tzinfo is None:
+            locked_at = locked_at.replace(tzinfo=timezone.utc)
+        return locked_at == now_dt or (locked_at and abs((locked_at - now_dt).total_seconds()) < 2)
 
     async def _load_name_to_user_id(self) -> Dict[str, str]:
         users = await db.users.find({}, {"_id": 0, "id": 1, "full_name": 1}).to_list(500)
@@ -212,37 +408,57 @@ class SLAEngineService:
         return out
 
     async def _process_rule_new(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
-        if not is_business_hours_ist(now_dt):
-            return
-
         base = _new_lead_filter()
-        cutoff_30m = now_dt - timedelta(minutes=30)
-        cutoff_2h = now_dt - timedelta(hours=2)
 
-        for threshold, cutoff, desc, flag, priority, target in (
-            ("30m", cutoff_30m, "Reassign Lead", "sla_flags.new.reassign_30m_at_dt", "medium", None),
-            ("2h", cutoff_2h, "Alert Admin", "sla_flags.new.alert_admin_2h_at_dt", "high", "admin"),
-        ):
-            query = {
+        if is_business_hours_ist(now_dt):
+            query_30m = self._rule_query(
+                {**base, **_flag_not_set("sla_flags.new.reassign_30m_at_dt")}
+            )
+            async for batch in _paginate_leads(db.leads, query_30m):
+                for lead in batch:
+                    created = coerce_datetime(lead.get("created_at_dt")) or now_dt
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    if business_seconds_elapsed(created, now_dt) < 1800:
+                        continue
+                    await reassign_new_lead(lead["id"])
+                    self._queue_lead_mutation(
+                        lead["id"],
+                        {},
+                        "sla_flags.new.reassign_30m_at_dt",
+                        now_dt,
+                        now_iso,
+                        "mutation:new:auto_reassign_30m",
+                    )
+
+        cutoff_2h = now_dt - timedelta(hours=2)
+        query_2h = self._rule_query(
+            {
                 **base,
-                "created_at_dt": {"$lt": cutoff},
-                **_flag_not_set(flag),
+                "created_at_dt": {"$lt": cutoff_2h},
+                **_flag_not_set("sla_flags.new.alert_admin_2h_at_dt"),
             }
-            leads = await db.leads.find(query, {"_id": 0}).to_list(500)
-            for lead in leads:
-                dedupe = f"sla:new:{threshold}:{lead['id']}"
+        )
+        async for batch in _paginate_leads(db.leads, query_2h):
+            for lead in batch:
+                created = coerce_datetime(lead.get("created_at_dt")) or now_dt
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                if not is_new_lead_intake_window_ist(created):
+                    continue
+                dedupe = f"sla:new:2h:{lead['id']}"
                 self._queue_task(
                     lead,
-                    desc,
+                    "Alert Admin",
                     dedupe,
-                    flag,
+                    "sla_flags.new.alert_admin_2h_at_dt",
                     now_dt,
                     now_iso,
                     name_to_user_id,
-                    escalation_target=target,
-                    priority=priority,
+                    escalation_target="admin",
+                    priority="high",
                     sla_rule="new",
-                    sla_threshold=threshold,
+                    sla_threshold="2h",
                 )
 
     async def _process_rule_rnr(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
@@ -250,353 +466,695 @@ class SLAEngineService:
             return
 
         status_base = _rnr_status_filter()
-
-        # 4-hour loop reminders (one task per 4h period since last update)
-        cutoff_4h = now_dt - timedelta(hours=4)
-        query_reminder = {**status_base, "updated_at_dt": {"$lt": cutoff_4h}}
-        leads = await db.leads.find(query_reminder, {"_id": 0}).to_list(500)
-        for lead in leads:
-            updated = coerce_datetime(lead.get("updated_at_dt")) or now_dt
-            if updated.tzinfo is None:
-                updated = updated.replace(tzinfo=timezone.utc)
-            periods = int((now_dt - updated).total_seconds() // (4 * 3600))
-            if periods < 1:
-                continue
-            bucket = str(periods)
-            flag = f"sla_flags.rnr.reminder_{bucket}_at_dt"
-            rnr_flags = (lead.get("sla_flags") or {}).get("rnr") or {}
-            if rnr_flags.get(f"reminder_{bucket}_at_dt"):
-                continue
-            dedupe = f"sla:rnr:reminder:{lead['id']}:{bucket}"
-            self._queue_task(
-                lead,
-                "RNR Reminder",
-                dedupe,
-                flag,
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="rnr",
-                sla_threshold=f"reminder_{bucket}",
-            )
+        query_reminder = self._rule_query(status_base)
+        async for batch in _paginate_leads(db.leads, query_reminder):
+            for lead in batch:
+                updated = coerce_datetime(lead.get("rnr_entered_at_dt")) or coerce_datetime(lead.get("updated_at_dt")) or now_dt
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+                elapsed_biz = business_seconds_elapsed(updated, now_dt)
+                periods = elapsed_biz // (4 * 3600)
+                if periods < 1:
+                    continue
+                bucket = str(periods)
+                flag = f"sla_flags.rnr.reminder_{bucket}_at_dt"
+                rnr_flags = (lead.get("sla_flags") or {}).get("rnr") or {}
+                if rnr_flags.get(f"reminder_{bucket}_at_dt"):
+                    continue
+                dedupe = f"sla:rnr:reminder:{lead['id']}:{bucket}"
+                self._queue_task(
+                    lead,
+                    "RNR Reminder",
+                    dedupe,
+                    flag,
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    sla_rule="rnr",
+                    sla_threshold=f"reminder_{bucket}",
+                )
 
         for hours, threshold, desc, target in (
-            (24, "24h", "Escalate to Sales Manager", "manager"),
-            (48, "48h", "Escalate to Sales Manager", "manager"),
-            (15 * 24, "15d", "Escalate to Admin", "admin"),
+            (24, "24h", "RNR Escalation — Admin Review Required", "admin"),
+            (48, "48h", "RNR Escalation — Admin Review Required", "admin"),
+            (15 * 24, "15d", "RNR Lead — 15 Days Uncontacted — High Priority Admin Review", "admin"),
         ):
             cutoff = now_dt - timedelta(hours=hours)
             flag = f"sla_flags.rnr.escalate_{threshold}_at_dt"
-            query = {
-                **status_base,
-                "updated_at_dt": {"$lt": cutoff},
-                **_flag_not_set(flag),
-            }
-            leads = await db.leads.find(query, {"_id": 0}).to_list(500)
-            for lead in leads:
-                priority = "high" if threshold == "15d" else "medium"
-                dedupe = f"sla:rnr:escalate:{threshold}:{lead['id']}"
-                self._queue_task(
-                    lead,
-                    desc,
-                    dedupe,
-                    flag,
-                    now_dt,
-                    now_iso,
-                    name_to_user_id,
-                    escalation_target=target,
-                    priority=priority,
-                    sla_rule="rnr",
-                    sla_threshold=threshold,
-                )
+            query = self._rule_query(
+                {
+                    **status_base,
+                    **_entered_at_or_updated_fallback("rnr_entered_at_dt", cutoff),
+                    **_flag_not_set(flag),
+                }
+            )
+            async for batch in _paginate_leads(db.leads, query):
+                for lead in batch:
+                    priority = "high" if threshold == "15d" else "medium"
+                    dedupe = f"sla:rnr:escalate:{threshold}:{lead['id']}"
+                    self._queue_task(
+                        lead,
+                        desc,
+                        dedupe,
+                        flag,
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target=target,
+                        priority=priority,
+                        sla_rule="rnr",
+                        sla_threshold=threshold,
+                    )
 
     async def _process_rule_contacted(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         for hours, threshold, desc, priority, target in (
-            (48, "48h", "Agent Reminder + Manager Flag", "medium", "manager"),
-            (72, "72h", "Admin Alert", "high", "admin"),
+            (48, "48h", "Follow up — log outcome for this lead", "medium", None),
+            (72, "72h", "Admin Alert — Contacted lead unactioned 72h", "high", "admin"),
         ):
             cutoff = now_dt - timedelta(hours=hours)
             flag = f"sla_flags.contacted.{threshold}_at_dt"
-            query = {
-                "lead_status": _RE_CONTACTED,
-                "updated_at_dt": {"$lt": cutoff},
-                **_flag_not_set(flag),
-            }
-            leads = await db.leads.find(query, {"_id": 0}).to_list(500)
-            for lead in leads:
-                dedupe = f"sla:contacted:{threshold}:{lead['id']}"
-                self._queue_task(
-                    lead,
-                    desc,
-                    dedupe,
-                    flag,
-                    now_dt,
-                    now_iso,
-                    name_to_user_id,
-                    escalation_target=target,
-                    priority=priority,
-                    sla_rule="contacted",
-                    sla_threshold=threshold,
-                )
+            query = self._rule_query(
+                {
+                    "lead_status": _RE_CONTACTED,
+                    **_entered_at_or_updated_fallback("contacted_at_dt", cutoff),
+                    **_flag_not_set(flag),
+                }
+            )
+            async for batch in _paginate_leads(db.leads, query):
+                for lead in batch:
+                    dedupe = f"sla:contacted:{threshold}:{lead['id']}"
+                    self._queue_task(
+                        lead,
+                        desc,
+                        dedupe,
+                        flag,
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target=target,
+                        priority=priority,
+                        sla_rule="contacted",
+                        sla_threshold=threshold,
+                    )
 
     async def _process_rule_nurturing(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         cutoff_24h = now_dt - timedelta(hours=24)
+        query_warm = self._rule_query(
+            {
+                "lead_status": _RE_NURTURING,
+                "updated_at_dt": {"$lt": cutoff_24h},
+                "$or": [
+                    {"temperature": {"$exists": False}},
+                    {"temperature": None},
+                    {"temperature": ""},
+                ],
+                **_flag_not_set("sla_flags.nurturing.temperature_warm_at_dt"),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_warm, projection={"_id": 0, "id": 1}):
+            for lead in batch:
+                self._queue_lead_mutation(
+                    lead["id"],
+                    {"temperature": "Warm"},
+                    "sla_flags.nurturing.temperature_warm_at_dt",
+                    now_dt,
+                    now_iso,
+                    "mutation:nurturing:warm",
+                )
 
-        # Fallback: empty temperature > 24h -> Warm
-        query_warm = {
-            "lead_status": _RE_NURTURING,
-            "updated_at_dt": {"$lt": cutoff_24h},
-            "$or": [
-                {"temperature": {"$exists": False}},
-                {"temperature": None},
-                {"temperature": ""},
-            ],
-            **_flag_not_set("sla_flags.nurturing.temperature_warm_at_dt"),
-        }
-        leads = await db.leads.find(query_warm, {"_id": 0, "id": 1}).to_list(500)
-        for lead in leads:
-            self._queue_lead_mutation(
-                lead["id"],
-                {"temperature": "Warm"},
-                "sla_flags.nurturing.temperature_warm_at_dt",
-                now_dt,
-                now_iso,
-                "mutation:nurturing:warm",
-            )
+        query_nurture = self._rule_query({"lead_status": _RE_NURTURING})
+        async for batch in _paginate_leads(db.leads, query_nurture):
+            for lead in batch:
+                entered = coerce_datetime(lead.get("nurture_entered_at_dt")) or coerce_datetime(lead.get("updated_at_dt")) or now_dt
+                if entered.tzinfo is None:
+                    entered = entered.replace(tzinfo=timezone.utc)
+                if (now_dt - entered) > timedelta(days=14):
+                    continue
 
-        # Hot > 2 days
-        cutoff_2d = now_dt - timedelta(days=2)
-        query_hot = {
-            "lead_status": _RE_NURTURING,
-            "temperature": {"$regex": r"^\s*hot\s*$", "$options": "i"},
-            "updated_at_dt": {"$lt": cutoff_2d},
-            **_flag_not_set("sla_flags.nurturing.hot_followup_at_dt"),
-        }
-        for lead in await db.leads.find(query_hot, {"_id": 0}).to_list(500):
-            dedupe = f"sla:nurturing:hot:{lead['id']}"
-            self._queue_task(
-                lead,
-                "Hot Lead Follow-up",
-                dedupe,
-                "sla_flags.nurturing.hot_followup_at_dt",
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="nurturing",
-                sla_threshold="hot_2d",
-            )
+                temp = (lead.get("temperature") or "").strip().lower()
+                if temp not in {"hot", "warm"}:
+                    continue
 
-        # Warm > 4 days
-        cutoff_4d = now_dt - timedelta(days=4)
-        query_warm_fu = {
-            "lead_status": _RE_NURTURING,
-            "temperature": {"$regex": r"^\s*warm\s*$", "$options": "i"},
-            "updated_at_dt": {"$lt": cutoff_4d},
-            **_flag_not_set("sla_flags.nurturing.warm_followup_at_dt"),
-        }
-        for lead in await db.leads.find(query_warm_fu, {"_id": 0}).to_list(500):
-            dedupe = f"sla:nurturing:warm:{lead['id']}"
-            self._queue_task(
-                lead,
-                "Warm Lead Follow-up",
-                dedupe,
-                "sla_flags.nurturing.warm_followup_at_dt",
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="nurturing",
-                sla_threshold="warm_4d",
-            )
+                cadence = timedelta(days=2) if temp == "hot" else timedelta(days=4)
+                flags = (lead.get("sla_flags") or {}).get("nurturing") or {}
+                last_key = "hot_last_task_created_at_dt" if temp == "hot" else "warm_last_task_created_at_dt"
+                cycle_key = "hot_cycle" if temp == "hot" else "warm_cycle"
+                last = coerce_datetime(flags.get(last_key)) or entered
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                if (now_dt - last) < cadence:
+                    continue
+
+                cycle = int(flags.get(cycle_key) or 0) + 1
+                dedupe = f"sla:nurturing:{temp}:{lead['id']}:{cycle}"
+                self._queue_task(
+                    lead,
+                    "Hot Lead Follow-up" if temp == "hot" else "Warm Lead Follow-up",
+                    dedupe,
+                    f"sla_flags.nurturing.{temp}_followup_{cycle}_at_dt",
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    sla_rule="nurturing",
+                    sla_threshold=f"{temp}_{'2d' if temp == 'hot' else '4d'}",
+                    extra_lead_set={
+                        f"sla_flags.nurturing.{last_key}": now_dt,
+                        f"sla_flags.nurturing.{cycle_key}": cycle,
+                    },
+                )
 
     async def _process_rule_visit_scheduled(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
         status_q = {"lead_status": _RE_VISIT_SCHEDULED}
 
-        # Missing visit_date_dt
-        query_missing = {
-            **status_q,
-            **_missing_dt("visit_date_dt"),
-            **_flag_not_set("sla_flags.visit_scheduled.missing_date_at_dt"),
-        }
-        for lead in await db.leads.find(query_missing, {"_id": 0}).to_list(500):
-            dedupe = f"sla:visit_scheduled:missing_date:{lead['id']}"
-            self._queue_task(
-                lead,
-                "Missing Visit Date: Update Required",
-                dedupe,
-                "sla_flags.visit_scheduled.missing_date_at_dt",
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="visit_scheduled",
-                sla_threshold="missing_date",
-            )
+        query_missing = self._rule_query(
+            {
+                **status_q,
+                **_missing_dt("visit_date_dt"),
+                **_flag_not_set("sla_flags.visit_scheduled.missing_date_at_dt"),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_missing):
+            for lead in batch:
+                dedupe = f"sla:visit_scheduled:missing_date:{lead['id']}"
+                self._queue_task(
+                    lead,
+                    "Missing Visit Date: Update Required",
+                    dedupe,
+                    "sla_flags.visit_scheduled.missing_date_at_dt",
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    sla_rule="visit_scheduled",
+                    sla_threshold="missing_date",
+                )
 
         pre_cutoff = now_dt + timedelta(hours=24)
-        query_pre = {
-            **status_q,
-            "visit_date_dt": {"$lte": pre_cutoff, "$exists": True, "$ne": None},
-            **_flag_not_set("sla_flags.visit_scheduled.pre_24h_at_dt"),
-        }
-        for lead in await db.leads.find(query_pre, {"_id": 0}).to_list(500):
-            visit_dt = coerce_datetime(lead.get("visit_date_dt"))
-            if not visit_dt:
-                continue
-            if visit_dt.tzinfo is None:
-                visit_dt = visit_dt.replace(tzinfo=timezone.utc)
-            if now_dt < visit_dt - timedelta(hours=24):
-                continue
-            dedupe = f"sla:visit_scheduled:pre_24h:{lead['id']}"
-            self._queue_task(
-                lead,
-                "Send WA Reminder to Client",
-                dedupe,
-                "sla_flags.visit_scheduled.pre_24h_at_dt",
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="visit_scheduled",
-                sla_threshold="pre_24h",
-            )
+        query_pre = self._rule_query(
+            {
+                **status_q,
+                "visit_date_dt": {"$lte": pre_cutoff, "$exists": True, "$ne": None},
+                **_flag_not_set("sla_flags.visit_scheduled.pre_24h_at_dt"),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_pre):
+            for lead in batch:
+                visit_dt = coerce_datetime(lead.get("visit_date_dt"))
+                if not visit_dt:
+                    continue
+                if visit_dt.tzinfo is None:
+                    visit_dt = visit_dt.replace(tzinfo=timezone.utc)
+                if now_dt < visit_dt - timedelta(hours=24):
+                    continue
+                dedupe = f"sla:visit_scheduled:pre_24h:{lead['id']}"
+                self._queue_task(
+                    lead,
+                    "Send WA Reminder to Client",
+                    dedupe,
+                    "sla_flags.visit_scheduled.pre_24h_at_dt",
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    sla_rule="visit_scheduled",
+                    sla_threshold="pre_24h",
+                )
 
-        query_post = {
-            **status_q,
-            "visit_date_dt": {"$exists": True, "$ne": None},
-            **_flag_not_set("sla_flags.visit_scheduled.post_24h_at_dt"),
-        }
-        for lead in await db.leads.find(query_post, {"_id": 0}).to_list(500):
-            visit_dt = coerce_datetime(lead.get("visit_date_dt"))
-            if not visit_dt:
-                continue
-            if visit_dt.tzinfo is None:
-                visit_dt = visit_dt.replace(tzinfo=timezone.utc)
-            if now_dt < visit_dt + timedelta(hours=24):
-                continue
-            dedupe = f"sla:visit_scheduled:post_24h:{lead['id']}"
-            self._queue_task(
-                lead,
-                "Post-Visit Follow-up",
-                dedupe,
-                "sla_flags.visit_scheduled.post_24h_at_dt",
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="visit_scheduled",
-                sla_threshold="post_24h",
-            )
+        query_post = self._rule_query(
+            {
+                **status_q,
+                "visit_date_dt": {"$exists": True, "$ne": None},
+                **_flag_not_set("sla_flags.visit_scheduled.post_24h_at_dt"),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_post):
+            for lead in batch:
+                visit_dt = coerce_datetime(lead.get("visit_date_dt"))
+                if not visit_dt:
+                    continue
+                if visit_dt.tzinfo is None:
+                    visit_dt = visit_dt.replace(tzinfo=timezone.utc)
+                if now_dt < visit_dt + timedelta(hours=24):
+                    continue
+                ls = lead.get("lead_status") or ""
+                if _RE_VISIT_COMPLETED_PY.search(ls):
+                    continue
+                existing_t0 = await db.tasks.find_one(
+                    {
+                        "lead_id": lead["id"],
+                        "sla_rule": "visit_completed",
+                        "status": {"$in": ["pending", "in_progress"]},
+                    },
+                    {"_id": 0, "id": 1},
+                )
+                if existing_t0:
+                    continue
+                dedupe = f"sla:visit_scheduled:post_24h:{lead['id']}"
+                self._queue_task(
+                    lead,
+                    "Post-Visit Follow-up",
+                    dedupe,
+                    "sla_flags.visit_scheduled.post_24h_at_dt",
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    sla_rule="visit_scheduled",
+                    sla_threshold="post_24h",
+                )
 
     async def _process_rule_visit_completed(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
         status_q = {"lead_status": _RE_VISIT_COMPLETED}
 
-        for hours, threshold, desc, priority, target in (
-            (48, "48h", "Push for booking", "medium", None),
-            (72, "72h", "Manager Flag", "high", "manager"),
-        ):
-            cutoff = now_dt - timedelta(hours=hours)
-            flag = f"sla_flags.visit_completed.{threshold}_at_dt"
-            query = {**status_q, "updated_at_dt": {"$lt": cutoff}, **_flag_not_set(flag)}
-            for lead in await db.leads.find(query, {"_id": 0}).to_list(500):
-                dedupe = f"sla:visit_completed:{threshold}:{lead['id']}"
+        def _ref_dt(lead: dict) -> datetime:
+            ref = (
+                coerce_datetime(lead.get("visit_sla_reference_dt"))
+                or coerce_datetime(lead.get("visit_completed_at_dt"))
+                or coerce_datetime(lead.get("updated_at_dt"))
+                or now_dt
+            )
+            if ref.tzinfo is None:
+                ref = ref.replace(tzinfo=timezone.utc)
+            return ref
+
+        cutoff_48h = now_dt - timedelta(hours=48)
+        flag_48h = "sla_flags.visit_completed.48h_at_dt"
+        query_48h = self._rule_query(
+            {
+                **status_q,
+                **_flag_not_set(flag_48h),
+                "$or": [
+                    {"visit_completed_at_dt": {"$lt": cutoff_48h}},
+                    {"visit_sla_reference_dt": {"$lt": cutoff_48h}},
+                ],
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_48h):
+            for lead in batch:
+                ref = _ref_dt(lead)
+                if now_dt < ref + timedelta(hours=48):
+                    continue
+                pending = await db.tasks.find_one(
+                    {
+                        "lead_id": lead["id"],
+                        "source": "sla",
+                        "sla_rule": "visit_completed",
+                        "status": "pending",
+                    },
+                    {"_id": 0, "id": 1},
+                )
+                desc = (
+                    "Post-visit follow-up reminder — push for booking"
+                    if pending
+                    else "Visit follow-up — confirm booking status"
+                )
                 self._queue_task(
                     lead,
                     desc,
+                    f"sla:visit_completed:48h:{lead['id']}",
+                    flag_48h,
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    sla_rule="visit_completed",
+                    sla_threshold="48h",
+                )
+
+        cutoff_72h = now_dt - timedelta(hours=72)
+        flag_72h = "sla_flags.visit_completed.72h_at_dt"
+        query_72h = self._rule_query(
+            {**status_q, **_flag_not_set(flag_72h), "visit_completed_at_dt": {"$lt": cutoff_72h}}
+        )
+        async for batch in _paginate_leads(db.leads, query_72h):
+            for lead in batch:
+                ref = _ref_dt(lead)
+                if now_dt < ref + timedelta(hours=72):
+                    continue
+                await assign_lead_to_admin(lead["id"], reason="visit_completed_72h")
+                self._queue_task(
+                    lead,
+                    "Visit follow-up delayed — Admin action",
+                    f"sla:visit_completed:72h:{lead['id']}",
+                    flag_72h,
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    escalation_target="admin",
+                    priority="high",
+                    sla_rule="visit_completed",
+                    sla_threshold="72h",
+                    extra_lead_set={"follow_up_delayed": True},
+                )
+
+        cutoff_7d = now_dt - timedelta(days=7)
+        flag_7d = "sla_flags.visit_completed.branch_7d_at_dt"
+        query_7d = self._rule_query(
+            {**status_q, **_flag_not_set(flag_7d), "visit_completed_at_dt": {"$lt": cutoff_7d}}
+        )
+        async for batch in _paginate_leads(db.leads, query_7d):
+            for lead in batch:
+                ref = _ref_dt(lead)
+                if now_dt < ref + timedelta(days=7):
+                    continue
+                ls = lead.get("lead_status") or ""
+                if not _RE_VISIT_COMPLETED_PY.search(ls):
+                    continue
+                if is_booking_progress_status(ls):
+                    self._queue_lead_mutation(
+                        lead["id"],
+                        {"lead_status": "Nurturing", "temperature": "Warm", "nurture_entered_at_dt": now_dt},
+                        flag_7d,
+                        now_dt,
+                        now_iso,
+                        "mutation:visit_completed:nurturing_warm",
+                    )
+                    self._queue_admin_notification(
+                        lead,
+                        "Visit +7d — moved to Nurturing (Warm)",
+                        f"Lead {lead.get('first_name', '')} {lead.get('last_name', '')} progressed after visit",
+                        f"sla:visit_completed:7d:nurture:{lead['id']}",
+                        now_dt,
+                        now_iso,
+                    )
+                else:
+                    self._queue_lead_mutation(
+                        lead["id"],
+                        {
+                            "lead_status": "SV Completed – Follow Up",
+                            "sv_followup_entered_at_dt": now_dt,
+                        },
+                        flag_7d,
+                        now_dt,
+                        now_iso,
+                        "mutation:visit_completed:sv_followup",
+                    )
+                    self._queue_task(
+                        lead,
+                        "SV Follow Up — confirm booking intent",
+                        f"sla:sv_followup:t0:{lead['id']}",
+                        "sla_flags.sv_followup.t0_at_dt",
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        sla_rule="sv_followup",
+                        sla_threshold="t0",
+                    )
+                    self._queue_admin_notification(
+                        lead,
+                        "Visit +7d — moved to SV Follow Up",
+                        f"Lead {lead.get('first_name', '')} {lead.get('last_name', '')} requires follow-up",
+                        f"sla:visit_completed:7d:sv_followup:{lead['id']}",
+                        now_dt,
+                        now_iso,
+                    )
+
+    async def _process_rule_sv_followup(
+        self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
+    ) -> None:
+        status_q = {"lead_status": _SV_FOLLOWUP_STATUS}
+
+        def _ref_dt(lead: dict) -> Optional[datetime]:
+            ref = coerce_datetime(lead.get("sv_followup_entered_at_dt"))
+            if not ref:
+                return None
+            if ref.tzinfo is None:
+                ref = ref.replace(tzinfo=timezone.utc)
+            return ref
+
+        flag_72h = "sla_flags.sv_followup.admin_72h_at_dt"
+        query_72h = self._rule_query(
+            {
+                **status_q,
+                "sv_followup_entered_at_dt": {"$exists": True, "$ne": None},
+                **_flag_not_set(flag_72h),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_72h):
+            for lead in batch:
+                ref = _ref_dt(lead)
+                if not ref or now_dt < ref + timedelta(hours=72):
+                    continue
+                pending = await db.tasks.find_one(
+                    {
+                        "lead_id": lead["id"],
+                        "sla_rule": "sv_followup",
+                        "status": {"$in": ["pending", "in_progress"]},
+                    },
+                    {"_id": 0, "id": 1},
+                )
+                if not pending:
+                    continue
+                await assign_lead_to_admin(lead["id"], reason="sv_followup_72h")
+                self._queue_task(
+                    lead,
+                    "SV Follow Up delayed — Admin action",
+                    f"sla:sv_followup:72h:{lead['id']}",
+                    flag_72h,
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    escalation_target="admin",
+                    priority="high",
+                    sla_rule="sv_followup",
+                    sla_threshold="72h",
+                    extra_lead_set={"sv_followup_delayed": True, "follow_up_delayed": True},
+                )
+
+        flag_7d = "sla_flags.sv_followup.hard_cap_7d_at_dt"
+        query_7d = self._rule_query(
+            {
+                **status_q,
+                "sv_followup_entered_at_dt": {"$exists": True, "$ne": None},
+                **_flag_not_set(flag_7d),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_7d):
+            for lead in batch:
+                ref = _ref_dt(lead)
+                if not ref or now_dt < ref + timedelta(days=7):
+                    continue
+                if is_booking_progress_status(lead.get("lead_status")):
+                    self._queue_lead_mutation(
+                        lead["id"],
+                        {"lead_status": "Nurturing", "temperature": "Warm", "nurture_entered_at_dt": now_dt},
+                        flag_7d,
+                        now_dt,
+                        now_iso,
+                        "mutation:sv_followup:nurturing_warm",
+                    )
+                    self._queue_admin_notification(
+                        lead,
+                        "SV Follow Up +7d — moved to Nurturing (Warm)",
+                        f"Lead {lead.get('first_name', '')} {lead.get('last_name', '')} shows booking progress",
+                        f"sla:sv_followup:7d:nurture:{lead['id']}",
+                        now_dt,
+                        now_iso,
+                    )
+                else:
+                    self._queue_lead_mutation(
+                        lead["id"],
+                        {"lead_status": "Gone Cold"},
+                        flag_7d,
+                        now_dt,
+                        now_iso,
+                        "mutation:sv_followup:gone_cold",
+                    )
+                    self._queue_admin_notification(
+                        lead,
+                        "SV Follow Up +7d — moved to Gone Cold",
+                        f"Lead {lead.get('first_name', '')} {lead.get('last_name', '')} marked Gone Cold",
+                        f"sla:sv_followup:7d:cold:{lead['id']}",
+                        now_dt,
+                        now_iso,
+                    )
+
+    async def _process_rule_reengaged(
+        self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
+    ) -> None:
+        status_q = {"lead_status": _RE_REENGAGED}
+        for hours, threshold, desc, priority, target in (
+            (12, "12h", "Re-engaged — follow up required", "medium", None),
+            (24, "24h", "Re-engaged escalation", "high", None),
+            (48, "48h", "Re-engaged — Admin alert", "high", "admin"),
+        ):
+            cutoff = now_dt - timedelta(hours=hours)
+            flag = f"sla_flags.reengaged.{threshold}_at_dt"
+            query = self._rule_query(
+                {
+                    **status_q,
+                    "$or": [
+                        {"reengaged_at_dt": {"$lt": cutoff}},
+                        {"reengaged_at_dt": {"$exists": False}, "updated_at_dt": {"$lt": cutoff}},
+                    ],
+                    **_flag_not_set(flag),
+                }
+            )
+            async for batch in _paginate_leads(db.leads, query):
+                for lead in batch:
+                    entered = coerce_datetime(lead.get("reengaged_at_dt")) or coerce_datetime(lead.get("updated_at_dt"))
+                    if entered and entered.tzinfo is None:
+                        entered = entered.replace(tzinfo=timezone.utc)
+                    if entered and now_dt < entered + timedelta(hours=hours):
+                        continue
+                    dedupe = f"sla:reengaged:{threshold}:{lead['id']}"
+                    self._queue_task(
+                        lead,
+                        desc,
+                        dedupe,
+                        flag,
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target=target,
+                        priority=priority,
+                        sla_rule="reengaged",
+                        sla_threshold=threshold,
+                    )
+                    if threshold == "48h":
+                        re_flags = (lead.get("sla_flags") or {}).get("reengaged") or {}
+                        if not re_flags.get("gone_cold_48h_at_dt"):
+                            self._queue_lead_mutation(
+                                lead["id"],
+                                {"lead_status": "Gone Cold"},
+                                "sla_flags.reengaged.gone_cold_48h_at_dt",
+                                now_dt,
+                                now_iso,
+                                "mutation:reengaged:gone_cold_48h",
+                            )
+
+    async def _process_rule_negotiation(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
+        status_q = {"lead_status": _RE_NEGOTIATION}
+
+        for delta, threshold, desc, priority, target in (
+            (timedelta(hours=48), "48h", "Negotiation follow-up", "medium", None),
+            (timedelta(days=7), "stalled_7d", "Negotiation stalled — review deal status", "high", None),
+            (timedelta(days=15), "admin_15d", "Negotiation overdue — Admin review required", "high", "admin"),
+        ):
+            cutoff = now_dt - delta
+            flag = (
+                "sla_flags.negotiation.followup_48h_at_dt"
+                if threshold == "48h"
+                else f"sla_flags.negotiation.{threshold}_at_dt"
+            )
+            query = self._rule_query(
+                {
+                    **status_q,
+                    **_entered_at_or_updated_fallback("negotiation_entered_at_dt", cutoff),
+                    **_flag_not_set(flag),
+                }
+            )
+            async for batch in _paginate_leads(db.leads, query):
+                for lead in batch:
+                    ref = (
+                        coerce_datetime(lead.get("negotiation_entered_at_dt"))
+                        or coerce_datetime(lead.get("updated_at_dt"))
+                    )
+                    if ref and ref.tzinfo is None:
+                        ref = ref.replace(tzinfo=timezone.utc)
+                    if ref and now_dt < ref + delta:
+                        continue
+                    dedupe = f"sla:negotiation:{threshold}:{lead['id']}"
+                    self._queue_task(
+                        lead,
+                        desc,
+                        dedupe,
+                        flag,
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target=target,
+                        priority=priority,
+                        sla_rule="negotiation",
+                        sla_threshold=threshold,
+                    )
+
+    async def _process_rule_gone_cold(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
+        cutoff = now_dt - timedelta(days=30)
+        flag = "sla_flags.gone_cold.reevaluate_30d_at_dt"
+        query = self._rule_query(
+            {
+                "lead_status": _RE_GONE_COLD,
+                **_entered_at_or_updated_fallback("gone_cold_entered_at_dt", cutoff),
+                **_flag_not_set(flag),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query):
+            for lead in batch:
+                ref = (
+                    coerce_datetime(lead.get("gone_cold_entered_at_dt"))
+                    or coerce_datetime(lead.get("updated_at_dt"))
+                )
+                if ref and ref.tzinfo is None:
+                    ref = ref.replace(tzinfo=timezone.utc)
+                if ref and now_dt < ref + timedelta(days=30):
+                    continue
+                dedupe = f"sla:gone_cold:30d:{lead['id']}"
+                self._queue_task(
+                    lead,
+                    "Re-evaluate - re-engage or close",
                     dedupe,
                     flag,
                     now_dt,
                     now_iso,
                     name_to_user_id,
-                    escalation_target=target,
-                    priority=priority,
-                    sla_rule="visit_completed",
-                    sla_threshold=threshold,
+                    sla_rule="gone_cold",
+                    sla_threshold="30d",
                 )
-
-        cutoff_7d = now_dt - timedelta(days=7)
-        flag_7d = "sla_flags.visit_completed.nurture_7d_at_dt"
-        query_7d = {**status_q, "updated_at_dt": {"$lt": cutoff_7d}, **_flag_not_set(flag_7d)}
-        for lead in await db.leads.find(query_7d, {"_id": 0, "id": 1}).to_list(500):
-            self._queue_lead_mutation(
-                lead["id"],
-                {"lead_status": "Nurturing", "temperature": "Warm"},
-                flag_7d,
-                now_dt,
-                now_iso,
-                "mutation:visit_completed:nurturing",
-            )
-
-    async def _process_rule_negotiation(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
-        cutoff = now_dt - timedelta(hours=48)
-        flag = "sla_flags.negotiation.followup_48h_at_dt"
-        query = {
-            "lead_status": _RE_NEGOTIATION,
-            "updated_at_dt": {"$lt": cutoff},
-            **_flag_not_set(flag),
-        }
-        for lead in await db.leads.find(query, {"_id": 0}).to_list(500):
-            dedupe = f"sla:negotiation:48h:{lead['id']}"
-            self._queue_task(
-                lead,
-                "Negotiation Follow-up",
-                dedupe,
-                flag,
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="negotiation",
-                sla_threshold="48h",
-            )
-
-    async def _process_rule_gone_cold(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
-        cutoff = now_dt - timedelta(days=30)
-        flag = "sla_flags.gone_cold.reevaluate_30d_at_dt"
-        query = {
-            "lead_status": _RE_GONE_COLD,
-            "updated_at_dt": {"$lt": cutoff},
-            **_flag_not_set(flag),
-        }
-        for lead in await db.leads.find(query, {"_id": 0}).to_list(500):
-            dedupe = f"sla:gone_cold:30d:{lead['id']}"
-            self._queue_task(
-                lead,
-                "Re-evaluate - re-engage or close",
-                dedupe,
-                flag,
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="gone_cold",
-                sla_threshold="30d",
-            )
 
     async def _process_rule_future_prospect(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
-        cutoff = now_dt - timedelta(days=90)
-        flag = "sla_flags.future_prospect.checkin_90d_at_dt"
-        query = {
-            "lead_status": _RE_FUTURE_PROSPECT,
-            "updated_at_dt": {"$lt": cutoff},
-            **_flag_not_set(flag),
-        }
-        for lead in await db.leads.find(query, {"_id": 0}).to_list(500):
-            dedupe = f"sla:future_prospect:90d:{lead['id']}"
-            self._queue_task(
-                lead,
-                "90-day check-in",
-                dedupe,
-                flag,
-                now_dt,
-                now_iso,
-                name_to_user_id,
-                sla_rule="future_prospect",
-                sla_threshold="90d",
-            )
+        query = self._rule_query({"lead_status": _RE_FUTURE_PROSPECT})
+        async for batch in _paginate_leads(db.leads, query):
+            for lead in batch:
+                entered = coerce_datetime(lead.get("future_prospect_entered_at_dt")) or coerce_datetime(lead.get("updated_at_dt")) or now_dt
+                if entered.tzinfo is None:
+                    entered = entered.replace(tzinfo=timezone.utc)
+                last = coerce_datetime(lead.get("fp_last_checkin_task_created_at_dt")) or entered
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                if (now_dt - last) < timedelta(days=90):
+                    continue
 
-    async def _flush_bulk_writes(self) -> Tuple[int, int]:
+                cycle = int(lead.get("fp_cycle_count") or 0) + 1
+                dedupe = f"sla:future_prospect:90d:{lead['id']}:{cycle}"
+                self._queue_task(
+                    lead,
+                    "90-day check-in",
+                    dedupe,
+                    f"sla_flags.future_prospect.checkin_90d_{cycle}_at_dt",
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    sla_rule="future_prospect",
+                    sla_threshold="90d",
+                    extra_lead_set={
+                        "fp_cycle_count": cycle,
+                        "fp_last_checkin_task_created_at_dt": now_dt,
+                    },
+                )
+
+                if cycle >= 3:
+                    dedupe2 = f"sla:future_prospect:manager_review:{lead['id']}:{cycle}"
+                    self._queue_task(
+                        lead,
+                        "Manager review (3 cycles reached)",
+                        dedupe2,
+                        f"sla_flags.future_prospect.manager_review_{cycle}_at_dt",
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target="admin",
+                        priority="high",
+                        sla_rule="future_prospect",
+                        sla_threshold="manager_review",
+                    )
+
+    async def _flush_bulk_writes(self) -> Tuple[int, int, int, int]:
         tasks_written = 0
+        notifs_written = 0
+        events_written = 0
         leads_written = 0
         if self._task_ops:
             try:
@@ -609,6 +1167,28 @@ class SLAEngineService:
             except Exception as e:
                 logger.error("SLA task bulk_write failed: %s", e)
                 self._bump("errors:tasks_bulk")
+        if self._notif_ops:
+            try:
+                result = await db.notifications.bulk_write(self._notif_ops, ordered=False)
+                notifs_written = result.inserted_count
+            except BulkWriteError as e:
+                notifs_written = int((e.details or {}).get("nInserted", 0) or 0)
+                logger.warning("SLA notification bulk_write had errors (continuing): %s", (e.details or {}).get("writeErrors"))
+                self._bump("warnings:notifs_bulk")
+            except Exception as e:
+                logger.error("SLA notification bulk_write failed: %s", e)
+                self._bump("errors:notifs_bulk")
+        if self._event_ops:
+            try:
+                result = await db.lead_events.bulk_write(self._event_ops, ordered=False)
+                events_written = result.inserted_count
+            except BulkWriteError as e:
+                events_written = int((e.details or {}).get("nInserted", 0) or 0)
+                logger.warning("SLA lead_events bulk_write had errors (continuing): %s", (e.details or {}).get("writeErrors"))
+                self._bump("warnings:events_bulk")
+            except Exception as e:
+                logger.error("SLA lead_events bulk_write failed: %s", e)
+                self._bump("errors:events_bulk")
         if self._lead_ops:
             try:
                 result = await db.leads.bulk_write(self._lead_ops, ordered=False)
@@ -620,35 +1200,55 @@ class SLAEngineService:
             except Exception as e:
                 logger.error("SLA lead bulk_write failed: %s", e)
                 self._bump("errors:leads_bulk")
-        return tasks_written, leads_written
+
+        for user_id, payload in self._notif_publish:
+            try:
+                await notifications_stream.publish(user_id, payload)
+            except Exception:
+                pass
+        return tasks_written, notifs_written, events_written, leads_written
 
     async def process_all_slas(self) -> dict:
         now_dt = utc_now()
         now_iso = iso_utc_now()
-        name_to_user_id = await self._load_name_to_user_id()
-        self._escalation_targets = await self._load_escalation_targets()
+        lock_acquired = False
+        try:
+            if not await self._acquire_cron_lock(now_dt):
+                logger.info("SLA cron skipped — lock held by another instance")
+                return {"skipped": True, "reason": "lock_held"}
 
-        await self._process_rule_new(now_dt, now_iso, name_to_user_id)
-        await self._process_rule_rnr(now_dt, now_iso, name_to_user_id)
-        await self._process_rule_contacted(now_dt, now_iso, name_to_user_id)
-        await self._process_rule_nurturing(now_dt, now_iso, name_to_user_id)
-        await self._process_rule_visit_scheduled(now_dt, now_iso, name_to_user_id)
-        await self._process_rule_visit_completed(now_dt, now_iso, name_to_user_id)
-        await self._process_rule_negotiation(now_dt, now_iso, name_to_user_id)
-        await self._process_rule_gone_cold(now_dt, now_iso, name_to_user_id)
-        await self._process_rule_future_prospect(now_dt, now_iso, name_to_user_id)
+            lock_acquired = True
+            name_to_user_id = await self._load_name_to_user_id()
+            self._escalation_targets = await self._load_escalation_targets()
 
-        tasks_written, leads_written = await self._flush_bulk_writes()
+            await self._process_rule_new(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_rnr(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_contacted(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_nurturing(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_visit_scheduled(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_visit_completed(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_sv_followup(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_negotiation(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_gone_cold(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_future_prospect(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_reengaged(now_dt, now_iso, name_to_user_id)
 
-        out = {
-            "ok": True,
-            "processed_at": now_iso,
-            "tasks_inserted": tasks_written,
-            "leads_modified": leads_written,
-            "task_ops_queued": len(self._task_ops),
-            "lead_ops_queued": len(self._lead_ops),
-            "skipped_no_assignee": self._skipped_no_assignee,
-            "rules": self._summary,
-        }
-        logger.info("SLA engine completed: %s", out)
-        return out
+            tasks_written, notifs_written, events_written, leads_written = await self._flush_bulk_writes()
+
+            out = {
+                "ok": True,
+                "processed_at": now_iso,
+                "tasks_inserted": tasks_written,
+                "notifications_inserted": notifs_written,
+                "events_inserted": events_written,
+                "leads_modified": leads_written,
+                "task_ops_queued": len(self._task_ops),
+                "lead_ops_queued": len(self._lead_ops),
+                "skipped_no_assignee": self._skipped_no_assignee,
+                "rules": self._summary,
+            }
+            logger.info("SLA engine completed: %s", out)
+            return out
+        finally:
+            if lock_acquired:
+                await db.cron_locks.delete_one({"job": _CRON_LOCK_JOB})

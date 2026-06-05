@@ -45,6 +45,12 @@ def test_nurturing_transition_blocks_general_note_until_new_task(monkeypatch):
                 self._tasks.append(dict(doc))
                 return None
 
+            async def update_many(self, query, update):
+                class _Result:
+                    modified_count = 0
+
+                return _Result()
+
         lead_id = "lead-1"
         base_lead = {
             "id": lead_id,
@@ -69,6 +75,14 @@ def test_nurturing_transition_blocks_general_note_until_new_task(monkeypatch):
 
         # Patch endpoint module globals
         monkeypatch.setattr(tasks_endpoints, "db", db)
+
+        async def _resolve_lead_or_403(lead_id, current_user):
+            lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+            if not lead:
+                raise HTTPException(status_code=404, detail="Lead not found")
+            return lead
+
+        monkeypatch.setattr(tasks_endpoints, "resolve_lead_or_403", _resolve_lead_or_403)
 
         # Patch lead_service db + dependencies used inside update_lead
         import crm.services.lead_service as lead_service

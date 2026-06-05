@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from crm.core.platform_ops import get_blocked_assignee_values, is_blocked_assignee_name
 from crm.core.state import coerce_datetime, db, get_current_user, iso_utc_now, utc_now
+from crm.services.assignment_router import is_active_for_routing, process_waiting_queue
+from crm.utils.business_time import is_business_hours_ist
 
 
 router = APIRouter()
@@ -14,6 +16,8 @@ router = APIRouter()
 async def record_heartbeat(current_user: dict = Depends(get_current_user)):
     now_dt = utc_now()
     now_iso = iso_utc_now()
+    doc = await db.user_activity.find_one({"user_id": current_user["id"]}, {"_id": 0}) or {}
+    manual = doc.get("manual_status") or "available"
     await db.user_activity.update_one(
         {"user_id": current_user["id"]},
         {
@@ -22,19 +26,27 @@ async def record_heartbeat(current_user: dict = Depends(get_current_user)):
                 "full_name": current_user["full_name"],
                 "last_active": now_iso,
                 "last_active_dt": now_dt,
-                "manual_status": None,
+                "manual_status": manual,
             }
         },
         upsert=True,
     )
-    return {"status": "ok"}
+    assigned = await process_waiting_queue(current_user["id"])
+    routing_eligible = await is_active_for_routing(current_user, now_dt)
+    return {
+        "status": "ok",
+        "routing_eligible": routing_eligible,
+        "within_business_hours": is_business_hours_ist(now_dt),
+        "waiting_queue_assigned": assigned,
+    }
 
 
 @router.put("/activity/status")
 async def set_manual_status(status: str, user_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
     target_id = user_id or current_user["id"]
-    if status not in ["available", "unavailable"]:
-        raise HTTPException(400, "Status must be 'available' or 'unavailable'")
+    allowed = {"available", "unavailable", "on_break", "site_visit", "away"}
+    if status not in allowed:
+        raise HTTPException(400, f"Status must be one of: {', '.join(sorted(allowed))}")
     now_dt = utc_now()
     now_iso = iso_utc_now()
     await db.user_activity.update_one(
@@ -63,7 +75,7 @@ async def get_team_status(current_user: dict = Depends(get_current_user)):
         activity = activity_map.get(agent, {})
         manual = activity.get("manual_status")
 
-        if manual == "unavailable":
+        if manual in {"unavailable", "on_break", "site_visit", "away"}:
             status_val = "offline"
         elif manual == "available":
             status_val = "online"

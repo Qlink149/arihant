@@ -5,6 +5,7 @@ import { Bell, ArrowLeft, AlertTriangle, Phone, Calendar, Clock } from 'lucide-r
 import { notificationsAPI } from '../services/api';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
+import { useMarkAllNotificationsRead } from '../hooks/useMarkAllNotificationsRead';
 
 const NotificationsPage = () => {
   const navigate = useNavigate();
@@ -27,15 +28,11 @@ const NotificationsPage = () => {
     load();
   }, []);
 
-  const markAll = async () => {
-    try {
-      await notificationsAPI.markAllRead();
-      await load();
-      toast.success('All alerts cleared');
-    } catch (e) {
-      toast.error('Could not mark all as read');
-    }
-  };
+  const { markAllRead: markAll, busy: markAllBusy } = useMarkAllNotificationsRead({
+    getItems: () => items,
+    setItems,
+    refetch: load,
+  });
 
   const markOne = async (id) => {
     try {
@@ -69,8 +66,14 @@ const NotificationsPage = () => {
           </div>
         </div>
         {items.some((n) => !n.is_read) && (
-          <Button size="sm" variant="outline" onClick={markAll} className="border-[#C5A059]/40 text-[#C5A059]">
-            Mark all read
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={markAll}
+            disabled={markAllBusy}
+            className="border-[#C5A059]/40 text-[#C5A059]"
+          >
+            {markAllBusy ? 'Clearing…' : 'Mark all read'}
           </Button>
         )}
       </div>
@@ -105,7 +108,14 @@ const NotificationsPage = () => {
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-medium text-sm">{n.title || n.lead_name}</p>
                   <p className="text-[#A1A1AA] text-xs mt-1">{n.message}</p>
-                  {n.is_auto && <span className="text-[10px] text-[#52525B] mt-2 inline-block">Auto alert</span>}
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {n.is_auto && <span className="text-[10px] text-[#52525B]">Auto alert</span>}
+                    {n.is_overdue && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+                        Overdue
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {!n.is_read && <span className="w-2 h-2 rounded-full bg-[#C5A059] flex-shrink-0 mt-2" />}
               </motion.div>

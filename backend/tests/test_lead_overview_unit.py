@@ -84,9 +84,10 @@ def test_metric_filter_unknown_returns_empty():
     assert metric_filter_for_key("not_a_metric", ctx) == {}
 
 
-def test_all_twelve_metrics_defined():
+def test_all_metrics_defined_including_negotiation_and_qualified():
     keys = {s["key"] for s in METRIC_SPECS}
     expected = {
+        "qualified_leads",
         "all_leads",
         "todays_leads",
         "follow_up_today",
@@ -94,6 +95,7 @@ def test_all_twelve_metrics_defined():
         "rnr",
         "todays_site_visits",
         "sv_conducted",
+        "negotiation",
         "junk",
         "gone_cold",
         "re_engaged",
@@ -101,6 +103,12 @@ def test_all_twelve_metrics_defined():
         "leads_transferred",
     }
     assert keys == expected
+
+
+def test_metric_filter_negotiation_status():
+    ctx = build_metric_context({}, uid="u1", name="Rep", is_manager=False)
+    filt = metric_filter_for_key("negotiation", ctx)
+    assert "negotiat" in str(filt)
 
 
 def test_transfer_metrics_use_lead_transfers_collection():

@@ -1,25 +1,31 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth, getPostLoginPath } from './context/AuthContext';
 import { Toaster } from './components/ui/sonner';
 
-// Pages
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
-import VirtualCustomerPage from './pages/VirtualCustomerPage';
-import DigitalTwinPage from './pages/DigitalTwinPage';
-import SettingsPage from './pages/SettingsPage';
-
-import SalesDashboardPage from './pages/SalesDashboardPage';
-import MyDashboardPage from './pages/MyDashboardPage';
-import MarketingDashboardPage from './pages/MarketingDashboardPage';
-import DevDocsPage from './pages/DevDocsPage';
-import NotificationsPage from './pages/NotificationsPage';
-import PlatformOpsPage from './pages/PlatformOpsPage';
-
-// Layout
 import DashboardLayout from './components/layout/DashboardLayout';
 import RouteProgress from './components/layout/RouteProgress';
+
+const PageLoading = () => (
+  <div className="min-h-[40vh] flex items-center justify-center">
+    <div className="text-[#C5A059] animate-pulse">Loading...</div>
+  </div>
+);
+
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const VirtualCustomerPage = lazy(() => import('./pages/VirtualCustomerPage'));
+const DigitalTwinPage = lazy(() => import('./pages/DigitalTwinPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const SalesDashboardPage = lazy(() => import('./pages/SalesDashboardPage'));
+const MyDashboardPage = lazy(() => import('./pages/MyDashboardPage'));
+const MarketingDashboardPage = lazy(() => import('./pages/MarketingDashboardPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const PlatformOpsPage = lazy(() => import('./pages/PlatformOpsPage'));
+
+const LazyPage = ({ children }) => (
+  <Suspense fallback={<PageLoading />}>{children}</Suspense>
+);
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -108,18 +114,17 @@ function AppRoutes() {
         }
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="virtual-customer" element={<VirtualCustomerPage />} />
+        <Route path="dashboard" element={<LazyPage><DashboardPage /></LazyPage>} />
+        <Route path="virtual-customer" element={<LazyPage><VirtualCustomerPage /></LazyPage>} />
         <Route path="virtual-dashboard" element={<Navigate to="/virtual-customer" replace />} />
-        <Route path="lead/:leadId" element={<DigitalTwinPage />} />
-        <Route path="settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
-        <Route path="sales-dashboard" element={<AdminRoute><SalesDashboardPage /></AdminRoute>} />
-        <Route path="my-dashboard" element={<MyDashboardPage />} />
-        <Route path="marketing-dashboard" element={<AdminRoute><MarketingDashboardPage /></AdminRoute>} />
-        <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="developer-docs" element={<DevDocsPage />} />
+        <Route path="lead/:leadId" element={<LazyPage><DigitalTwinPage /></LazyPage>} />
+        <Route path="settings" element={<AdminRoute><LazyPage><SettingsPage /></LazyPage></AdminRoute>} />
+        <Route path="sales-dashboard" element={<AdminRoute><LazyPage><SalesDashboardPage /></LazyPage></AdminRoute>} />
+        <Route path="my-dashboard" element={<LazyPage><MyDashboardPage /></LazyPage>} />
+        <Route path="marketing-dashboard" element={<AdminRoute><LazyPage><MarketingDashboardPage /></LazyPage></AdminRoute>} />
+        <Route path="notifications" element={<LazyPage><NotificationsPage /></LazyPage>} />
         {user?.is_platform_operator && (
-          <Route path="ops" element={<PlatformOpsPage />} />
+          <Route path="ops" element={<LazyPage><PlatformOpsPage /></LazyPage>} />
         )}
       </Route>
 

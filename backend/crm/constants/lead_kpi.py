@@ -18,9 +18,6 @@ RNR_STATUS_REGEX = (
 
 SITE_VISIT_STATUS_REGEX = r"(?i)site\s*visit"
 
-# Lowercased lead_status after trim (seed maps Advance Paid -> Won, etc.)
-DEALS_CLOSED_STATUS_REGEX = r"(?i)^\s*(won|advance\s*paid|closed|booked)\s*$"
-
 
 def fw_status_indicates_rnr(fw_status: Optional[str]) -> bool:
     if not fw_status or not str(fw_status).strip():

@@ -1,19 +1,27 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from crm.core.state import db, get_current_user, get_time_greeting, utc_now
-from crm.constants.lead_kpi import (
-    DEALS_CLOSED_STATUS_REGEX,
-    RNR_STATUS_REGEX,
-    SITE_VISIT_STATUS_REGEX,
+from crm.services.dashboard_scope import role_scope_filter
+from crm.services.lead_search import merge_query
+from crm.constants.lead_kpi import RNR_STATUS_REGEX, SITE_VISIT_STATUS_REGEX
+from crm.constants.lead_status import CLOSED_LEAD_STATUS_REGEX
+from crm.services.lead_analytics_queries import (
+    DORMANT_INACTIVITY_DAYS,
+    build_dashboard_base_query,
+    build_dashboard_snapshot_query,
+    count_dashboard_cohort_metrics,
+    created_since_filter,
+    merge_query_with_valid_projects,
+    project_distribution_pipeline,
 )
+from crm.services.lead_overview_service import count_dashboard_operational_metrics
 
 
 router = APIRouter()
-
-DORMANT_INACTIVITY_DAYS = 7
 
 
 def _nurturing_label_flag(label: str) -> Dict[str, Any]:
@@ -30,136 +38,6 @@ def _nurturing_label_flag(label: str) -> Dict[str, Any]:
             0,
         ]
     }
-
-
-def _nurturing_temperature_query(base: dict, label: str) -> dict:
-    return {
-        **base,
-        "lead_status": {"$regex": r"^nurturing$", "$options": "i"},
-        "temperature": {"$regex": f"^{label}$", "$options": "i"},
-    }
-
-# Dashboard project distribution: exclude placeholders (case-insensitive match on whole string)
-_INVALID_PROJECT_REGEX = {"$regex": r"^(?i)\s*(unknown|na|n/a|others|null)\s*$"}
-
-# Per-element invalid tokens (after splitting semicolon-delimited multi-project strings).
-# Only exclude true placeholders/noise — NOT real project names like Vinyasa, Vihaana, Esta, Tiara etc.
-_INVALID_PROJECT_PART_REGEX = r"(?i)^\s*(unknown|na|n/a|others?|null|sold\s*out\s*enquiry|homepage\s*enquiry|all\s*projects?|commercial\s*space|upcoming\s*commercial)\s*$"
-
-
-def _created_since_filter(days: int) -> dict:
-    cutoff_dt = utc_now() - timedelta(days=days)
-    cutoff_iso = cutoff_dt.isoformat()
-    no_dt = {"$or": [{"created_at_dt": {"$exists": False}}, {"created_at_dt": None}]}
-    legacy = {
-        "$or": [
-            {"created_at": {"$gte": cutoff_iso}},
-            {"created_at": {"$type": "date", "$gte": cutoff_dt}},
-        ],
-    }
-    return {"$or": [{"created_at_dt": {"$gte": cutoff_dt}}, {"$and": [no_dt, legacy]}]}
-
-
-def _stale_activity_clause(cutoff: datetime, cutoff_iso: str) -> dict:
-    """Lead has had no meaningful update in DORMANT_INACTIVITY_DAYS (prefer updated_at_dt / updated_at, else created)."""
-    no_updated_dt = {"$or": [{"updated_at_dt": {"$exists": False}}, {"updated_at_dt": None}]}
-    no_updated_at = {"$or": [{"updated_at": {"$exists": False}}, {"updated_at": None}]}
-    return {
-        "$or": [
-            {"updated_at_dt": {"$lt": cutoff}},
-            {
-                "$and": [
-                    no_updated_dt,
-                    {"$or": [{"updated_at": {"$lt": cutoff}}, {"updated_at": {"$lt": cutoff_iso}}]},
-                ]
-            },
-            {
-                "$and": [
-                    no_updated_dt,
-                    no_updated_at,
-                    {"$or": [{"created_at_dt": {"$lt": cutoff}}, {"created_at": {"$lt": cutoff_iso}}]},
-                ]
-            },
-        ]
-    }
-
-
-def _non_dormant_terminal_status_clause() -> dict:
-    """Option B: exclude Won, Lost, Advance Paid, Closed, Booked, Dropped, Unqualified (whole status, case-insensitive)."""
-    return {
-        "$nor": [
-            {
-                "lead_status": {
-                    "$regex": r"(?i)^\s*(won|lost|advance\s*paid|closed|booked|dropped|unqualified)\s*$",
-                }
-            }
-        ]
-    }
-
-
-def _dormant_leads_query(base_query: dict) -> dict:
-    cutoff = utc_now() - timedelta(days=DORMANT_INACTIVITY_DAYS)
-    cutoff_iso = cutoff.isoformat()
-    return {"$and": [base_query, _stale_activity_clause(cutoff, cutoff_iso), _non_dormant_terminal_status_clause()]}
-
-
-def _merge_query_with_valid_projects(query: dict) -> dict:
-    """Combine time/user filter with valid project names for distribution charts."""
-    valid_proj = {
-        "project": {
-            "$exists": True,
-            "$nin": [None, ""],
-            "$not": _INVALID_PROJECT_REGEX,
-        }
-    }
-    if not query:
-        return valid_proj
-    return {"$and": [query, valid_proj]}
-
-
-def _project_distribution_pipeline(match_query: dict, limit: int = 50) -> List[Dict[str, Any]]:
-    """Aggregation pipeline that correctly handles semicolon-delimited multi-project strings.
-
-    Many leads store multiple projects as ';ECR - Reserve 16;Saligramam Melange;'
-    This pipeline splits by ';', trims whitespace, filters invalid tokens, unwinds,
-    then groups by individual project name so each project gets its true lead count.
-    """
-    return [
-        {"$match": match_query},
-        {
-            "$addFields": {
-                "_project_parts": {
-                    "$filter": {
-                        "input": {
-                            "$map": {
-                                "input": {"$split": [{"$ifNull": ["$project", ""]}, ";"]},
-                                "as": "p",
-                                "in": {"$trim": {"input": "$$p"}},
-                            }
-                        },
-                        "as": "p",
-                        "cond": {
-                            "$and": [
-                                {"$gt": [{"$strLenCP": "$$p"}, 0]},
-                                {
-                                    "$not": {
-                                        "$regexMatch": {
-                                            "input": "$$p",
-                                            "regex": _INVALID_PROJECT_PART_REGEX,
-                                        }
-                                    }
-                                },
-                            ]
-                        },
-                    }
-                }
-            }
-        },
-        {"$unwind": "$_project_parts"},
-        {"$group": {"_id": "$_project_parts", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": limit},
-    ]
 
 
 def _rep_name_expression() -> Dict[str, Any]:
@@ -231,7 +109,7 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                         {
                             "$regexMatch": {
                                 "input": "$ls",
-                                "regex": DEALS_CLOSED_STATUS_REGEX,
+                                "regex": CLOSED_LEAD_STATUS_REGEX.pattern,
                             }
                         },
                         1,
@@ -246,7 +124,7 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                     ]
                 },
                 "negotiation": {
-                    "$cond": [{"$regexMatch": {"input": "$ls", "regex": r"^negotiation$"}}, 1, 0]
+                    "$cond": [{"$regexMatch": {"input": "$ls", "regex": r"negotiat"}}, 1, 0]
                 },
                 "activity_dt": {
                     "$ifNull": [
@@ -283,9 +161,12 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
     ]
 
 
-async def _sales_managers_from_aggregation() -> tuple[List[Dict[str, Any]], Dict[str, int], List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Full-collection sales aggregates: managers (no embedded leads), totals, by_status, by_project."""
+async def _sales_managers_from_aggregation(
+    scope_filter: Optional[Dict[str, Any]] = None,
+) -> tuple[List[Dict[str, Any]], Dict[str, int], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Sales aggregates: managers (no embedded leads), totals, by_status, by_project."""
     metrics_stages = _sales_metrics_stages()
+    prefix: List[Dict[str, Any]] = [{"$match": scope_filter}] if scope_filter else []
     group_stage = {
         "$group": {
             "_id": "$rep",
@@ -302,24 +183,22 @@ async def _sales_managers_from_aggregation() -> tuple[List[Dict[str, Any]], Dict
         }
     }
 
-    main_rows = await db.leads.aggregate(metrics_stages + [group_stage]).to_list(None)
-
-    dormant_q = _dormant_leads_query({})
-    dormant_rows = await db.leads.aggregate(
-        [
-            {"$match": dormant_q},
-            {"$addFields": {"rep": _rep_name_expression()}},
-            {"$group": {"_id": "$rep", "dormant": {"$sum": 1}}},
-        ]
-    ).to_list(None)
-    dormant_by_rep = {r["_id"]: r["dormant"] for r in dormant_rows}
+    main_rows = await db.leads.aggregate(prefix + metrics_stages + [group_stage]).to_list(None)
 
     managers: List[Dict[str, Any]] = []
-    totals = {"total": 0, "hot": 0, "warm": 0, "cold": 0, "dormant": 0, "rnr": 0, "site_visits": 0, "deals_closed": 0}
+    totals = {
+        "total": 0,
+        "hot": 0,
+        "warm": 0,
+        "cold": 0,
+        "negotiation": 0,
+        "rnr": 0,
+        "site_visits": 0,
+        "deals_closed": 0,
+    }
 
     for r in main_rows:
         name = r["_id"] or "Unassigned"
-        dcount = int(dormant_by_rep.get(name, 0))
         total = int(r.get("total", 0))
         deals = int(r.get("deals_closed", 0))
         conv = round((deals / total) * 100) if total > 0 else 0
@@ -327,6 +206,7 @@ async def _sales_managers_from_aggregation() -> tuple[List[Dict[str, Any]], Dict
         last_active = ""
         if isinstance(la, datetime):
             last_active = la.astimezone(timezone.utc).isoformat()
+        negotiation = int(r.get("negotiation", 0))
         managers.append(
             {
                 "name": name,
@@ -334,12 +214,11 @@ async def _sales_managers_from_aggregation() -> tuple[List[Dict[str, Any]], Dict
                 "hot": int(r.get("hot", 0)),
                 "warm": int(r.get("warm", 0)),
                 "cold": int(r.get("cold", 0)),
-                "dormant": dcount,
                 "rnr": int(r.get("rnr", 0)),
                 "site_visits": int(r.get("site_visits", 0)),
                 "deals_closed": deals,
                 "contacted": int(r.get("contacted", 0)),
-                "negotiation": int(r.get("negotiation", 0)),
+                "negotiation": negotiation,
                 "conversion_rate": conv,
                 "last_active": last_active,
                 "leads": [],
@@ -349,7 +228,7 @@ async def _sales_managers_from_aggregation() -> tuple[List[Dict[str, Any]], Dict
         totals["hot"] += int(r.get("hot", 0))
         totals["warm"] += int(r.get("warm", 0))
         totals["cold"] += int(r.get("cold", 0))
-        totals["dormant"] += dcount
+        totals["negotiation"] += negotiation
         totals["rnr"] += int(r.get("rnr", 0))
         totals["site_visits"] += int(r.get("site_visits", 0))
         totals["deals_closed"] += deals
@@ -361,10 +240,11 @@ async def _sales_managers_from_aggregation() -> tuple[List[Dict[str, Any]], Dict
         {"$sort": {"count": -1}},
         {"$limit": 50},
     ]
-    status_raw = await db.leads.aggregate([{"$match": {}}] + status_pipeline).to_list(50)
+    status_match = scope_filter or {}
+    status_raw = await db.leads.aggregate([{"$match": status_match}] + status_pipeline).to_list(50)
     by_status = [{"name": (s["_id"] or "Unknown"), "count": s["count"]} for s in status_raw]
 
-    project_pipeline = _project_distribution_pipeline(_merge_query_with_valid_projects({}))
+    project_pipeline = project_distribution_pipeline(merge_query_with_valid_projects(status_match))
     proj_raw = await db.leads.aggregate(project_pipeline).to_list(50)
     by_project = [{"name": (p["_id"] or "Unknown"), "count": p["count"]} for p in proj_raw]
 
@@ -372,27 +252,50 @@ async def _sales_managers_from_aggregation() -> tuple[List[Dict[str, Any]], Dict
 
 
 @router.get("/analytics/dashboard")
-async def get_dashboard_analytics(current_user: dict = Depends(get_current_user), days: Optional[int] = None):
-    query: dict = {}
-    if days:
-        query = _created_since_filter(days)
+async def get_dashboard_analytics(
+    current_user: dict = Depends(get_current_user),
+    days: Optional[int] = None,
+    project: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+):
+    scope = role_scope_filter(current_user)
+    cohort_query = merge_query(
+        scope,
+        build_dashboard_base_query(
+            days=days,
+            created_from=created_from,
+            created_to=created_to,
+            project=project,
+        ),
+    )
+    snapshot_query = merge_query(scope, build_dashboard_snapshot_query(project=project))
 
-    total_leads = await db.leads.count_documents(query)
+    operational_keys = (
+        "missed_follow_up",
+        "todays_site_visits",
+        "rnr",
+        "negotiation",
+        "follow_up_today",
+        "todays_leads",
+    )
+    operational_counts, cohort_counts = await asyncio.gather(
+        count_dashboard_operational_metrics(snapshot_query, operational_keys),
+        count_dashboard_cohort_metrics(cohort_query),
+    )
 
-    hot_leads = await db.leads.count_documents(_nurturing_temperature_query(query, "hot"))
-    warm_leads = await db.leads.count_documents(_nurturing_temperature_query(query, "warm"))
+    total_leads = cohort_counts["total_leads"]
+    hot_leads = cohort_counts["hot_leads"]
+    warm_leads = cohort_counts["warm_leads"]
     cold_leads = 0
-
-    vip_leads = await db.leads.count_documents({**query, "vip": True})
-
-    qualified = await db.leads.count_documents({**query, "lead_status": {"$regex": "qualified", "$options": "i"}})
-    open_leads = await db.leads.count_documents({**query, "lead_status": {"$regex": "open|new|contacted", "$options": "i"}})
-    lost = await db.leads.count_documents({**query, "lead_status": {"$regex": "lost|dropped|unqualified", "$options": "i"}})
-
-    dormant_leads = await db.leads.count_documents(_dormant_leads_query(query))
+    vip_leads = cohort_counts["vip_leads"]
+    qualified = cohort_counts["qualified_leads"]
+    open_leads = cohort_counts["open_leads"]
+    lost = cohort_counts["lost_leads"]
+    dormant_leads = cohort_counts["dormant_leads"]
 
     status_pipeline = [
-        {"$match": query},
+        {"$match": cohort_query},
         {
             "$group": {
                 "_id": {"$toLower": {"$trim": {"input": {"$ifNull": ["$lead_status", "unknown"]}}}},
@@ -406,7 +309,7 @@ async def get_dashboard_analytics(current_user: dict = Depends(get_current_user)
     statuses = await db.leads.aggregate(status_pipeline).to_list(20)
 
     source_pipeline = [
-        {"$match": query},
+        {"$match": cohort_query},
         {"$group": {"_id": "$lead_source", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 10},
@@ -414,7 +317,7 @@ async def get_dashboard_analytics(current_user: dict = Depends(get_current_user)
     sources = await db.leads.aggregate(source_pipeline).to_list(10)
 
     location_pipeline = [
-        {"$match": query},
+        {"$match": cohort_query},
         {"$group": {"_id": "$location", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 10},
@@ -423,7 +326,7 @@ async def get_dashboard_analytics(current_user: dict = Depends(get_current_user)
     locations = [l for l in locations if l["_id"]]
 
     owner_pipeline = [
-        {"$match": query},
+        {"$match": cohort_query},
         {
             "$group": {
                 "_id": {
@@ -440,7 +343,7 @@ async def get_dashboard_analytics(current_user: dict = Depends(get_current_user)
     ]
     owners = await db.leads.aggregate(owner_pipeline).to_list(10)
 
-    project_pipeline = _project_distribution_pipeline(_merge_query_with_valid_projects(query))
+    project_pipeline = project_distribution_pipeline(merge_query_with_valid_projects(cohort_query))
     projects = await db.leads.aggregate(project_pipeline).to_list(50)
 
     return {
@@ -454,6 +357,7 @@ async def get_dashboard_analytics(current_user: dict = Depends(get_current_user)
         "open_leads": open_leads,
         "lost_leads": lost,
         "dormant_leads": dormant_leads,
+        "operational": operational_counts,
         "lead_sources": [{"name": s["_id"] or "Unknown", "count": s["count"]} for s in sources],
         "locations": [{"name": l["_id"] or "Unknown", "count": l["count"]} for l in locations],
         "projects": [{"name": p["_id"] or "Unknown", "count": p["count"]} for p in projects],
@@ -467,7 +371,8 @@ async def get_dashboard_analytics(current_user: dict = Depends(get_current_user)
 
 @router.get("/analytics/sales-dashboard")
 async def get_sales_dashboard_analytics(current_user: dict = Depends(get_current_user)):
-    managers, totals, by_status, by_project = await _sales_managers_from_aggregation()
+    scope = role_scope_filter(current_user)
+    managers, totals, by_status, by_project = await _sales_managers_from_aggregation(scope or None)
     return {
         "managers": managers,
         "totals": totals,
@@ -484,8 +389,13 @@ async def get_sales_rep_leads(
     current_user: dict = Depends(get_current_user),
 ):
     """Paginated leads for a sales rep; same assignment logic as sales dashboard."""
+    if current_user.get("role") not in ("admin", "manager"):
+        own = (current_user.get("full_name") or "").strip()
+        if name.strip() != own:
+            raise HTTPException(status_code=403, detail="Access denied")
+    scope = role_scope_filter(current_user)
     rep_expr = _rep_name_expression()
-    match_expr = {"$expr": {"$eq": [rep_expr, name]}}
+    match_expr = merge_query(scope, {"$expr": {"$eq": [rep_expr, name]}})
     total = await db.leads.count_documents(match_expr)
 
     projection = {

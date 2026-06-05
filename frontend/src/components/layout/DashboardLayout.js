@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { notificationsAPI, activityAPI } from '../../services/api';
 import { connectNotificationsStream, playNotificationBeep } from '../../utils/notificationsSSE';
+import { useMarkAllNotificationsRead } from '../../hooks/useMarkAllNotificationsRead';
 import {
   LayoutDashboard,
   Users,
@@ -76,7 +77,7 @@ const DashboardLayout = () => {
 
     // SSE notifications stream (authenticated via fetch headers)
     const stop = connectNotificationsStream({
-      url: `${process.env.REACT_APP_BACKEND_URL}/api/notifications/stream`,
+      url: `${import.meta.env.VITE_BACKEND_URL}/api/notifications/stream`,
       onNotification: (n) => {
         setNotifications((prev) => {
           const id = n?.id;
@@ -127,15 +128,11 @@ const DashboardLayout = () => {
     }
   };
 
-  const handleMarkAllRead = async () => {
-    try {
-      await notificationsAPI.markAllRead();
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      await fetchNotifications();
-    } catch (error) {
-      console.error('Failed to mark all read:', error);
-    }
-  };
+  const { markAllRead: handleMarkAllRead, busy: markAllBusy } = useMarkAllNotificationsRead({
+    getItems: () => notifications,
+    setItems: setNotifications,
+    refetch: fetchNotifications,
+  });
 
   const handleMarkRead = async (id) => {
     try {
@@ -174,6 +171,7 @@ const DashboardLayout = () => {
   };
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
+  const overdueCount = notifications.filter(n => n.is_overdue && !n.is_read).length;
 
   return (
     <div className={`min-h-screen flex ${darkMode ? 'bg-[#0A0A0A]' : 'bg-gray-100'}`}>
@@ -365,6 +363,11 @@ const DashboardLayout = () => {
                   data-testid="notifications-btn"
                 >
                   <Bell size={20} strokeWidth={1.5} />
+                  {overdueCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[10px] text-white flex items-center justify-center font-medium">
+                      {overdueCount > 9 ? '9+' : overdueCount}
+                    </span>
+                  )}
                   {unreadCount > 0 && (
                     <span className="absolute top-0 right-0 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
                       {unreadCount > 9 ? '9+' : unreadCount}
@@ -390,8 +393,16 @@ const DashboardLayout = () => {
                           </p>
                         </div>
                         {unreadCount > 0 && (
-                          <button onClick={(e) => { e.stopPropagation(); handleMarkAllRead(); }} className="text-[#C5A059] text-xs hover:underline" data-testid="mark-all-read-btn">
-                            Mark all read
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMarkAllRead();
+                            }}
+                            disabled={markAllBusy}
+                            className={`text-xs hover:underline ${markAllBusy ? 'opacity-60 cursor-not-allowed text-[#A1A1AA]' : 'text-[#C5A059]'}`}
+                            data-testid="mark-all-read-btn"
+                          >
+                            {markAllBusy ? 'Clearing…' : 'Mark all read'}
                           </button>
                         )}
                       </div>

@@ -98,3 +98,27 @@ def test_dedupe_same_description_different_agent_keeps_newest():
     result = dedupe_context_updates([older, newer])
     assert len(result) == 1
     assert result[0]["agent"] == "freshworks"
+
+
+def test_dedupe_output_sorted_newest_first():
+    a = {
+        "type": "note",
+        "agent": "freshworks",
+        "description": "First note",
+        "timestamp_dt": datetime(2024, 4, 22, 8, 0, tzinfo=timezone.utc),
+    }
+    b = {
+        "type": "task",
+        "agent": "rep",
+        "description": "Follow up",
+        "timestamp_dt": datetime(2024, 4, 25, 8, 0, tzinfo=timezone.utc),
+    }
+    c = {
+        "type": "created",
+        "agent": "system",
+        "description": "Lead created",
+        "timestamp_dt": datetime(2024, 4, 1, 8, 0, tzinfo=timezone.utc),
+    }
+    result = dedupe_context_updates([c, a, b])
+    timestamps = [e["timestamp_dt"] for e in result]
+    assert timestamps == sorted(timestamps, reverse=True)

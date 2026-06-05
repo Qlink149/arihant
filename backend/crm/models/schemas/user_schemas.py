@@ -11,8 +11,31 @@ class UserBase(BaseModel):
     role: Literal["admin", "manager", "rep"] = "rep"
 
 
-class UserCreate(UserBase):
+class UserRegister(BaseModel):
+    """Public registration — role is always rep; not accepted from clients."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    full_name: str
+    phone: Optional[str] = None
     password: str
+
+
+class AdminUserCreate(BaseModel):
+    """Admin-only user creation with explicit role."""
+
+    email: EmailStr
+    full_name: str
+    phone: Optional[str] = None
+    password: str
+    role: Literal["admin", "manager", "rep"] = "rep"
+
+
+class UserCreate(UserRegister):
+    """Backward-compatible alias for public registration."""
+
+    pass
 
 
 class UserResponse(UserBase):

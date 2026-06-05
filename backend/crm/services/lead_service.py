@@ -6,13 +6,21 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, UploadFile
 
+from crm.constants.lead_status import is_sv_followup_status, is_terminal_lead_status
 from crm.core.platform_ops import assert_assignee_allowed
 from crm.core.state import db, resolve_project_id, resolve_user_id_by_full_name
 from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
 from crm.services.context_updates import dedupe_context_updates
+from crm.services.lead_projections import (
+    DUPLICATE_GROUP_PUSH,
+    LEAD_LIST_SORT,
+    LIST_LEAD_PROJECTION,
+    trim_context_updates_for_list,
+)
 from crm.services.lead_events import log_lead_event
 from crm.services.lead_search import build_leads_list_query
 from crm.services.nurture_temperature import apply_nurture_temperature_rules
+from crm.services.sla_helpers import create_sla_task_for_lead
 from crm.utils.helpers import (
     coerce_datetime,
     determine_lead_intent,
@@ -52,12 +60,15 @@ def _normalize_context_updates_for_response(updates: List[dict]) -> List[dict]:
     return normalized
 
 
-def normalize_lead_for_response(lead: dict) -> dict:
+def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
     if lead.get("strategic_next_moves") is None:
         lead["strategic_next_moves"] = []
-    lead["context_updates"] = _normalize_context_updates_for_response(
-        dedupe_context_updates(lead.get("context_updates") or [])
-    )
+    if list_view:
+        lead["context_updates"] = trim_context_updates_for_list(lead.get("context_updates") or [])
+    else:
+        lead["context_updates"] = _normalize_context_updates_for_response(
+            dedupe_context_updates(lead.get("context_updates") or [])
+        )
     dt = lead.get("ai_last_generated_at_dt")
     if isinstance(dt, datetime):
         lead["ai_last_generated_at"] = dt
@@ -89,6 +100,23 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     apply_nurture_temperature_rules({}, temp_patch, is_create=True)
     lead_dict["temperature"] = temp_patch.get("temperature")
 
+    manual_assignee_name: Optional[str] = None
+    manual_assignee_id: Optional[str] = None
+    presales_raw = (lead_dict.get("presales_agent") or "").strip()
+    assigned_uid_raw = (lead_dict.get("assigned_user_id") or "").strip()
+    if assigned_uid_raw or presales_raw:
+        if assigned_uid_raw:
+            user_doc = await db.users.find_one(
+                {"id": assigned_uid_raw},
+                {"_id": 0, "id": 1, "full_name": 1},
+            )
+            manual_assignee_name = (user_doc.get("full_name") if user_doc else None) or presales_raw
+            manual_assignee_id = assigned_uid_raw if user_doc else await resolve_user_id_by_full_name(manual_assignee_name)
+        else:
+            manual_assignee_name = presales_raw
+            manual_assignee_id = await resolve_user_id_by_full_name(manual_assignee_name)
+        await assert_assignee_allowed(manual_assignee_name)
+
     now_dt = utc_now()
     now_iso = iso_utc_now()
     lead_dict.update(
@@ -97,9 +125,10 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
             "normalized_phone": normalized_phone,
             "intent": determine_lead_intent(lead_dict),
             "vip": is_vip_lead(lead_dict),
-            "assigned_to": None,
-            "assigned_user_id": None,
-            "assigned_to_name": None,
+            "assigned_to": manual_assignee_name,
+            "assigned_user_id": manual_assignee_id,
+            "assigned_to_name": manual_assignee_name,
+            "presales_agent": manual_assignee_name or lead_dict.get("presales_agent"),
             "ai_persona_summary": None,
             "strategic_next_moves": [],
             "ai_grounded_profile": None,
@@ -124,6 +153,16 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     )
 
     await db.leads.insert_one(lead_dict)
+
+    status_val = (lead_dict.get("lead_status") or "New").strip().lower()
+    if status_val == "new" and not manual_assignee_name:
+        from crm.services.assignment_router import route_new_lead
+
+        await route_new_lead(lead_id)
+        refreshed = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+        if refreshed:
+            lead_dict.update(refreshed)
+
     lead_dict["created_at"] = coerce_datetime(lead_dict["created_at"]) or utc_now()
     lead_dict["updated_at"] = coerce_datetime(lead_dict["updated_at"]) or utc_now()
     normalize_lead_for_response(lead_dict)
@@ -171,14 +210,70 @@ async def list_leads(
     )
 
     total = await db.leads.count_documents(query)
-    leads = await db.leads.find(query, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
+    cursor = (
+        db.leads.find(query, LIST_LEAD_PROJECTION)
+        .sort(LEAD_LIST_SORT)
+        .skip(skip)
+        .limit(limit)
+    )
+    leads = await cursor.to_list(limit)
 
     for lead in leads:
         lead["created_at"] = coerce_datetime(lead.get("created_at")) or utc_now()
         lead["updated_at"] = coerce_datetime(lead.get("updated_at")) or utc_now()
-        normalize_lead_for_response(lead)
+        normalize_lead_for_response(lead, list_view=True)
 
     return [LeadResponse(**lead) for lead in leads], total
+
+
+def duplicate_groups_base_pipeline(match_query: dict) -> List[dict]:
+    """Stages grouping leads by normalized_phone with count > 1."""
+    return [
+        {
+            "$match": {
+                **match_query,
+                "normalized_phone": {"$exists": True, "$nin": [None, ""]},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$normalized_phone",
+                "count": {"$sum": 1},
+                "leads": {"$push": DUPLICATE_GROUP_PUSH},
+            }
+        },
+        {"$match": {"count": {"$gt": 1}}},
+    ]
+
+
+async def find_duplicate_lead_groups(
+    query_base: Optional[Dict[str, Any]] = None,
+    *,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[List[List[dict]], int]:
+    """Return duplicate phone groups and total group count."""
+    limit = min(max(limit, 1), 100)
+    match_query = query_base or {}
+    base_pipeline = duplicate_groups_base_pipeline(match_query)
+    count_pipeline = base_pipeline + [{"$count": "n"}]
+    count_rows = await db.leads.aggregate(count_pipeline).to_list(1)
+    total_groups = count_rows[0]["n"] if count_rows else 0
+
+    data_pipeline = base_pipeline + [
+        {"$sort": {"count": -1}},
+        {"$skip": skip},
+        {"$limit": limit},
+        {
+            "$project": {
+                "_id": 0,
+                "leads": {"$slice": ["$leads", 20]},
+            }
+        },
+    ]
+    rows = await db.leads.aggregate(data_pipeline).to_list(limit)
+    groups = [row.get("leads") or [] for row in rows]
+    return groups, total_groups
 
 
 async def get_lead_by_id(lead_id: str) -> dict:
@@ -215,6 +310,118 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     now_dt = utc_now()
     now_iso = iso_utc_now()
+
+    prev_status = (existing.get("lead_status") or "").strip()
+    next_status = (patch.get("lead_status") or prev_status).strip()
+    status_changed = ("lead_status" in patch) and (prev_status.lower() != next_status.lower())
+
+    # Contacted outcome logging (client confirmed): structured enum, not free text.
+    if "logged_outcome" in patch or "logged_outcome_reason" in patch:
+        effective_status = next_status or prev_status
+        if effective_status.strip().lower() != "contacted":
+            raise HTTPException(status_code=400, detail="logged_outcome is only allowed when lead_status is Contacted")
+        allowed = {
+            "Interested",
+            "Not Interested",
+            "Follow-up Scheduled",
+            "Others",
+        }
+        outcome = (patch.get("logged_outcome") or "").strip()
+        if outcome not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid logged_outcome. Allowed values: Interested, Not Interested, Follow-up Scheduled, Others",
+            )
+        if outcome == "Others" and not (patch.get("logged_outcome_reason") or "").strip():
+            raise HTTPException(status_code=400, detail="logged_outcome_reason is required when logged_outcome is Others")
+
+        # If a valid outcome is logged, cancel pending Contacted SLA tasks immediately.
+        tasks_coll = getattr(db, "tasks", None)
+        if tasks_coll is not None:
+            await tasks_coll.update_many(
+                {"lead_id": lead_id, "source": "sla", "status": "pending", "sla_rule": "contacted"},
+                {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
+            )
+
+    # Lost reason (client confirmed): mandatory when marking certain terminal/lost statuses.
+    if "lead_status" in patch:
+        lost_statuses = {"closed lost", "junk", "dropped", "unqualified"}
+        if next_status.strip().lower() in lost_statuses:
+            reason = (patch.get("lost_reason") or existing.get("lost_reason") or "").strip()
+            if not reason:
+                raise HTTPException(status_code=400, detail="lost_reason is required when marking lead as lost/junk")
+
+    # Global ghost-job cleanup policy (client confirmed):
+    # On ANY stage transition, cancel all pending SLA tasks for this lead.
+    if status_changed:
+        tasks_coll = getattr(db, "tasks", None)
+        if tasks_coll is not None:
+            await tasks_coll.update_many(
+                {"lead_id": lead_id, "source": "sla", "status": "pending"},
+                {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
+            )
+
+        # Stage-entry timestamps (dedicated reference fields; do not reset on subsequent updates)
+        if next_status.lower() == "rnr" and not existing.get("rnr_entered_at_dt"):
+            patch["rnr_entered_at_dt"] = now_dt
+        if next_status.lower() == "contacted":
+            if not existing.get("contacted_at_dt"):
+                patch["contacted_at_dt"] = now_dt
+            await db.leads.update_one(
+                {"id": lead_id},
+                {
+                    "$unset": {
+                        "sla_flags.new.alert_admin_2h_at_dt": "",
+                        "sla_flags.new.reassign_30m_at_dt": "",
+                    }
+                },
+            )
+        if is_sv_followup_status(next_status) and not existing.get("sv_followup_entered_at_dt"):
+            patch["sv_followup_entered_at_dt"] = now_dt
+        if next_status.lower() == "gone cold":
+            patch["gone_cold_entered_at_dt"] = now_dt
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.gone_cold.reevaluate_30d_at_dt": ""}},
+            )
+        if "negotiat" in next_status.lower() and not existing.get("negotiation_entered_at_dt"):
+            patch["negotiation_entered_at_dt"] = now_dt
+        if is_terminal_lead_status(next_status):
+            patch["is_rnr"] = False
+        if next_status.lower() == "visit completed" and not existing.get("visit_completed_at_dt"):
+            patch["visit_completed_at_dt"] = now_dt
+            patch["visit_sla_reference_dt"] = now_dt
+        if next_status.lower() == "future prospect" and not existing.get("future_prospect_entered_at_dt"):
+            patch["future_prospect_entered_at_dt"] = now_dt
+        if "re-engaged" in next_status.lower() or next_status.lower() == "reengaged":
+            patch["reengaged_at_dt"] = now_dt
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.reengaged": ""}},
+            )
+
+    # Visit reschedule handling (client confirmed):
+    # If visit_date_dt changes, cancel existing pending pre-24h SLA task and clear SLA flag so it can re-queue.
+    if "visit_date_dt" in patch:
+        old_visit = coerce_datetime(existing.get("visit_date_dt"))
+        new_visit = coerce_datetime(patch.get("visit_date_dt"))
+        if old_visit != new_visit:
+            tasks_coll = getattr(db, "tasks", None)
+            if tasks_coll is not None:
+                await tasks_coll.update_many(
+                    {
+                        "lead_id": lead_id,
+                        "source": "sla",
+                        "status": "pending",
+                        "sla_rule": "visit_scheduled",
+                        "sla_threshold": "pre_24h",
+                    },
+                    {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
+                )
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.visit_scheduled.pre_24h_at_dt": ""}},
+            )
 
     extra_ctx = []
     if assignee_changed:
@@ -271,14 +478,14 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     # Nurturing workflow gate: when a lead transitions into Nurturing, require a fresh follow-up task
     # before allowing new general notes. This resets on re-entry and clears when leaving Nurturing.
     if "lead_status" in patch:
-        prev_status = (existing.get("lead_status") or "").strip()
-        next_status = (patch.get("lead_status") or "").strip()
         was_nurturing = prev_status.lower() == "nurturing".lower()
         is_nurturing = next_status.lower() == "nurturing".lower()
         if not was_nurturing and is_nurturing:
+            patch["nurture_entered_at_dt"] = now_dt
             patch["nurture_task_required_since_dt"] = now_dt
             patch["nurture_task_required_task_id"] = None
         elif was_nurturing and not is_nurturing:
+            patch["nurture_entered_at_dt"] = None
             patch["nurture_task_required_since_dt"] = None
             patch["nurture_task_required_task_id"] = None
 
@@ -324,6 +531,37 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     await db.leads.update_one({"id": lead_id}, {"$set": patch})
 
+    if status_changed and next_status.lower() == "visit completed":
+        merged_lead = {**existing, **patch}
+        await create_sla_task_for_lead(
+            merged_lead,
+            description="Post-visit follow-up — push for booking",
+            dedupe_key=f"sla:visit_completed:t0:{lead_id}",
+            sla_rule="visit_completed",
+            sla_threshold="t0",
+            stage="visit_completed",
+        )
+    if status_changed and is_sv_followup_status(next_status):
+        merged_lead = {**existing, **patch}
+        await create_sla_task_for_lead(
+            merged_lead,
+            description="SV Follow Up — confirm booking intent",
+            dedupe_key=f"sla:sv_followup:t0:{lead_id}",
+            sla_rule="sv_followup",
+            sla_threshold="t0",
+            stage="sv_followup",
+        )
+    if status_changed and ("re-engaged" in next_status.lower() or next_status.lower() == "reengaged"):
+        merged_lead = {**existing, **patch}
+        await create_sla_task_for_lead(
+            merged_lead,
+            description="Re-engaged lead — qualify intent",
+            dedupe_key=f"sla:reengaged:qualify:{lead_id}",
+            sla_rule="reengaged",
+            sla_threshold="t0",
+            stage="reengaged",
+        )
+
     if assignee_changed:
         await log_lead_event(
             "assignee_changed",
@@ -344,19 +582,35 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     return LeadResponse(**updated)
 
 
-async def import_csv(file: UploadFile, current_user: dict, replace_all: bool = False) -> dict:
+async def import_csv(
+    file: UploadFile,
+    current_user: dict,
+    replace_all: bool = False,
+    confirm_replace: Optional[str] = None,
+) -> dict:
     contents = await file.read()
     decoded = contents.decode("utf-8")
     reader = csv.DictReader(io.StringIO(decoded))
+    rows = list(reader)
 
     if replace_all:
         await db.leads.delete_many({})
+        await log_lead_event(
+            "csv_replace_all",
+            actor_user_id=current_user.get("id"),
+            actor_name=current_user.get("full_name"),
+            payload={
+                "uploaded_by": current_user.get("email"),
+                "row_count": len(rows),
+                "timestamp": iso_utc_now(),
+            },
+        )
 
     imported = 0
     duplicates = 0
     errors = []
 
-    for row in reader:
+    for row in rows:
         try:
             now_iso = iso_utc_now()
             now_dt = utc_now()

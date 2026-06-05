@@ -126,6 +126,16 @@ class TestMyDashboard:
         assert "transferred_leads" in data, "Should have transferred_leads"
         assert "my_tasks" in data, "Should have my_tasks"
         assert "metrics" in data, "Should have metrics"
+
+    def test_my_dashboard_tasks_include_lead_context_when_linked(self, authenticated_client):
+        """Linked tasks should include enriched lead_name from API."""
+        response = authenticated_client.get(f"{BASE_URL}/api/my-dashboard")
+        assert response.status_code == 200
+        tasks = response.json().get("my_tasks") or []
+        linked = [t for t in tasks if t.get("lead_id")]
+        if not linked:
+            pytest.skip("No linked tasks on dashboard")
+        assert (linked[0].get("lead_name") or "").strip(), "Expected lead_name on linked task"
     
     def test_my_dashboard_metrics_structure(self, authenticated_client):
         """Test my dashboard metrics structure"""

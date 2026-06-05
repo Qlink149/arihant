@@ -50,6 +50,10 @@ export const METRIC_LABELS = {
 
   re_engaged: 'Re-engaged',
 
+  qualified_leads: 'Qualified leads',
+
+  dormant: 'Dormant leads',
+
 };
 
 

@@ -1,9 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { leadsAPI, whatsappAPI } from '../services/api';
 import { LeadProfileHeader } from '../components/leads/LeadProfileHeader';
-import { dedupeContextUpdates, contextUpdateKey, formatTimelineAttribution } from '../utils/contextUpdates';
+import {
+  getTimelineForDisplay,
+  contextUpdateKey,
+  formatTimelineAttribution,
+  TIMELINE_INITIAL_VISIBLE,
+  TIMELINE_LOAD_MORE_STEP,
+} from '../utils/contextUpdates';
 import { formatTimeIST, parseApiDate } from '../utils/datetime';
 import {
   Accordion,
@@ -72,24 +78,50 @@ const DigitalTwinPage = () => {
     reminder_method: 'email', assigned_to: ''
   });
   const [savingTask, setSavingTask] = useState(false);
+  const [timelineVisibleCount, setTimelineVisibleCount] = useState(TIMELINE_INITIAL_VISIBLE);
   const aiPollCount = useRef(0);
 
-  useEffect(() => {
-    fetchLead();
-    fetchSuggestions();
-  }, [leadId]);
-
-  const fetchLead = useCallback(async () => {
+  const fetchLead = useCallback(async ({ silent = false } = {}) => {
     try {
       const response = await leadsAPI.getOne(leadId);
       setLead(response.data);
     } catch (error) {
       console.error('Failed to fetch lead:', error);
-      toast.error('Failed to load lead details');
+      if (!silent) toast.error('Failed to load lead details');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [leadId]);
+
+  const fetchSuggestions = useCallback(async () => {
+    try {
+      const response = await leadsAPI.getSuggestions(leadId);
+      setSuggestions(response.data);
+    } catch (error) {
+      console.error('Failed to fetch suggestions:', error);
+    }
+  }, [leadId]);
+
+  useEffect(() => {
+    fetchLead();
+    fetchSuggestions();
+  }, [fetchLead, fetchSuggestions]);
+
+  useEffect(() => {
+    setTimelineVisibleCount(TIMELINE_INITIAL_VISIBLE);
+  }, [leadId]);
+
+  const fullTimeline = useMemo(
+    () => getTimelineForDisplay(lead?.context_updates || []),
+    [lead?.context_updates]
+  );
+
+  const visibleTimeline = useMemo(
+    () => fullTimeline.slice(0, timelineVisibleCount),
+    [fullTimeline, timelineVisibleCount]
+  );
+
+  const timelineHiddenCount = Math.max(0, fullTimeline.length - timelineVisibleCount);
 
   useEffect(() => {
     if (!lead?.ai_generation_pending || !lead?.ai_configured) {
@@ -97,21 +129,13 @@ const DigitalTwinPage = () => {
       return undefined;
     }
     if (aiPollCount.current >= 8) return undefined;
+    const delayMs = aiPollCount.current >= 2 ? 6000 : 4000;
     const t = setTimeout(() => {
       aiPollCount.current += 1;
-      fetchLead();
-    }, 4000);
+      fetchLead({ silent: true });
+    }, delayMs);
     return () => clearTimeout(t);
   }, [lead, fetchLead]);
-
-  const fetchSuggestions = async () => {
-    try {
-      const response = await leadsAPI.getSuggestions(leadId);
-      setSuggestions(response.data);
-    } catch (error) {
-      console.error('Failed to fetch suggestions:', error);
-    }
-  };
 
   const fetchChatHistory = async (showModal = true) => {
     try {
@@ -611,7 +635,7 @@ const DigitalTwinPage = () => {
         </div>
 
         <div className="timeline-line space-y-6">
-          {dedupeContextUpdates(lead.context_updates || []).slice().reverse().map((update, idx) => {
+          {visibleTimeline.map((update, idx) => {
             const IconComponent = getContextIcon(update.type);
             const isNew = idx === 0;
             const attribution = formatTimelineAttribution(update);
@@ -682,6 +706,26 @@ const DigitalTwinPage = () => {
             );
           })}
         </div>
+        {timelineHiddenCount > 0 && (
+          <div className="mt-6 flex justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setTimelineVisibleCount((n) =>
+                  Math.min(n + TIMELINE_LOAD_MORE_STEP, fullTimeline.length)
+                )
+              }
+              className="border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white"
+              data-testid="timeline-load-more"
+            >
+              Load older activity (
+              {Math.min(timelineHiddenCount, TIMELINE_LOAD_MORE_STEP)}
+              {timelineHiddenCount > TIMELINE_LOAD_MORE_STEP ? '+' : ''} more)
+            </Button>
+          </div>
+        )}
       </motion.div>
 
       {/* Update Context Modal */}

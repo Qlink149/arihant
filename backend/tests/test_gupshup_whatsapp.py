@@ -6,6 +6,8 @@ Test suite for Gupshup WhatsApp Integration
 - WhatsApp templates
 - Webhook handler for inbound messages (V2 & V3 formats)
 """
+import hashlib
+import hmac
 import pytest
 import requests
 import os
@@ -14,6 +16,14 @@ import time
 from datetime import datetime
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
+
+WEBHOOK_TEST_SECRET = os.environ.get("WHATSAPP_WEBHOOK_SECRET", "test-webhook-secret-for-pytest")
+
+
+def sign_webhook_body(body: bytes) -> dict:
+    sig = "sha256=" + hmac.new(WEBHOOK_TEST_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    return {"Content-Type": "application/json", "x-hub-signature-256": sig}
+
 
 # Test credentials
 TEST_EMAIL = "roshini@arihant.com"
@@ -117,7 +127,12 @@ class TestWhatsAppTemplates:
 
 class TestWhatsAppWebhook:
     """Tests for WhatsApp webhook handler (NO AUTH required - called by Gupshup)"""
-    
+
+    @pytest.fixture(autouse=True)
+    def _require_webhook_base_url(self):
+        if not BASE_URL:
+            pytest.skip("REACT_APP_BACKEND_URL is not set")
+
     def test_v3_webhook_format(self):
         """POST /api/whatsapp/webhook - V3 format incoming message"""
         # V3 format payload (new subscription API format)
@@ -141,10 +156,11 @@ class TestWhatsAppWebhook:
             }]
         }
         
+        body = json.dumps(v3_payload, separators=(",", ":")).encode()
         response = requests.post(
             f"{BASE_URL}/api/whatsapp/webhook",
-            json=v3_payload,
-            headers={"Content-Type": "application/json"}
+            data=body,
+            headers=sign_webhook_body(body),
         )
         assert response.status_code == 200, f"V3 webhook failed: {response.text}"
         data = response.json()
@@ -169,10 +185,11 @@ class TestWhatsAppWebhook:
             }
         }
         
+        body = json.dumps(v2_payload, separators=(",", ":")).encode()
         response = requests.post(
             f"{BASE_URL}/api/whatsapp/webhook",
-            json=v2_payload,
-            headers={"Content-Type": "application/json"}
+            data=body,
+            headers=sign_webhook_body(body),
         )
         assert response.status_code == 200, f"V2 webhook failed: {response.text}"
         data = response.json()
@@ -181,10 +198,11 @@ class TestWhatsAppWebhook:
     
     def test_webhook_handles_empty_body(self):
         """POST /api/whatsapp/webhook - handles empty or invalid body gracefully"""
+        body = b""
         response = requests.post(
             f"{BASE_URL}/api/whatsapp/webhook",
-            data="",  # Empty body
-            headers={"Content-Type": "application/json"}
+            data=body,
+            headers=sign_webhook_body(body),
         )
         # Should return 200 to prevent Gupshup retries
         assert response.status_code == 200, f"Empty webhook failed: {response.text}"

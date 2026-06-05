@@ -12,13 +12,13 @@ const GRID_CLASS =
 function MetricSkeleton() {
   return (
     <div
-      className="min-h-[120px] bg-[#141414] border border-white/[0.08] rounded-md p-4 animate-pulse"
+      className="min-h-[120px] bg-[#1A1A1A] border border-white/10 rounded-md p-4 animate-pulse"
       aria-hidden
     >
-      <div className="h-6 w-10 bg-white/5 rounded-sm mb-3" />
-      <div className="h-3 w-20 bg-white/5 rounded mb-2" />
-      <div className="h-8 w-12 bg-white/5 rounded mb-4" />
-      <div className="h-3 w-24 bg-white/5 rounded" />
+      <div className="h-6 w-10 bg-white/10 rounded-sm mb-3" />
+      <div className="h-3 w-20 bg-white/10 rounded mb-2" />
+      <div className="h-8 w-12 bg-white/10 rounded mb-4" />
+      <div className="h-3 w-24 bg-white/10 rounded" />
     </div>
   );
 }
@@ -69,7 +69,7 @@ export function LeadOverviewGrid({ onDrillDown, refreshToken = 0 }) {
   if (error) {
     return (
       <div
-        className="rounded-md border border-white/[0.08] bg-[#141414] p-6 text-center"
+        className="rounded-md border border-white/10 bg-[#1A1A1A] p-6 text-center"
         data-testid="lead-overview-error"
       >
         <p className="text-sm text-[#A1A1AA] mb-3">{error}</p>

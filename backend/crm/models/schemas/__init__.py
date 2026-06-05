@@ -4,10 +4,12 @@ from crm.models.schemas.call_schemas import CallSummary
 from crm.models.schemas.campaign_schemas import CampaignBase, CampaignCreate, CampaignResponse
 from crm.models.schemas.lead_schemas import LeadBase, LeadCreate, LeadResponse, LeadUpdatePatch
 from crm.models.schemas.user_schemas import (
+    AdminUserCreate,
     RefreshTokenRequest,
     Token,
     UserBase,
     UserCreate,
+    UserRegister,
     UserResponse,
 )
 from crm.models.schemas.whatsapp_schemas import WhatsAppMessage, WhatsAppMessageResponse
@@ -25,8 +27,10 @@ __all__ = [
     "LeadUpdatePatch",
     "RefreshTokenRequest",
     "Token",
+    "AdminUserCreate",
     "UserBase",
     "UserCreate",
+    "UserRegister",
     "UserResponse",
     "WhatsAppMessage",
     "WhatsAppMessageResponse",

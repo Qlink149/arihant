@@ -9,6 +9,8 @@ from crm.api.v1.endpoints import (
     call_summary,
     campaigns,
     cron,
+    inventory,
+    settings,
     leads,
     marketing,
     misc,
@@ -29,6 +31,7 @@ api_router = APIRouter()
 for r in [
     auth.router,
     projects.router,
+    inventory.router,
     leads.router,
     analytics.router,
     campaigns.router,
@@ -47,6 +50,7 @@ for r in [
     marketing.router,
     reminders.router,
     cron.router,
+    settings.router,
     misc.router,
 ]:
     api_router.include_router(r)

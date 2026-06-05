@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -6,19 +7,25 @@ import { myDashboardAPI, tasksAPI } from '../services/api';
 import { toast } from 'sonner';
 import {
   CheckCircle,
-  ArrowRightLeft, Eye, Calendar,
-  User, Building, X, Search,
-  ListChecks, Plus
+  ArrowRightLeft, Eye, X, Search,
+  Plus
 } from 'lucide-react';
 import { formatStatusDisplay } from '../utils/nurtureLabel';
-import { getLeadInitials } from '../utils/leadTable';
 import { Button } from '../components/ui/button';
 import { LeadOverviewGrid } from '../components/dashboard/LeadOverviewGrid';
+import { MyDashboardLeadCard } from '../components/dashboard/MyDashboardLeadCard';
+import {
+  shouldUseVirtualList,
+  VIRTUAL_CARD_ESTIMATE_PX,
+} from '../constants/performanceFlags';
+import { useInfiniteScrollNearBottom } from '../hooks/useInfiniteScrollNearBottom';
 import { resolveDrillDown } from '../utils/leadOverview';
-import { TemperatureBadge } from '../components/leads/TemperatureBadge';
 import { formatDateTimeIST, parseApiDate } from '../utils/datetime';
-import { buildPendingTaskMap, formatFollowUp } from '../utils/leadTable';
+import { buildEarliestPendingTaskMap, buildPendingTaskMap, formatFollowUp } from '../utils/leadTable';
 import { TaskDetailModal } from '../components/tasks/TaskDetailModal';
+import { TaskCard } from '../components/tasks/TaskCard';
+import { TaskEditModal } from '../components/tasks/TaskEditModal';
+import { TaskCompleteModal } from '../components/tasks/TaskCompleteModal';
 
 const LEADS_PAGE = 150;
 
@@ -28,18 +35,6 @@ const formatTransferDate = (transfer) => {
   const raw = transfer?.transferred_at || transfer?.transferred_at_dt;
   if (!raw) return '—';
   return formatDateTimeIST(raw) || '—';
-};
-
-const STATUS_COLORS = {
-  'Open': 'bg-blue-500/20 text-blue-400',
-  'Follow Up 1': 'bg-amber-500/20 text-amber-400',
-  'Follow Up 2': 'bg-amber-600/20 text-amber-500',
-  'Site Visit Scheduled': 'bg-purple-500/20 text-purple-400',
-  'Site Visit Completed': 'bg-green-500/20 text-green-400',
-  'Advance Paid': 'bg-emerald-500/20 text-emerald-400',
-  'RNR': 'bg-red-500/20 text-red-400',
-  'Nurturing': 'bg-orange-500/20 text-orange-400',
-  'Gone Cold': 'bg-gray-500/20 text-gray-400',
 };
 
 const MyDashboardPage = () => {
@@ -67,6 +62,11 @@ const MyDashboardPage = () => {
   const [newTask, setNewTask] = useState({ description: '', due_date: '', priority: 'medium', lead_id: '' });
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState(null);
+  const [taskEditOpen, setTaskEditOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [savingTaskEdit, setSavingTaskEdit] = useState(false);
+  const [taskCompleteOpen, setTaskCompleteOpen] = useState(false);
+  const [completingTask, setCompletingTask] = useState(false);
 
   const leadsFetchBusy = useRef(false);
   const leadsFetchGeneration = useRef(0);
@@ -206,15 +206,13 @@ const MyDashboardPage = () => {
       .catch(() => {});
   }, [showAddTask]);
 
-  const onLeadListScroll = () => {
-    const el = listScrollRef.current;
-    if (!el || leadsLoading) return;
+  const handleLeadListNearBottom = useCallback(() => {
+    if (leadsLoading) return;
     if (leads.length >= leadsTotal) return;
-    const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
-    if (nearBottom) {
-      loadLeadsPage(leads.length, { append: true });
-    }
-  };
+    loadLeadsPage(leads.length, { append: true });
+  }, [leadsLoading, leads.length, leadsTotal, loadLeadsPage]);
+
+  const onLeadListScroll = useInfiniteScrollNearBottom(listScrollRef, handleLeadListNearBottom);
 
   const handleTransfer = async () => {
     if (!selectedLead || !transferTo) return;
@@ -240,13 +238,15 @@ const MyDashboardPage = () => {
 
   // Transfers are one-way (no acknowledgement required).
 
-  const handleTaskComplete = async (taskId) => {
+  const handleTaskComplete = async (taskId, patch = { status: 'completed' }) => {
     try {
-      await tasksAPI.update(taskId, { status: 'completed' });
+      await tasksAPI.update(taskId, patch);
       toast.success('Task marked complete');
       await refreshAll();
-    } catch {
-      toast.error('Failed to update task');
+    } catch (e) {
+      const msg = e?.response?.data?.detail || 'Failed to update task';
+      toast.error(typeof msg === 'string' ? msg : 'Failed to update task');
+      throw e;
     }
   };
 
@@ -256,19 +256,54 @@ const MyDashboardPage = () => {
     setTaskDetailOpen(true);
   };
 
-  const handleCompleteFromModal = async (task) => {
-    const id = task?.id;
-    if (!id) return;
-    await handleTaskComplete(id);
+  const handleCompleteFromModal = (task) => {
+    if (!task?.id) return;
+    setSelectedTask(task);
     setTaskDetailOpen(false);
-    setSelectedTask(null);
+    setTaskCompleteOpen(true);
+  };
+
+  const handleConfirmTaskComplete = async (task, patch) => {
+    if (!task?.id) return;
+    setCompletingTask(true);
+    try {
+      await handleTaskComplete(task.id, patch);
+      setTaskCompleteOpen(false);
+      setSelectedTask(null);
+    } finally {
+      setCompletingTask(false);
+    }
   };
 
   const handleOpenLeadFromTask = (leadId) => {
     if (!leadId) return;
     setTaskDetailOpen(false);
+    setTaskEditOpen(false);
     setSelectedTask(null);
+    setEditingTask(null);
     navigate(`/lead/${leadId}`);
+  };
+
+  const openTaskEdit = (task) => {
+    if (!task) return;
+    setEditingTask(task);
+    setTaskEditOpen(true);
+  };
+
+  const handleSaveTaskEdit = async (taskId, patch) => {
+    if (!taskId) return;
+    setSavingTaskEdit(true);
+    try {
+      await tasksAPI.update(taskId, patch);
+      toast.success('Task updated');
+      setTaskEditOpen(false);
+      setEditingTask(null);
+      await refreshAll();
+    } catch {
+      toast.error('Failed to update task');
+    } finally {
+      setSavingTaskEdit(false);
+    }
   };
 
   const handleCreateTask = async () => {
@@ -313,6 +348,35 @@ const MyDashboardPage = () => {
   const pendingTasks = tasks.filter((t) => t.status === 'pending');
   const completedTasks = tasks.filter((t) => COMPLETED_TASK_STATUSES.has(t.status));
   const pendingTaskMap = useMemo(() => buildPendingTaskMap(pendingTasks), [pendingTasks]);
+  const earliestTaskMap = useMemo(
+    () => buildEarliestPendingTaskMap(pendingTasks),
+    [pendingTasks]
+  );
+
+  const leadCardRows = useMemo(() => {
+    return leads.map((lead) => ({
+      lead,
+      statusDisplay: formatStatusDisplay(lead.lead_status, lead.temperature),
+      followUp: formatFollowUp(lead, pendingTasks, pendingTaskMap, earliestTaskMap),
+      taskCount: pendingTaskMap?.get(lead.id) || 0,
+    }));
+  }, [leads, pendingTasks, pendingTaskMap, earliestTaskMap]);
+
+  const useVirtualLeads = shouldUseVirtualList(leads.length);
+
+  const leadListVirtualizer = useVirtualizer({
+    count: leadCardRows.length,
+    getScrollElement: () => listScrollRef.current,
+    estimateSize: () => VIRTUAL_CARD_ESTIMATE_PX,
+    overscan: 8,
+    enabled: useVirtualLeads,
+    gap: 12,
+  });
+
+  const handleTransferLead = useCallback((lead) => {
+    setSelectedLead(lead);
+    setShowTransferModal(true);
+  }, []);
 
   if (loading) {
     return (
@@ -473,120 +537,62 @@ const MyDashboardPage = () => {
           <p className="text-[#52525B] text-xs">
             Showing {leads.length} of {leadsTotal}{leadsLoading ? ' · Loading…' : ''}
           </p>
-          <motion.div
+          <div
             ref={listScrollRef}
             onScroll={onLeadListScroll}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.15 }}
-            className="grid gap-3 max-h-[calc(100vh-22rem)] overflow-y-auto pr-2"
+            className="max-h-[calc(100vh-22rem)] overflow-y-auto pr-2"
           >
             {leads.length === 0 && !leadsLoading ? (
               <div className="text-center py-12 text-[#52525B]">No leads match your filters</div>
-            ) : (
-              leads.map((lead) => {
-                const statusDisplay = formatStatusDisplay(lead.lead_status, lead.temperature);
-                const followUp = formatFollowUp(lead, pendingTasks, pendingTaskMap);
-                const taskCount = pendingTaskMap?.get(lead.id) || 0;
-                return (
-                  <motion.div
-                    key={lead.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="bg-[#1A1A1A] border border-white/5 rounded-xl p-4 hover:border-white/10 transition-all group"
-                    data-testid={`lead-card-${lead.id}`}
-                  >
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="flex items-center gap-4"
+            ) : useVirtualLeads ? (
+              <div
+                style={{
+                  height: `${leadListVirtualizer.getTotalSize()}px`,
+                  width: '100%',
+                  position: 'relative',
+                }}
+              >
+                {leadListVirtualizer.getVirtualItems().map((vi) => {
+                  const row = leadCardRows[vi.index];
+                  return (
+                    <div
+                      key={row.lead.id}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${vi.start}px)`,
+                      }}
                     >
-                      <div className="w-10 h-10 rounded-lg bg-[#C5A059]/15 flex items-center justify-center flex-shrink-0 text-[#C5A059] text-xs font-semibold">
-                        {getLeadInitials(lead)}
-                      </div>
-                      <motion.div
-                        initial={{ opacity: 0, x: -6 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.05 }}
-                        className="flex-1 min-w-0"
-                      >
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="flex items-center gap-2"
-                        >
-                          <p className="text-white font-medium text-sm truncate">
-                            {lead.first_name} {lead.last_name}
-                          </p>
-                          {lead.vip && <span className="text-[10px] bg-[#C5A059]/20 text-[#C5A059] px-1.5 py-0.5 rounded-full">VIP</span>}
-                        </motion.div>
-                        <div className="flex items-center gap-3 mt-1">
-                          <span className="text-[#52525B] text-xs flex items-center gap-1">
-                            <Building size={11} /> {lead.project || 'No project'}
-                          </span>
-                          {data?.is_manager && (lead.assigned_to || lead.assigned_to_name) && (
-                            <span className="text-[#52525B] text-xs flex items-center gap-1">
-                              <User size={11} /> {lead.assigned_to || lead.assigned_to_name}
-                            </span>
-                          )}
-                          {lead.lead_status === 'Nurturing' && (lead.temperature === 'Hot' || lead.temperature === 'Warm') ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.lead_status] || 'bg-gray-500/20 text-gray-400'}`}>
-                                Nurturing
-                              </span>
-                              <TemperatureBadge temperature={lead.temperature} />
-                            </span>
-                          ) : (
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[lead.lead_status] || 'bg-gray-500/20 text-gray-400'}`}>
-                              {statusDisplay}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3 mt-2">
-                          <span className="text-[#A1A1AA] text-xs flex items-center gap-1">
-                            <Calendar size={11} className="text-[#52525B]" />
-                            {followUp ? (
-                              <span className="text-white/90 font-medium">{followUp}</span>
-                            ) : (
-                              <span className="text-[#52525B]">—</span>
-                            )}
-                          </span>
-                          <span className="text-[#A1A1AA] text-xs flex items-center gap-1">
-                            <ListChecks size={11} className="text-[#52525B]" />
-                            {taskCount > 0 ? (
-                              <span className="text-amber-300 font-medium">{taskCount} pending</span>
-                            ) : (
-                              <span className="text-[#52525B]">—</span>
-                            )}
-                          </span>
-                        </div>
-                      </motion.div>
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-[#A1A1AA] hover:text-white h-8 w-8 p-0"
-                          onClick={() => navigate(`/lead/${lead.id}`)}
-                          data-testid={`view-lead-${lead.id}`}
-                        >
-                          <Eye size={16} />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-[#A1A1AA] hover:text-amber-400 h-8 w-8 p-0"
-                          onClick={() => { setSelectedLead(lead); setShowTransferModal(true); }}
-                          data-testid={`transfer-lead-${lead.id}`}
-                        >
-                          <ArrowRightLeft size={16} />
-                        </Button>
-                      </div>
-                    </motion.div>
-                  </motion.div>
-                );
-              })
+                      <MyDashboardLeadCard
+                        lead={row.lead}
+                        followUp={row.followUp}
+                        taskCount={row.taskCount}
+                        statusDisplay={row.statusDisplay}
+                        isManager={data?.is_manager}
+                        onTransfer={handleTransferLead}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {leadCardRows.map((row) => (
+                  <MyDashboardLeadCard
+                    key={row.lead.id}
+                    lead={row.lead}
+                    followUp={row.followUp}
+                    taskCount={row.taskCount}
+                    statusDisplay={row.statusDisplay}
+                    isManager={data?.is_manager}
+                    onTransfer={handleTransferLead}
+                  />
+                ))}
+              </div>
             )}
-          </motion.div>
+          </div>
         </motion.div>
       )}
 
@@ -600,7 +606,8 @@ const MyDashboardPage = () => {
         >
           <div className="rounded-xl border border-white/5 bg-[#1A1A1A] p-3" data-testid="tasks-hint">
             <p className="text-[#A1A1AA] text-sm">
-              Click a task to see details. Use the circle button to mark it complete.
+              Each card shows lead, project, and reason at a glance. Use the circle to complete,
+              or View Lead / Edit without opening full details. Click the card for more info.
             </p>
           </div>
 
@@ -713,60 +720,18 @@ const MyDashboardPage = () => {
               <p className="text-[#52525B] mt-2 text-sm">All caught up! No pending tasks.</p>
             </div>
           ) : !showCompletedTasks ? (
-            pendingTasks.map((task, i) => {
-              const isOverdue = task.due_date && task.due_date < new Date().toISOString().split('T')[0];
-              return (
-                <motion.div
-                  key={task.id}
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                  className={`bg-[#1A1A1A] border rounded-xl p-4 cursor-pointer hover:border-[#C5A059]/30 ${isOverdue ? 'border-red-500/30' : 'border-white/5'}`}
-                  onClick={() => openTaskDetail(task)}
-                  data-testid={`task-${task.id}`}
-                >
-                  <div className="flex items-start gap-3">
-                    <button
-                      onClick={() => handleTaskComplete(task.id)}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClickCapture={(e) => e.stopPropagation()}
-                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors ${
-                        isOverdue ? 'border-red-500 hover:bg-red-500/20' : 'border-[#52525B] hover:border-[#C5A059]'
-                      }`}
-                      data-testid={`task-complete-${task.id}`}
-                    >
-                      <CheckCircle size={10} className="opacity-0 hover:opacity-100" />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm">{task.description}</p>
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.05 }}
-                        className="flex items-center gap-3 mt-1.5"
-                      >
-                        {task.lead_name && (
-                          <span className="text-[#52525B] text-xs flex items-center gap-1">
-                            <User size={10} /> {task.lead_name}
-                          </span>
-                        )}
-                        {task.due_date && (
-                          <span className={`text-xs flex items-center gap-1 ${isOverdue ? 'text-red-400' : 'text-[#52525B]'}`}>
-                            <Calendar size={10} /> {task.due_date}
-                          </span>
-                        )}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider ${
-                          task.priority === 'high' ? 'bg-red-500/20 text-red-400' :
-                          task.priority === 'medium' ? 'bg-amber-500/20 text-amber-400' :
-                          'bg-gray-500/20 text-gray-400'
-                        }`}>{task.priority || 'normal'}</span>
-                      </motion.div>
-                    </div>
-                    {isOverdue && <span className="text-red-400 text-xs font-medium flex-shrink-0">Overdue</span>}
-                  </div>
-                </motion.div>
-              );
-            })
+            pendingTasks.map((task, i) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                variant="pending"
+                index={i}
+                onComplete={(t) => handleCompleteFromModal(t)}
+                onViewLead={handleOpenLeadFromTask}
+                onEdit={openTaskEdit}
+                onOpenDetail={openTaskDetail}
+              />
+            ))
           ) : null}
 
           {showCompletedTasks && (
@@ -776,26 +741,12 @@ const MyDashboardPage = () => {
               </div>
             ) : (
               completedTasks.map((task, i) => (
-                <motion.div
+                <TaskCard
                   key={task.id}
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-[#1A1A1A] border border-emerald-500/20 rounded-xl p-4 opacity-80"
-                  data-testid={`completed-task-${task.id}`}
-                >
-                  <div className="flex items-start gap-3">
-                    <CheckCircle size={18} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[#A1A1AA] text-sm line-through">{task.description}</p>
-                      <p className="text-[#52525B] text-xs mt-1">
-                        {task.completed_at
-                          ? `Completed ${formatTransferDate({ transferred_at: task.completed_at })}`
-                          : 'Completed'}
-                        {task.due_date ? ` · Due ${task.due_date}` : ''}
-                      </p>
-                    </div>
-                  </div>
-                </motion.div>
+                  task={task}
+                  variant="completed"
+                  index={i}
+                />
               ))
             )
           )}
@@ -911,6 +862,32 @@ const MyDashboardPage = () => {
         task={selectedTask}
         onComplete={handleCompleteFromModal}
         onOpenLead={handleOpenLeadFromTask}
+        onEdit={(task) => {
+          setTaskDetailOpen(false);
+          openTaskEdit(task);
+        }}
+      />
+
+      <TaskEditModal
+        open={taskEditOpen}
+        onOpenChange={(open) => {
+          setTaskEditOpen(open);
+          if (!open) setEditingTask(null);
+        }}
+        task={editingTask}
+        saving={savingTaskEdit}
+        onSave={handleSaveTaskEdit}
+      />
+
+      <TaskCompleteModal
+        open={taskCompleteOpen}
+        onOpenChange={(open) => {
+          setTaskCompleteOpen(open);
+          if (!open) setSelectedTask(null);
+        }}
+        task={selectedTask}
+        saving={completingTask}
+        onConfirm={handleConfirmTaskComplete}
       />
 
       {/* Transfer Modal */}

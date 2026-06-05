@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import axios from 'axios';
 import { platformOpsAPI } from '../services/api';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const OPERATOR_TOKEN_KEY = 'platform_operator_token';
@@ -107,15 +107,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (email, password, fullName) => {
-    const response = await axios.post(`${API}/auth/register`, {
-      email,
-      password,
-      full_name: fullName
-    });
-    return response.data;
-  };
-
   const impersonateUser = async (userId) => {
     const operatorToken = localStorage.getItem('token');
     const operatorRefresh = localStorage.getItem('refresh_token');
@@ -154,7 +145,6 @@ export const AuthProvider = ({ children }) => {
     token,
     loading,
     login,
-    register,
     logout,
     applySessionTokens,
     impersonateUser,

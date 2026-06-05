@@ -1,17 +1,20 @@
+import os
 from datetime import datetime
 
 import jwt
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
+
+from crm.core.rate_limit import limiter
 from pydantic import BaseModel, Field
 
 from crm.core.platform_ops import get_platform_operator_email, is_platform_operator
+from crm.models.schemas.user_schemas import AdminUserCreate, UserRegister
 from crm.core.state import (
     db,
     SECRET_KEY,
     ALGORITHM,
-    UserCreate,
     UserResponse,
     Token,
     RefreshTokenRequest,
@@ -33,14 +36,29 @@ class ChangePasswordRequest(BaseModel):
 
 router = APIRouter()
 
+_TRUTHY = frozenset({"1", "true", "yes"})
 
-@router.post("/auth/register", response_model=UserResponse)
-async def register(user_data: UserCreate):
+
+def public_registration_allowed() -> bool:
+    """Public POST /auth/register is off unless explicitly enabled (not in production)."""
+    if os.getenv("ENVIRONMENT", "").strip().lower() == "production":
+        return False
+    return os.getenv("ALLOW_PUBLIC_REGISTRATION", "").strip().lower() in _TRUTHY
+
+
+async def _create_user_doc(
+    *,
+    email: str,
+    full_name: str,
+    phone: str | None,
+    password: str,
+    role: str,
+) -> UserResponse:
     reserved = get_platform_operator_email()
-    if reserved and user_data.email.strip().lower() == reserved:
+    if reserved and email.strip().lower() == reserved:
         raise HTTPException(status_code=403, detail="Registration not allowed for this email")
 
-    existing = await db.users.find_one({"email": user_data.email})
+    existing = await db.users.find_one({"email": email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -49,11 +67,11 @@ async def register(user_data: UserCreate):
     now_iso = iso_utc_now()
     user_doc = {
         "id": user_id,
-        "email": user_data.email,
-        "full_name": user_data.full_name,
-        "phone": user_data.phone,
-        "role": user_data.role,
-        "hashed_password": hash_password(user_data.password),
+        "email": email,
+        "full_name": full_name,
+        "phone": phone,
+        "role": role,
+        "hashed_password": hash_password(password),
         "is_active": True,
         "current_session_id": None,
         "notification_dismissals": [],
@@ -65,18 +83,54 @@ async def register(user_data: UserCreate):
     await db.users.insert_one(user_doc)
     return UserResponse(
         id=user_id,
-        email=user_data.email,
-        full_name=user_data.full_name,
-        phone=user_data.phone,
-        role=user_data.role,
+        email=email,
+        full_name=full_name,
+        phone=phone,
+        role=role,
         is_active=True,
         created_at=datetime.fromisoformat(user_doc["created_at"]),
         updated_at=now_dt,
     )
 
 
+@router.post("/auth/register", response_model=UserResponse)
+@limiter.limit("3/minute")
+async def register(request: Request, user_data: UserRegister):
+    if not public_registration_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail="Public registration is disabled. Contact an administrator.",
+        )
+    return await _create_user_doc(
+        email=user_data.email,
+        full_name=user_data.full_name,
+        phone=user_data.phone,
+        password=user_data.password,
+        role="rep",
+    )
+
+
+@router.post("/auth/admin/create-user", response_model=UserResponse)
+@limiter.limit("20/minute")
+async def admin_create_user(
+    request: Request,
+    user_data: AdminUserCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return await _create_user_doc(
+        email=user_data.email,
+        full_name=user_data.full_name,
+        phone=user_data.phone,
+        password=user_data.password,
+        role=user_data.role,
+    )
+
+
 @router.post("/auth/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+@limiter.limit("10/minute")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     user = await db.users.find_one({"email": form_data.username}, {"_id": 0})
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")

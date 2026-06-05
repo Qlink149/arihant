@@ -1,15 +1,21 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { analyticsAPI } from '../services/api';
 import { toast } from 'sonner';
+import { SalesDrilldownLeadRow } from '../components/dashboard/SalesDrilldownLeadRow';
+import {
+  shouldUseVirtualList,
+  VIRTUAL_CARD_ESTIMATE_PX,
+} from '../constants/performanceFlags';
+import { useInfiniteScrollNearBottom } from '../hooks/useInfiniteScrollNearBottom';
 import {
   Users, TrendingUp, TrendingDown, Award,
-  Clock, Flame, Sun,
+  Flame, Sun,
   ChevronUp, ChevronDown, ArrowUpDown, X, Eye, MapPin,
-  CheckCircle, PhoneOff
+  CheckCircle, PhoneOff, Briefcase
 } from 'lucide-react';
-import { formatStatusDisplay } from '../utils/nurtureLabel';
 import { formatDateIST } from '../utils/datetime';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -23,7 +29,7 @@ const NURTURE_COLORS = { Hot: '#EF4444', Warm: '#F59E0B' };
 const REP_LEADS_PAGE = 150;
 
 const emptyTotals = () => ({
-  total: 0, hot: 0, warm: 0, dormant: 0, rnr: 0, site_visits: 0, deals_closed: 0
+  total: 0, hot: 0, warm: 0, negotiation: 0, rnr: 0, site_visits: 0, deals_closed: 0
 });
 
 const SalesDashboardPage = () => {
@@ -108,6 +114,7 @@ const SalesDashboardPage = () => {
     setSelectedPerson(person);
     setRepLeads([]);
     setRepLeadsTotal(person.total ?? 0);
+    if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
     loadRepLeadsPage(person.name, 0, { append: false });
   }, [loadRepLeadsPage]);
 
@@ -204,15 +211,42 @@ const SalesDashboardPage = () => {
     return formatDateIST(d) || 'N/A';
   };
 
-  const onLeadListScroll = () => {
-    const el = listScrollRef.current;
-    if (!el || !selectedPerson || repLeadsLoading) return;
+  const handleRepListNearBottom = useCallback(() => {
+    if (!selectedPerson || repLeadsLoading) return;
     if (repLeads.length >= repLeadsTotal) return;
-    const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
-    if (nearBottom) {
-      loadRepLeadsPage(selectedPerson.name, repLeads.length, { append: true });
-    }
-  };
+    loadRepLeadsPage(selectedPerson.name, repLeads.length, { append: true });
+  }, [selectedPerson, repLeadsLoading, repLeads.length, repLeadsTotal, loadRepLeadsPage]);
+
+  const onLeadListScroll = useInfiniteScrollNearBottom(listScrollRef, handleRepListNearBottom);
+
+  const sortedRepLeads = useMemo(
+    () => [...repLeads].sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || ''))),
+    [repLeads]
+  );
+
+  const repLeadRows = useMemo(
+    () => sortedRepLeads.map((lead) => ({
+      lead,
+      formattedDate: formatDate(lead.updated_at || lead.created_at),
+    })),
+    [sortedRepLeads]
+  );
+
+  const useVirtualRepLeads = shouldUseVirtualList(repLeadRows.length);
+
+  const repListVirtualizer = useVirtualizer({
+    count: repLeadRows.length,
+    getScrollElement: () => listScrollRef.current,
+    estimateSize: () => VIRTUAL_CARD_ESTIMATE_PX,
+    overscan: 8,
+    enabled: useVirtualRepLeads,
+    gap: 8,
+  });
+
+  const handleDrilldownLeadSelect = useCallback((leadId) => {
+    closeRepModal();
+    navigate(`/lead/${leadId}`);
+  }, [closeRepModal, navigate]);
 
   if (loading) return (
     <div className="space-y-6 max-w-6xl mx-auto p-2">
@@ -223,8 +257,6 @@ const SalesDashboardPage = () => {
       <div className="h-48 rounded-lg bg-white/5 animate-pulse" />
     </div>
   );
-
-  const sortedRepLeads = [...repLeads].sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
 
   return (
     <div className="space-y-8">
@@ -239,12 +271,12 @@ const SalesDashboardPage = () => {
           { label: 'Total Leads', value: totalStats.total, icon: Users, color: 'text-[#C5A059]' },
           { label: 'Nurturing Hot', value: totalStats.hot, icon: Flame, color: 'text-red-500' },
           { label: 'Nurturing Warm', value: totalStats.warm, icon: Sun, color: 'text-orange-500' },
-          { label: 'Dormant', value: totalStats.dormant, icon: Clock, color: 'text-gray-500' },
-          { label: 'RNR', value: totalStats.rnr, icon: PhoneOff, color: 'text-yellow-500' },
-          { label: 'Site Visits', value: totalStats.site_visits, icon: MapPin, color: 'text-teal-500' },
-          { label: 'Deals Closed', value: totalStats.deals_closed, icon: CheckCircle, color: 'text-green-500' }
+          { label: 'In Negotiation', value: totalStats.negotiation, icon: Briefcase, color: 'text-purple-400', testId: 'stat-in-negotiation' },
+          { label: 'RNR', value: totalStats.rnr, icon: PhoneOff, color: 'text-yellow-500', testId: 'stat-rnr' },
+          { label: 'Site Visits', value: totalStats.site_visits, icon: MapPin, color: 'text-teal-500', testId: 'stat-site-visits' },
+          { label: 'Deals Closed', value: totalStats.deals_closed, icon: CheckCircle, color: 'text-green-500', testId: 'stat-deals-closed' }
         ].map(s => (
-          <div key={s.label} className="glass-card rounded-lg p-3 text-center" data-testid={`stat-${s.label.toLowerCase().replace(/\s/g, '-')}`}>
+          <div key={s.label} className="glass-card rounded-lg p-3 text-center" data-testid={s.testId || `stat-${s.label.toLowerCase().replace(/\s/g, '-')}`}>
             <s.icon className={`mx-auto ${s.color}`} size={20} />
             <p className="text-[#52525B] text-[10px] uppercase mt-1">{s.label}</p>
             <p className={`font-serif text-xl ${s.color}`}>{s.value}</p>
@@ -264,16 +296,15 @@ const SalesDashboardPage = () => {
                   { key: 'total', label: 'Total' },
                   { key: 'hot', label: 'Nurture Hot', icon: <Flame size={11} className="text-red-500" /> },
                   { key: 'warm', label: 'Nurture Warm', icon: <Sun size={11} className="text-orange-500" /> },
-                  { key: 'dormant', label: 'Dormant', icon: <Clock size={11} className="text-gray-400" /> },
+                  { key: 'negotiation', label: 'Negotiation', icon: <Briefcase size={11} className="text-purple-400" /> },
                   { key: 'rnr', label: 'RNR', icon: <PhoneOff size={11} className="text-yellow-500" /> },
                   { key: 'site_visits', label: 'Site Visits' },
                   { key: 'deals_closed', label: 'Deals Closed' },
-                  { key: 'conversion_rate', label: 'Conv. %' },
-                  { key: 'last_active', label: 'Last Active' }
+                  { key: 'conversion_rate', label: 'Conv %' },
                 ].map(col => (
                   <th key={col.key} onClick={() => col.key !== 'rank' && handleSort(col.key)}
                     className={`py-3 px-3 text-[#52525B] text-[10px] uppercase tracking-wider ${col.key === 'name' ? 'text-left' : 'text-center'} ${col.key !== 'rank' ? 'cursor-pointer hover:text-[#C5A059]' : ''}`}>
-                    <span className="flex items-center justify-center gap-1">
+                    <span className={`flex items-center gap-1 ${col.key === 'name' ? 'justify-start' : 'justify-center'}`}>
                       {col.icon} {col.label} {col.key !== 'rank' && <SortIcon field={col.key} />}
                     </span>
                   </th>
@@ -297,17 +328,11 @@ const SalesDashboardPage = () => {
                   <td className="py-3 px-3 text-center text-white font-medium text-sm">{s.total}</td>
                   <td className="py-3 px-3 text-center text-red-500 text-sm">{s.hot}</td>
                   <td className="py-3 px-3 text-center text-orange-500 text-sm">{s.warm}</td>
-                  <td className="py-3 px-3 text-center text-gray-400 text-sm">{s.dormant}</td>
+                  <td className="py-3 px-3 text-center text-purple-400 text-sm">{s.negotiation ?? 0}</td>
                   <td className="py-3 px-3 text-center text-yellow-500 text-sm">{s.rnr}</td>
                   <td className="py-3 px-3 text-center text-teal-400 text-sm">{s.site_visits}</td>
                   <td className="py-3 px-3 text-center"><span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-sm">{s.deals_closed}</span></td>
-                  <td className="py-3 px-3 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      {s.conversion_rate > 10 ? <TrendingUp size={12} className="text-green-500" /> : s.conversion_rate === 0 ? <TrendingDown size={12} className="text-red-400" /> : null}
-                      <span className={`text-sm font-medium ${s.conversion_rate > 10 ? 'text-green-500' : s.conversion_rate === 0 ? 'text-red-400' : 'text-[#A1A1AA]'}`}>{s.conversion_rate}%</span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-3 text-center text-[#52525B] text-xs">{formatDate(s.last_active)}</td>
+                  <td className="py-3 px-3 text-center text-[#A1A1AA] text-sm">{s.conversion_rate ?? 0}%</td>
                   <td className="py-3 px-3 text-center">
                     <Button size="sm" variant="ghost" onClick={() => {
                       const next = new URLSearchParams(searchParams);
@@ -396,7 +421,7 @@ const SalesDashboardPage = () => {
                   <div className="w-12 h-12 rounded-full bg-[#C5A059]/20 flex items-center justify-center text-[#C5A059] text-xl font-serif">{selectedPerson.name.charAt(0)}</div>
                   <div>
                     <h2 className="font-serif text-2xl text-white">{selectedPerson.name}</h2>
-                    <p className="text-[#A1A1AA] text-sm">{selectedPerson.total} leads assigned | Conv. rate: {selectedPerson.conversion_rate}%</p>
+                  <p className="text-[#A1A1AA] text-sm">{selectedPerson.total} leads assigned</p>
                   </div>
                 </div>
                 <Button variant="ghost" onClick={closeRepModal} className="text-[#A1A1AA] hover:text-white"><X size={20} /></Button>
@@ -423,23 +448,50 @@ const SalesDashboardPage = () => {
               <div
                 ref={listScrollRef}
                 onScroll={onLeadListScroll}
-                className="max-h-80 overflow-y-auto space-y-2 pr-2"
+                className="max-h-80 overflow-y-auto pr-2"
               >
-                {sortedRepLeads.map(lead => (
-                  <div key={lead.id} onClick={() => { closeRepModal(); navigate(`/lead/${lead.id}`); }}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-black/30 border border-white/5 hover:border-[#C5A059]/30 cursor-pointer transition-all group"
-                    data-testid={`drilldown-lead-${lead.id}`}>
-                    <div className="w-9 h-9 rounded-full bg-[#C5A059]/20 flex items-center justify-center text-[#C5A059] text-sm flex-shrink-0">
-                      {(lead.first_name || '?').charAt(0)}{(lead.last_name || '').charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium truncate group-hover:text-[#C5A059] transition-colors">{lead.first_name} {lead.last_name}</p>
-                      <p className="text-[#52525B] text-xs truncate">{lead.project || 'No project'}</p>
-                    </div>
-                    <span className="text-[#A1A1AA] text-xs">{formatStatusDisplay(lead.lead_status, lead.temperature)}</span>
-                    <span className="text-[#52525B] text-[10px]">{formatDate(lead.updated_at || lead.created_at)}</span>
+                {useVirtualRepLeads ? (
+                  <div
+                    style={{
+                      height: `${repListVirtualizer.getTotalSize()}px`,
+                      width: '100%',
+                      position: 'relative',
+                    }}
+                  >
+                    {repListVirtualizer.getVirtualItems().map((vi) => {
+                      const row = repLeadRows[vi.index];
+                      return (
+                        <div
+                          key={row.lead.id}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            transform: `translateY(${vi.start}px)`,
+                          }}
+                        >
+                          <SalesDrilldownLeadRow
+                            lead={row.lead}
+                            formattedDate={row.formattedDate}
+                            onSelect={handleDrilldownLeadSelect}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
+                ) : (
+                  <div className="space-y-2">
+                    {repLeadRows.map((row) => (
+                      <SalesDrilldownLeadRow
+                        key={row.lead.id}
+                        lead={row.lead}
+                        formattedDate={row.formattedDate}
+                        onSelect={handleDrilldownLeadSelect}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>

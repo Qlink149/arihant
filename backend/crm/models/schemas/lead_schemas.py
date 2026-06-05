@@ -64,6 +64,11 @@ class LeadUpdatePatch(BaseModel):
     assigned_to_name: Optional[str] = None
     visit_date_dt: Optional[datetime] = None
     temperature: Optional[str] = None
+    # Outcome logging (Contacted stage SLA suppression; validated in service layer)
+    logged_outcome: Optional[str] = None
+    logged_outcome_reason: Optional[str] = None
+    # Lost/Junk reason
+    lost_reason: Optional[str] = None
 
 
 class LeadResponse(LeadBase):
@@ -74,6 +79,19 @@ class LeadResponse(LeadBase):
     intent: str = "Unknown"
     vip: bool = False
     assigned_to: Optional[str] = None
+    nurture_entered_at_dt: Optional[datetime] = None
+    rnr_entered_at_dt: Optional[datetime] = None
+    contacted_at_dt: Optional[datetime] = None
+    visit_completed_at_dt: Optional[datetime] = None
+    sv_followup_entered_at_dt: Optional[datetime] = None
+    gone_cold_entered_at_dt: Optional[datetime] = None
+    negotiation_entered_at_dt: Optional[datetime] = None
+    future_prospect_entered_at_dt: Optional[datetime] = None
+    fp_cycle_count: Optional[int] = None
+    fp_last_checkin_task_created_at_dt: Optional[datetime] = None
+    logged_outcome: Optional[str] = None
+    logged_outcome_reason: Optional[str] = None
+    lost_reason: Optional[str] = None
     nurture_task_required_since_dt: Optional[datetime] = None
     nurture_task_required_task_id: Optional[str] = None
     ai_persona_summary: Optional[str] = None

@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from crm.core.state import get_current_user
+from crm.core.state import db, get_current_user
 from crm.models.schemas.assignment_schemas import AssignmentRule
-from crm.services import assignment_service
+from crm.services import assignment_router, assignment_service
 
 router = APIRouter()
 
@@ -19,4 +19,7 @@ async def create_assignment_rule(rule: AssignmentRule, current_user: dict = Depe
 
 @router.post("/leads/auto-assign")
 async def auto_assign_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
-    return await assignment_service.auto_assign_lead(lead_id)
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0, "id": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return await assignment_router.reassign_new_lead(lead_id)

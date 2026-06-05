@@ -32,9 +32,9 @@ uvicorn crm.main:app --reload --port 8000
 **Frontend** (from `frontend/`):
 
 ```bash
-# REACT_APP_BACKEND_URL=http://localhost:8000
+# VITE_BACKEND_URL=http://localhost:8000
 npm install
-npm start
+npm run dev
 ```
 
 ## Vercel — backend project
@@ -58,4 +58,4 @@ npm start
 | Setting | Value |
 |---------|--------|
 | Root Directory | `frontend` |
-| Env | `REACT_APP_BACKEND_URL=https://<api-url>` |
+| Env | `VITE_BACKEND_URL=https://<api-url>` |

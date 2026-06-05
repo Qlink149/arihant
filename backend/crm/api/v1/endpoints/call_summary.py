@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from crm.core.state import CallSummary, db, get_current_user, iso_utc_now, utc_now
+from crm.services.dashboard_scope import resolve_lead_or_403
 
 
 router = APIRouter()
@@ -8,9 +9,7 @@ router = APIRouter()
 
 @router.post("/leads/{lead_id}/call-summary")
 async def add_call_summary(lead_id: str, summary: CallSummary, current_user: dict = Depends(get_current_user)):
-    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    lead = await resolve_lead_or_403(lead_id, current_user)
 
     now_dt = utc_now()
     now_iso = iso_utc_now()

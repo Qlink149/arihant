@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Montserrat:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -37,6 +37,12 @@
     --temp-warm-text: #FCD34D;
     --temp-warm-icon: #FDBA74;
     --temp-warm-hover-bg: rgba(217, 119, 6, 0.24);
+
+    /* Nurturing table row tints (deeper orange/amber — separate from badges) */
+    --nurture-row-hot-bg: rgba(194, 65, 12, 0.24);
+    --nurture-row-hot-hover-bg: rgba(194, 65, 12, 0.32);
+    --nurture-row-warm-bg: rgba(180, 83, 9, 0.24);
+    --nurture-row-warm-hover-bg: rgba(180, 83, 9, 0.32);
 }
 
 /* Light Mode Colors */
@@ -60,6 +66,11 @@
     --temp-warm-text: #7C2D12;
     --temp-warm-icon: #B45309;
     --temp-warm-hover-bg: rgba(245, 158, 11, 0.16);
+
+    --nurture-row-hot-bg: rgba(194, 65, 12, 0.14);
+    --nurture-row-hot-hover-bg: rgba(194, 65, 12, 0.20);
+    --nurture-row-warm-bg: rgba(180, 83, 9, 0.14);
+    --nurture-row-warm-hover-bg: rgba(180, 83, 9, 0.20);
 }
 
 .light-mode .glass-card {
@@ -87,21 +98,43 @@
 .light-mode .text-\[\#52525B\] { color: #71717A !important; }
 .light-mode .text-\[\#EDEDED\] { color: #1A1A2E !important; }
 
+/* Dashboard hero — always light text on dark imagery (both themes) */
+.dashboard-hero .hero-greeting {
+    color: #ffffff;
+}
+.dashboard-hero .hero-subtitle {
+    color: rgba(255, 255, 255, 0.85);
+}
+.light-mode .dashboard-hero h1.hero-greeting,
+.light-mode .dashboard-hero .hero-greeting {
+    color: #ffffff !important;
+}
+.light-mode .dashboard-hero .hero-subtitle {
+    color: rgba(255, 255, 255, 0.85) !important;
+}
+
 /* Light mode backgrounds */
 .light-mode .bg-\[\#0A0A0A\] { background-color: #F5F5F0 !important; }
 .light-mode .bg-\[\#1A1A1A\] { background-color: #FFFFFF !important; }
 .light-mode .bg-\[\#0F0F0F\] { background-color: #FAFAF8 !important; }
+.light-mode .bg-\[\#141414\] { background-color: #FFFFFF !important; }
 .light-mode .bg-black\/50 { background-color: rgba(255,255,255,0.8) !important; }
 .light-mode .bg-black\/30 { background-color: rgba(245,245,240,0.8) !important; }
+.light-mode .bg-white\/5 { background-color: rgba(0,0,0,0.05) !important; }
+.light-mode .bg-white\/10 { background-color: rgba(0,0,0,0.06) !important; }
+.light-mode .bg-white\/\[0\.02\] { background-color: rgba(0,0,0,0.03) !important; }
 
 /* Light mode borders */
 .light-mode .border-white\/10 { border-color: #E0E0E0 !important; }
 .light-mode .border-white\/5 { border-color: #EBEBEB !important; }
 .light-mode .border-white\/20 { border-color: #D0D0D0 !important; }
+.light-mode .border-white\/\[0\.08\] { border-color: #E0E0E0 !important; }
+.light-mode .border-white\/\[0\.06\] { border-color: #EBEBEB !important; }
 
 /* Light mode hover states */
 .light-mode .hover\:bg-white\/5:hover { background-color: rgba(0,0,0,0.04) !important; }
 .light-mode .hover\:bg-white\/10:hover { background-color: rgba(0,0,0,0.06) !important; }
+.light-mode .hover\:bg-white\/\[0\.02\]:hover { background-color: rgba(0,0,0,0.04) !important; }
 
 /* Light mode sidebar & header */
 .light-mode .bg-\[\#0A0A0A\]\/80 { background-color: rgba(255,255,255,0.92) !important; }
@@ -291,6 +324,26 @@ body {
 }
 .temp-badge--warm:hover {
     background-color: var(--temp-warm-hover-bg);
+}
+
+/* Nurturing lead table / profile row highlights */
+.nurture-row-tint-hot {
+    background-color: var(--nurture-row-hot-bg);
+}
+.nurture-row-tint-hot:hover {
+    background-color: var(--nurture-row-hot-hover-bg);
+}
+.nurture-row-tint-warm {
+    background-color: var(--nurture-row-warm-bg);
+}
+.nurture-row-tint-warm:hover {
+    background-color: var(--nurture-row-warm-hover-bg);
+}
+.nurture-row-tint-hot.nurture-row-tint-static:hover {
+    background-color: var(--nurture-row-hot-bg);
+}
+.nurture-row-tint-warm.nurture-row-tint-static:hover {
+    background-color: var(--nurture-row-warm-bg);
 }
 
 .badge-hot {

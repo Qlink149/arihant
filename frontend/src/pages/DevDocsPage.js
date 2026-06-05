@@ -77,13 +77,15 @@ const COLLECTIONS = [
 
 const API_ENDPOINTS = [
   { group: 'Authentication (`/api/auth`)', endpoints: [
-    { method: 'POST', path: '/api/auth/register', desc: 'Create user', params: 'JSON: email, password, full_name, phone?, role?' },
+    { method: 'POST', path: '/api/auth/register', desc: 'Disabled in production — use admin/create-user or scripts/create_user.py', params: 'JSON: email, password, full_name, phone? (ALLOW_PUBLIC_REGISTRATION=true only)' },
+    { method: 'POST', path: '/api/auth/admin/create-user', desc: 'Admin: create user with role', params: 'JSON: email, password, full_name, phone?, role (admin|manager|rep)' },
     { method: 'POST', path: '/api/auth/login', desc: 'OAuth2 password flow — returns access + refresh tokens', params: 'form body: username (email), password' },
     { method: 'GET', path: '/api/auth/me', desc: 'Current user from Bearer JWT', params: 'Authorization: Bearer' },
     { method: 'POST', path: '/api/auth/refresh', desc: 'New access token', params: 'JSON: { refresh_token }' }
   ]},
   { group: 'Leads (`/api/leads`)', endpoints: [
-    { method: 'GET', path: '/api/leads', desc: 'List leads', params: 'query: project, temperature, budget, location, intent, vip, status, search, days, skip, limit' },
+    { method: 'GET', path: '/api/leads', desc: 'List leads (projected payload; trimmed timeline on list only)', params: 'query: project, temperature, budget, location, intent, vip, status, search, days, skip, limit' },
+    { method: 'GET', path: '/api/leads/duplicates', desc: 'Duplicate phone groups (scoped)', params: 'query: skip, limit (max 100 groups)' },
     { method: 'POST', path: '/api/leads', desc: 'Create lead', params: 'JSON LeadCreate (first_name, last_name, phone, …)' },
     { method: 'GET', path: '/api/leads/{lead_id}', desc: 'Single lead', params: 'path lead_id' },
     { method: 'PUT', path: '/api/leads/{lead_id}', desc: 'Partial update (LeadUpdatePatch)', params: 'pipeline_category, lead_status, assigned_to, …' },
@@ -123,7 +125,7 @@ const ENV_VARS = [
   { name: 'GUPSHUP_APP_ID', desc: 'Gupshup WhatsApp app ID', example: 'UUID' },
   { name: 'GUPSHUP_SOURCE_PHONE', desc: 'WhatsApp business phone number', example: '919549549339' },
   { name: 'GUPSHUP_APP_NAME', desc: 'Gupshup app name', example: 'ArihantSalesIntelligence' },
-  { name: 'REACT_APP_BACKEND_URL', desc: 'Backend API base URL (frontend)', example: 'https://...' }
+  { name: 'VITE_BACKEND_URL', desc: 'Backend API base URL (frontend)', example: 'https://...' }
 ];
 
 const METHOD_COLORS = { GET: 'bg-green-500/20 text-green-400', POST: 'bg-blue-500/20 text-blue-400', PUT: 'bg-amber-500/20 text-amber-400', DELETE: 'bg-red-500/20 text-red-400', 'GET/POST': 'bg-teal-500/20 text-teal-400' };

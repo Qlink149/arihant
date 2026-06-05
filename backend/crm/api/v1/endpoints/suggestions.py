@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from crm.core.state import db, get_current_user
+from crm.core.state import get_current_user
+from crm.services.dashboard_scope import resolve_lead_or_403
 
 
 router = APIRouter()
@@ -8,9 +9,7 @@ router = APIRouter()
 
 @router.get("/leads/{lead_id}/suggestions")
 async def get_cross_pitch_suggestions(lead_id: str, current_user: dict = Depends(get_current_user)):
-    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    lead = await resolve_lead_or_403(lead_id, current_user)
 
     suggestions = []
     current_project = str(lead.get("project") or "").strip()

@@ -2,6 +2,12 @@
 
 import { formatDateTimeIST, parseApiDate } from './datetime';
 
+/** Default number of timeline rows shown before "Load older activity". */
+export const TIMELINE_INITIAL_VISIBLE = 15;
+
+/** How many additional rows each load-more click reveals. */
+export const TIMELINE_LOAD_MORE_STEP = 15;
+
 export function normalizeDescription(text) {
   return (text || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -34,6 +40,14 @@ export function dedupeContextUpdates(updates) {
     kept.push(entry);
   }
   return kept.sort((a, b) => entryTimestamp(b) - entryTimestamp(a));
+}
+
+/**
+ * Timeline entries for UI display: deduped, newest-first.
+ * Do not reverse this list — index 0 is the latest activity.
+ */
+export function getTimelineForDisplay(updates) {
+  return dedupeContextUpdates(updates);
 }
 
 export function formatTimelineAttribution(update) {

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from crm.api.v1.endpoints.my_dashboard import _transfer_at
-from crm.services.dashboard_scope import resolve_leads_base_filter
+from crm.services.dashboard_scope import resolve_leads_base_filter, user_owns_lead
 from crm.core.platform_ops import assert_assignee_allowed, is_platform_operator
 from crm.core.state import db, get_current_user, iso_utc_now, resolve_user_id_by_full_name, utc_now
 from crm.services.lead_events import log_lead_event
@@ -22,16 +22,6 @@ class TransferLeadRequest(BaseModel):
     to_user_id: Optional[str] = None
     notes: Optional[str] = None
     expected_from_user_id: Optional[str] = None
-
-
-def _user_owns_lead(lead: dict, uid: str, name: str) -> bool:
-    candidates = {
-        lead.get("assigned_user_id"),
-        lead.get("assigned_to"),
-        lead.get("assigned_to_name"),
-        lead.get("presales_agent"),
-    }
-    return uid in candidates or name in candidates
 
 
 def _build_transfer_list_query(
@@ -78,7 +68,7 @@ async def transfer_lead(req: TransferLeadRequest, current_user: dict = Depends(g
     uid = current_user["id"]
     name = current_user["full_name"]
     _, is_manager = await resolve_leads_base_filter(uid, name, current_user)
-    if not is_manager and not is_platform_operator(current_user) and not _user_owns_lead(lead, uid, name):
+    if not is_manager and not is_platform_operator(current_user) and not user_owns_lead(lead, current_user):
         raise HTTPException(status_code=403, detail="You can only transfer leads assigned to you")
 
     await assert_assignee_allowed(req.to_rep)

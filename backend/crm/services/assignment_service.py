@@ -1,9 +1,12 @@
+import logging
 import uuid
 
 from fastapi import HTTPException
 
 from crm.core.platform_ops import assert_assignee_allowed, get_blocked_assignee_values, is_blocked_assignee_name
 from crm.core.state import db, resolve_user_id_by_full_name
+
+logger = logging.getLogger(__name__)
 from crm.models.schemas.assignment_schemas import AssignmentRule
 from crm.utils.helpers import iso_utc_now, utc_now
 
@@ -19,6 +22,9 @@ async def create_rule(rule: AssignmentRule) -> dict:
 
 
 async def auto_assign_lead(lead_id: str) -> dict:
+    # DEPRECATED: Use assignment_router.reassign_new_lead() instead.
+    # This function uses a different algorithm and is not wired to the SLA engine.
+    logger.warning("DEPRECATED auto_assign_lead called — use assignment_router instead")
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")

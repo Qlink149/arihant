@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { toast } from 'sonner';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 // Create axios instance
@@ -53,7 +53,7 @@ api.interceptors.response.use(
 
     if (!skipGlobal && !error.response) {
       toast.error(
-        'Cannot reach API. Check that the backend is running and REACT_APP_BACKEND_URL is set correctly.'
+        'Cannot reach API. Check that the backend is running and VITE_BACKEND_URL is set correctly.'
       );
     }
 
@@ -71,21 +71,27 @@ export const authAPI = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
   },
-  register: (data) => api.post('/auth/register', data),
+  // Public register disabled in production — provision via scripts/create_user.py or admin/create-user
+  // register: (data) => api.post('/auth/register', data),
+  adminCreateUser: (data) => api.post('/auth/admin/create-user', data),
   getMe: () => api.get('/auth/me'),
   changePassword: (data) => api.put('/auth/password', data),
 };
 
 // Leads API
 export const leadsAPI = {
+  getFilterOptions: () => api.get('/leads/filter-options'),
   getAll: (params) => api.get('/leads', { params }),
+  getDuplicateGroups: (params) => api.get('/leads/duplicates', { params }),
   getOne: (id) => api.get(`/leads/${id}`),
   create: (data) => api.post('/leads', data),
   update: (id, data) => api.put(`/leads/${id}`, data),
-  uploadCSV: (file, replaceAll = false) => {
+  uploadCSV: (file, replaceAll = false, confirmReplace = null) => {
     const formData = new FormData();
     formData.append('file', file);
-    return api.post(`/leads/upload-csv?replace_all=${replaceAll}`, formData, {
+    const params = new URLSearchParams({ replace_all: String(replaceAll) });
+    if (confirmReplace) params.set('confirm_replace', confirmReplace);
+    return api.post(`/leads/upload-csv?${params.toString()}`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
@@ -94,7 +100,8 @@ export const leadsAPI = {
   addContext: (id, data) => api.post(`/leads/${id}/context`, data),
   addTask: (id, data) => api.post(`/leads/${id}/tasks`, data),
   getSuggestions: (id) => api.get(`/leads/${id}/suggestions`),
-  autoAssign: (id) => api.post('/leads/auto-assign', null, { params: { lead_id: id } })
+  // autoAssign deprecated — new leads use assignment_router on create; SLA uses reassign_new_lead
+  // autoAssign: (id) => api.post('/leads/auto-assign', null, { params: { lead_id: id } }),
 };
 
 // Tasks API
@@ -105,8 +112,16 @@ export const tasksAPI = {
 };
 
 // Notifications API
+export const settingsAPI = {
+  getBrevo: () => api.get('/settings/brevo'),
+  updateBrevo: (data) => api.put('/settings/brevo', data),
+  testBrevo: () => api.post('/settings/brevo/test'),
+  getRouting: () => api.get('/settings/routing'),
+  updateRouting: (data) => api.put('/settings/routing', data),
+};
+
 export const notificationsAPI = {
-  getAll: (params) => api.get('/notifications', { params }),
+  getAll: (params) => api.get('/notifications', { params: { unread_only: false, ...params } }),
   markRead: (id) => api.put(`/notifications/${id}/read`),
   markAllRead: () => api.put('/notifications/read-all'),
   getPreferences: () => api.get('/notifications/preferences'),
