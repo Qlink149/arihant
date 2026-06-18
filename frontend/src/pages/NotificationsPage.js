@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Bell, ArrowLeft, AlertTriangle, Phone, Calendar, Clock } from 'lucide-react';
 import { notificationsAPI } from '../services/api';
 import { Button } from '../components/ui/button';
+import { CrmBadge } from '../components/ui/CrmBadge';
 import { toast } from 'sonner';
 import { useMarkAllNotificationsRead } from '../hooks/useMarkAllNotificationsRead';
 
@@ -37,7 +38,7 @@ const NotificationsPage = () => {
   const markOne = async (id) => {
     try {
       await notificationsAPI.markRead(id);
-      setItems((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
+      setItems((prev) => prev.filter((n) => n.id !== id));
     } catch (e) {
       toast.error('Could not update notification');
     }
@@ -51,7 +52,7 @@ const NotificationsPage = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+    <div className="space-y-3 max-w-3xl mx-auto">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="text-[#A1A1AA]">
@@ -111,9 +112,9 @@ const NotificationsPage = () => {
                   <div className="flex flex-wrap gap-2 mt-2">
                     {n.is_auto && <span className="text-[10px] text-[#52525B]">Auto alert</span>}
                     {n.is_overdue && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+                      <CrmBadge variant="danger" size="xs" uppercase>
                         Overdue
-                      </span>
+                      </CrmBadge>
                     )}
                   </div>
                 </div>

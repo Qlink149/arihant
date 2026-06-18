@@ -7,6 +7,15 @@ module.exports = {
   ],
   theme: {
     extend: {
+      spacing: {
+        'density-xs': 'var(--space-xs)',
+        'density-sm': 'var(--space-sm)',
+        'density-md': 'var(--space-md)',
+        'density-lg': 'var(--space-lg)',
+        'density-xl': 'var(--space-xl)',
+        'sidebar': 'var(--sidebar-width)',
+        'sidebar-collapsed': 'var(--sidebar-width-collapsed)',
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',

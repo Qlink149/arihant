@@ -8,6 +8,8 @@ export const UI_LEAD_STATUSES = [
   'Site Visit Scheduled',
   'Visit Completed',
   'SV Completed – Follow Up',
+  'SV Follow-up 1',
+  'SV Follow-up 2',
   'Negotiation',
   'Gone Cold',
   'Future Prospect',

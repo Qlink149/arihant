@@ -3,6 +3,7 @@ import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,6 +20,15 @@ from crm.core.state import (
     iso_utc_now,
     resolve_user_id_by_full_name,
 )
+from crm.services.notification_service import create_notification
+from crm.services.reminder_queries import (
+    rnr_status_clause,
+    site_visit_tomorrow_clause,
+    sla_paused_exclusion,
+    stale_updated_clause,
+    status_clause,
+)
+from crm.utils.helpers import coerce_datetime
 
 
 router = APIRouter()
@@ -43,6 +53,34 @@ class ManualReminderRequest(BaseModel):
     lead_id: str
     message: str
     send_whatsapp: bool = False
+
+
+async def _emit_reminder_notification(
+    *,
+    rep_user_id: str | None,
+    rep_name: str,
+    title: str,
+    message: str,
+    lead_id: str,
+    dedupe_key: str,
+    urgency: str = "action_needed",
+    lead_name: str = "",
+    task_id: str | None = None,
+):
+    if not rep_user_id:
+        return None
+    return await create_notification(
+        recipient_user_id=rep_user_id,
+        recipient_name=rep_name,
+        title=title,
+        message=message,
+        notification_type="reminder",
+        lead_id=lead_id,
+        lead_name=lead_name,
+        task_id=task_id,
+        urgency=urgency,
+        dedupe_key=dedupe_key,
+    )
 
 
 async def send_whatsapp_template(destination: str, template_name: str, params: List[str]):
@@ -108,9 +146,14 @@ async def process_reminders():
             days = rule.get("days_threshold", 0)
 
             if trigger == "followup_due":
-                cutoff = (now_dt - timedelta(days=days)).isoformat()
+                cutoff_dt = now_dt - timedelta(days=days)
+                cutoff_iso = cutoff_dt.isoformat()
+                status_filter = status_clause(
+                    rule.get("lead_statuses"),
+                    default_regex="Follow Up",
+                )
                 leads = await db.leads.find(
-                    {"lead_status": {"$regex": "Follow Up", "$options": "i"}, "$or": [{"updated_at": {"$lt": cutoff}}, {"updated_at": {"$exists": False}}]},
+                    {"$and": [status_filter, stale_updated_clause(cutoff_dt, cutoff_iso), sla_paused_exclusion()]},
                     {"_id": 0},
                 ).to_list(200)
 
@@ -125,6 +168,7 @@ async def process_reminders():
                     project = lead.get("project", "N/A")
 
                     rep_user_id = await resolve_user_id_by_full_name(rep)
+                    notif_dedupe = f"notification:reminder:{trigger}:{lead['id']}:{today}"
                     reminder_doc = {
                         "id": str(uuid.uuid4()),
                         "lead_id": lead["id"],
@@ -151,28 +195,24 @@ async def process_reminders():
                         if result:
                             reminder_doc["whatsapp_sent"] = True
 
-                    await db.notifications.insert_one(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "user_id": rep,
-                            "recipient_user_id": rep_user_id,
-                            "recipient_name": rep,
-                            "type": "reminder",
-                            "message": reminder_doc["message"],
-                            "urgency": "action_needed",
-                            "is_read": False,
-                            "lead_id": lead["id"],
-                            "created_at": now_iso,
-                            "created_at_dt": now_dt,
-                            "dedupe_key": f"notification:reminder:{trigger}:{lead['id']}:{today}",
-                        }
+                    await _emit_reminder_notification(
+                        rep_user_id=rep_user_id,
+                        rep_name=rep,
+                        title="Follow-up Due",
+                        message=reminder_doc["message"],
+                        lead_id=lead["id"],
+                        lead_name=lead_name,
+                        dedupe_key=notif_dedupe,
                     )
 
                     await db.reminders.insert_one(reminder_doc)
                     reminders_created += 1
 
             elif trigger == "site_visit_tomorrow":
-                leads = await db.leads.find({"lead_status": {"$regex": "Site Visit Scheduled", "$options": "i"}}, {"_id": 0}).to_list(200)
+                leads = await db.leads.find(
+                    {"$and": [site_visit_tomorrow_clause(now_dt), sla_paused_exclusion()]},
+                    {"_id": 0},
+                ).to_list(200)
                 for lead in leads:
                     dedupe_key = f"reminder:{trigger}:{lead['id']}:{today}"
                     already = await db.reminders.find_one({"dedupe_key": dedupe_key})
@@ -182,8 +222,15 @@ async def process_reminders():
                     rep = lead.get("assigned_to") or lead.get("presales_agent", "")
                     lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
                     project = lead.get("project", "N/A")
+                    visit_dt = coerce_datetime(lead.get("visit_date_dt"))
+                    visit_label = (
+                        visit_dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y")
+                        if visit_dt
+                        else "tomorrow"
+                    )
 
                     rep_user_id = await resolve_user_id_by_full_name(rep)
+                    notif_dedupe = f"notification:reminder:{trigger}:{lead['id']}:{today}"
                     reminder_doc = {
                         "id": str(uuid.uuid4()),
                         "lead_id": lead["id"],
@@ -192,7 +239,7 @@ async def process_reminders():
                         "assigned_user_id": rep_user_id,
                         "trigger": trigger,
                         "rule_name": rule["name"],
-                        "message": f"Site visit reminder: {lead_name} has a site visit scheduled for {project}",
+                        "message": f"Site visit tomorrow: {lead_name} — {visit_label} ({project})",
                         "status": "sent",
                         "whatsapp_sent": False,
                         "created_at": now_iso,
@@ -210,29 +257,24 @@ async def process_reminders():
                         if result:
                             reminder_doc["whatsapp_sent"] = True
 
-                    await db.notifications.insert_one(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "user_id": rep,
-                            "recipient_user_id": rep_user_id,
-                            "recipient_name": rep,
-                            "type": "reminder",
-                            "message": reminder_doc["message"],
-                            "urgency": "action_needed",
-                            "is_read": False,
-                            "lead_id": lead["id"],
-                            "created_at": now_iso,
-                            "created_at_dt": now_dt,
-                            "dedupe_key": f"notification:reminder:{trigger}:{lead['id']}:{today}",
-                        }
+                    await _emit_reminder_notification(
+                        rep_user_id=rep_user_id,
+                        rep_name=rep,
+                        title="Site Visit Tomorrow",
+                        message=reminder_doc["message"],
+                        lead_id=lead["id"],
+                        lead_name=lead_name,
+                        dedupe_key=notif_dedupe,
                     )
                     await db.reminders.insert_one(reminder_doc)
                     reminders_created += 1
 
             elif trigger == "rnr_stale":
-                cutoff = (now_dt - timedelta(days=days)).isoformat()
+                cutoff_dt = now_dt - timedelta(days=days)
+                cutoff_iso = cutoff_dt.isoformat()
+                status_filter = rnr_status_clause(rule.get("lead_statuses"))
                 leads = await db.leads.find(
-                    {"lead_status": {"$regex": "RNR|Not Reachable", "$options": "i"}, "$or": [{"updated_at": {"$lt": cutoff}}, {"updated_at": {"$exists": False}}]},
+                    {"$and": [status_filter, stale_updated_clause(cutoff_dt, cutoff_iso), sla_paused_exclusion()]},
                     {"_id": 0},
                 ).to_list(200)
                 for lead in leads:
@@ -245,6 +287,7 @@ async def process_reminders():
                     lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
 
                     rep_user_id = await resolve_user_id_by_full_name(rep)
+                    notif_dedupe = f"notification:reminder:{trigger}:{lead['id']}:{today}"
                     reminder_doc = {
                         "id": str(uuid.uuid4()),
                         "lead_id": lead["id"],
@@ -261,28 +304,32 @@ async def process_reminders():
                         "dedupe_key": dedupe_key,
                     }
 
-                    await db.notifications.insert_one(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "user_id": rep,
-                            "recipient_user_id": rep_user_id,
-                            "recipient_name": rep,
-                            "type": "reminder",
-                            "message": reminder_doc["message"],
-                            "urgency": "critical",
-                            "is_read": False,
-                            "lead_id": lead["id"],
-                            "created_at": now_iso,
-                            "created_at_dt": now_dt,
-                            "dedupe_key": f"notification:reminder:{trigger}:{lead['id']}:{today}",
-                        }
+                    await _emit_reminder_notification(
+                        rep_user_id=rep_user_id,
+                        rep_name=rep,
+                        title="RNR Stale",
+                        message=reminder_doc["message"],
+                        lead_id=lead["id"],
+                        lead_name=lead_name,
+                        dedupe_key=notif_dedupe,
+                        urgency="critical",
                     )
                     await db.reminders.insert_one(reminder_doc)
                     reminders_created += 1
 
             elif trigger == "task_overdue":
                 overdue_tasks = await db.tasks.find({"status": "pending", "due_date": {"$lt": today}}, {"_id": 0}).to_list(200)
+                task_lead_ids = {t.get("lead_id") for t in overdue_tasks if t.get("lead_id")}
+                paused_lead_ids: set[str] = set()
+                if task_lead_ids:
+                    paused_leads = await db.leads.find(
+                        {"id": {"$in": list(task_lead_ids)}, "sla_paused": True},
+                        {"_id": 0, "id": 1},
+                    ).to_list(len(task_lead_ids))
+                    paused_lead_ids = {lead["id"] for lead in paused_leads}
                 for task in overdue_tasks:
+                    if task.get("lead_id") in paused_lead_ids:
+                        continue
                     dedupe_key = f"reminder:{trigger}:{task['id']}:{today}"
                     already = await db.reminders.find_one({"dedupe_key": dedupe_key})
                     if already:
@@ -317,20 +364,16 @@ async def process_reminders():
                         if result:
                             reminder_doc["whatsapp_sent"] = True
 
-                    await db.notifications.insert_one(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "user_id": rep,
-                            "recipient_user_id": rep_user_id,
-                            "recipient_name": rep,
-                            "type": "reminder",
-                            "message": reminder_doc["message"],
-                            "urgency": "critical",
-                            "is_read": False,
-                            "created_at": now_iso,
-                            "created_at_dt": now_dt,
-                            "dedupe_key": f"notification:reminder:{trigger}:{task['id']}:{today}",
-                        }
+                    await _emit_reminder_notification(
+                        rep_user_id=rep_user_id,
+                        rep_name=rep,
+                        title="Task Overdue",
+                        message=reminder_doc["message"],
+                        lead_id=task.get("lead_id", ""),
+                        lead_name=task.get("lead_name", ""),
+                        task_id=task["id"],
+                        dedupe_key=f"notification:reminder:{trigger}:{task['id']}:{today}",
+                        urgency="critical",
                     )
                     await db.reminders.insert_one(reminder_doc)
                     reminders_created += 1
@@ -411,21 +454,14 @@ async def send_manual_reminder(req: ManualReminderRequest, current_user: dict = 
             if result:
                 reminder_doc["whatsapp_sent"] = True
 
-    await db.notifications.insert_one(
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": rep,
-            "recipient_user_id": rep_user_id,
-            "recipient_name": rep,
-            "type": "reminder",
-            "message": req.message,
-            "urgency": "action_needed",
-            "is_read": False,
-            "lead_id": req.lead_id,
-            "created_at": now_iso,
-            "created_at_dt": now_dt,
-            "dedupe_key": f"notification:reminder:manual:{req.lead_id}:{now_iso}",
-        }
+    await _emit_reminder_notification(
+        rep_user_id=rep_user_id,
+        rep_name=rep,
+        title="Manual Reminder",
+        message=req.message,
+        lead_id=req.lead_id,
+        lead_name=lead_name,
+        dedupe_key=f"notification:reminder:manual:{req.lead_id}:{now_iso}",
     )
 
     await db.reminders.insert_one(reminder_doc)

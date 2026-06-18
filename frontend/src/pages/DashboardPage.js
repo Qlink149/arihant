@@ -55,13 +55,28 @@ import {
   buildDashboardAnalyticsParams,
   buildVirtualCustomerDrillPath,
 } from '../utils/dashboardDrillDown';
+import { useStatsAutoRefresh } from '../hooks/useStatsAutoRefresh';
+
+const STATS_REFRESH_MS = 60_000;
+
+function DashboardBarTooltip({ active, payload, label }) {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-[#1A1A1A] border border-white/10 rounded-lg p-3 shadow-xl">
+        <p className="text-[#C5A059] font-medium">{label}</p>
+        <p className="text-white">{payload[0].value} leads</p>
+      </div>
+    );
+  }
+  return null;
+}
 
 // Tooltip copy aligned with GET /api/analytics/dashboard counts
 const LEAD_CRITERIA = {
   missed_follow_up: {
     title: 'Missed follow-ups',
     rules: [
-      'Active pipeline leads where next_action_date is before today (IST).',
+      'Active pipeline leads where next_action_date or a pending task due date is before today (IST). Excludes Gone Cold and terminal statuses.',
       'Uses snapshot scope: project filter only — not limited by lead intake period.',
     ],
   },
@@ -89,8 +104,8 @@ const LEAD_CRITERIA = {
   follow_up_today: {
     title: 'Follow up today',
     rules: [
-      'Active pipeline leads where next_action_date equals today (IST).',
-      'Snapshot scope: project filter only.',
+      'Active pipeline leads where next_action_date or a pending task due date equals today (IST). Excludes Gone Cold and terminal statuses.',
+      'Uses snapshot scope: project filter only — not limited by lead intake period.',
     ],
   },
   todays_leads: {
@@ -107,6 +122,20 @@ const LEAD_CRITERIA = {
       'Respects intake period and project filters.',
     ],
   },
+  qualified: {
+    title: 'Active pipeline',
+    rules: [
+      'Leads in Contacted, Nurturing, or Negotiation status.',
+      'Respects intake period and project filters (cohort section).',
+    ],
+  },
+  active_pipeline: {
+    title: 'Active pipeline',
+    rules: [
+      'Leads in Contacted, Nurturing, or Negotiation status.',
+      'Respects intake period and project filters (cohort section).',
+    ],
+  },
   total: {
     title: 'Total leads',
     rules: [
@@ -114,6 +143,34 @@ const LEAD_CRITERIA = {
     ],
   },
 };
+
+function DashboardLeadCriteriaTooltip({ type }) {
+  const criteria = LEAD_CRITERIA[type];
+  if (!criteria) return null;
+
+  return (
+    <TooltipProvider>
+      <TooltipUI>
+        <TooltipTrigger asChild>
+          <button className="ml-2 text-[#52525B] hover:text-[#C5A059] transition-colors">
+            <Info size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="bg-[#1A1A1A] border-white/10 p-4 max-w-xs">
+          <p className="text-[#C5A059] font-medium mb-2">{criteria.title}</p>
+          <ul className="space-y-1">
+            {criteria.rules.map((rule, idx) => (
+              <li key={idx} className="text-[#A1A1AA] text-xs flex items-start gap-2">
+                <span className="text-[#C5A059] mt-0.5">•</span>
+                {rule}
+              </li>
+            ))}
+          </ul>
+        </TooltipContent>
+      </TooltipUI>
+    </TooltipProvider>
+  );
+}
 
 // Regional colors - more distinct and accessible
 const REGIONAL_COLORS = [
@@ -142,6 +199,7 @@ const DashboardPage = () => {
   const navigate = useNavigate();
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const analyticsRef = useRef(null);
   analyticsRef.current = analytics;
@@ -158,35 +216,49 @@ const DashboardPage = () => {
     { value: 'custom', label: 'Custom Range' }
   ];
 
-  // Dynamic project list from API data
-  const projects = (analytics?.projects || []).map(p => p.name).filter(n => n !== 'Unknown');
+  const projects = useMemo(
+    () => (analytics?.projects || []).map((p) => p.name).filter((n) => n !== 'Unknown'),
+    [analytics?.projects],
+  );
 
   const dashboardFilterState = useMemo(
     () => ({ timeFilter, dateRange, projectFilter }),
     [timeFilter, dateRange, projectFilter]
   );
 
-  const fetchAnalytics = useCallback(async () => {
-    if (analyticsRef.current) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
+  const fetchAnalytics = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      if (analyticsRef.current) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
     }
     try {
       const params = buildDashboardAnalyticsParams(dashboardFilterState);
       const response = await analyticsAPI.getDashboard(params);
       setAnalytics(response.data);
+      setLoadError(null);
     } catch (error) {
       console.error('Failed to fetch analytics:', error);
+      setLoadError('Could not load dashboard analytics');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!silent) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [dashboardFilterState]);
 
   useEffect(() => {
     fetchAnalytics();
   }, [fetchAnalytics]);
+
+  useStatsAutoRefresh(() => {
+    if (analyticsRef.current) {
+      fetchAnalytics({ silent: true });
+    }
+  }, { intervalMs: STATS_REFRESH_MS, enabled: Boolean(analytics) });
 
   const drillToVirtualCustomer = useCallback(
     (tile) => {
@@ -231,55 +303,14 @@ const DashboardPage = () => {
 
   const COLORS = ['#059669', '#D97706', '#DC2626', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#EF4444', '#10B981', '#A855F7', '#F59E0B', '#06B6D4'];
 
-  // Use real status breakdown from API
-  const statusData = analytics?.status_breakdown
-    ? analytics.status_breakdown.slice(0, 8).map((s, idx) => ({
-        name: s.name,
-        value: s.count,
-        color: COLORS[idx % COLORS.length]
-      }))
-    : [];
-
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-[#1A1A1A] border border-white/10 rounded-lg p-3 shadow-xl">
-          <p className="text-[#C5A059] font-medium">{label}</p>
-          <p className="text-white">{payload[0].value} leads</p>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  // Info tooltip component for lead categories
-  const LeadCriteriaTooltip = ({ type }) => {
-    const criteria = LEAD_CRITERIA[type];
-    if (!criteria) return null;
-
-    return (
-      <TooltipProvider>
-        <TooltipUI>
-          <TooltipTrigger asChild>
-            <button className="ml-2 text-[#52525B] hover:text-[#C5A059] transition-colors">
-              <Info size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" className="bg-[#1A1A1A] border-white/10 p-4 max-w-xs">
-            <p className="text-[#C5A059] font-medium mb-2">{criteria.title}</p>
-            <ul className="space-y-1">
-              {criteria.rules.map((rule, idx) => (
-                <li key={idx} className="text-[#A1A1AA] text-xs flex items-start gap-2">
-                  <span className="text-[#C5A059] mt-0.5">•</span>
-                  {rule}
-                </li>
-              ))}
-            </ul>
-          </TooltipContent>
-        </TooltipUI>
-      </TooltipProvider>
-    );
-  };
+  const statusData = useMemo(() => {
+    if (!analytics?.status_breakdown) return [];
+    return analytics.status_breakdown.slice(0, 8).map((s, idx) => ({
+      name: s.name,
+      value: s.count,
+      color: COLORS[idx % COLORS.length],
+    }));
+  }, [analytics?.status_breakdown]);
 
   const operational = analytics?.operational || {};
 
@@ -288,7 +319,7 @@ const DashboardPage = () => {
       role="button"
       tabIndex={0}
       title={subtitle ? `${title} — ${subtitle}` : title}
-      className="glass-card rounded-lg p-6 card-hover cursor-pointer"
+      className="glass-card rounded-lg p-4 card-hover cursor-pointer"
       data-testid={testId}
       onClick={() => drillToVirtualCustomer(tile)}
       onKeyDown={(e) => e.key === 'Enter' && drillToVirtualCustomer(tile)}
@@ -299,19 +330,19 @@ const DashboardPage = () => {
         </div>
         {tooltipType ? (
           <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-            <LeadCriteriaTooltip type={tooltipType} />
+            <DashboardLeadCriteriaTooltip type={tooltipType} />
           </span>
         ) : null}
       </div>
       <p className="text-[#A1A1AA] text-sm">{title}</p>
-      <p className="font-serif text-3xl text-white mt-1">{value ?? 0}</p>
+      <p className="text-2xl font-semibold text-white mt-0.5">{value ?? 0}</p>
       {subtitle ? <p className="text-[#52525B] text-xs mt-1">{subtitle}</p> : null}
     </div>
   );
 
   if (loading && !analytics) {
     return (
-      <div className="space-y-6 p-2 max-w-6xl mx-auto">
+      <div className="space-y-3 p-2 max-w-6xl mx-auto">
         <div className="h-40 rounded-xl bg-white/5 animate-pulse" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
@@ -323,8 +354,24 @@ const DashboardPage = () => {
     );
   }
 
+  if (!analytics) {
+    return (
+      <div className="rounded-lg border border-white/10 bg-[#1A1A1A] p-8 text-center max-w-lg mx-auto mt-8">
+        <p className="text-[#A1A1AA] mb-4">{loadError || 'Dashboard data is unavailable'}</p>
+        <Button
+          type="button"
+          variant="outline"
+          className="border-white/10 text-white"
+          onClick={() => fetchAnalytics()}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`space-y-8 relative transition-opacity duration-200 ${refreshing ? 'opacity-80' : ''}`}>
+    <div className={`space-y-3 relative transition-opacity duration-200 ${refreshing ? 'opacity-80' : ''}`}>
       {refreshing && (
         <div
           className="absolute top-0 right-0 z-20 px-3 py-1 rounded-md bg-[#1A1A1A]/90 border border-white/10 text-[#C5A059] text-xs animate-pulse"
@@ -350,7 +397,7 @@ const DashboardPage = () => {
           <div>
             <p className="text-[#C5A059] text-sm font-medium tracking-widest uppercase">Arihant Spaces</p>
             <h1
-              className="hero-greeting font-serif text-3xl lg:text-4xl mt-1"
+              className="hero-greeting text-xl lg:text-2xl font-semibold mt-0.5"
               data-testid="dashboard-greeting"
             >
               Hello, {user?.full_name?.split(' ')[0] || 'there'}
@@ -563,13 +610,13 @@ const DashboardPage = () => {
       </motion.div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* Lead Source Performance */}
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.3 }}
-          className="glass-card rounded-lg p-6"
+          className="glass-card rounded-lg p-4"
           data-testid="lead-source-chart"
         >
           <h3 className="font-serif text-xl text-white mb-6">Lead Source Performance</h3>
@@ -582,7 +629,7 @@ const DashboardPage = () => {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis type="number" stroke="#52525B" />
               <YAxis type="category" dataKey="name" stroke="#A1A1AA" tick={{ fill: '#A1A1AA', fontSize: 11 }} width={140} />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip content={<DashboardBarTooltip />} />
               <Bar
                 dataKey="count"
                 fill="url(#goldGradient)"
@@ -603,7 +650,7 @@ const DashboardPage = () => {
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.3 }}
-          className="glass-card rounded-lg p-6"
+          className="glass-card rounded-lg p-4"
           data-testid="lead-status-chart"
         >
           <h3 className="font-serif text-xl text-white mb-6">Lead Status Distribution</h3>
@@ -660,7 +707,7 @@ const DashboardPage = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
-        className="glass-card rounded-lg p-6"
+        className="glass-card rounded-lg p-4"
         data-testid="sales-team-heatmap"
       >
         <h3 className="font-serif text-xl text-white mb-6">Sales Team Performance</h3>
@@ -692,7 +739,7 @@ const DashboardPage = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
-        className="glass-card rounded-lg p-6"
+        className="glass-card rounded-lg p-4"
         data-testid="project-distribution"
       >
         <h3 className="font-serif text-xl text-white mb-6">Project Interest Distribution</h3>

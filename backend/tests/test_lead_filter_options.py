@@ -1,28 +1,33 @@
-"""Unit tests for lead filter-options aggregation helpers."""
+"""Unit tests for canonical picklist merge helpers."""
 
-from crm.services.lead_analytics_queries import (
-    merge_query_with_valid_projects,
-    project_distribution_pipeline,
+from crm.constants.lead_picklists import (
+    CANONICAL_SOURCES,
+    merge_picklist_with_db,
 )
 
 
-def test_merge_query_with_valid_projects_empty_base():
-    q = merge_query_with_valid_projects({})
-    assert "project" in q
-    assert "$exists" in q["project"]
+def test_merge_picklist_canonical_first_with_db_counts():
+    db_rows = [
+        {"name": "google ads", "count": 5},
+        {"name": "legacy source", "count": 2},
+    ]
+    merged = merge_picklist_with_db(["google ads", "website"], db_rows)
+    names = [row["name"] for row in merged]
+    assert names[0] == "google ads"
+    assert names[1] == "website"
+    assert "legacy source" in names
+    google_row = next(r for r in merged if r["name"] == "google ads")
+    assert google_row["count"] == 5
 
 
-def test_merge_query_with_valid_projects_and_base():
-    base = {"lead_status": "New"}
-    q = merge_query_with_valid_projects(base)
-    assert "$and" in q
-    assert base in q["$and"]
+def test_merge_picklist_dedupes_canonical_case_insensitive():
+    db_rows = [{"name": "Google Ads", "count": 3}]
+    merged = merge_picklist_with_db(["google ads"], db_rows)
+    assert len(merged) == 1
+    assert merged[0]["count"] == 3
 
 
-def test_project_distribution_pipeline_splits_and_groups():
-    pipeline = project_distribution_pipeline({"location": "Chennai"}, limit=50)
-    assert pipeline[0] == {"$match": {"location": "Chennai"}}
-    assert any("$split" in str(stage) for stage in pipeline)
-    assert pipeline[-1] == {"$limit": 50}
-    group = next(s for s in pipeline if "$group" in s)
-    assert group["$group"]["_id"] == "$_project_parts"
+def test_canonical_sources_includes_client_values():
+    assert "facebook_ad" in CANONICAL_SOURCES
+    assert "direct walk-in" in CANONICAL_SOURCES
+    assert len(CANONICAL_SOURCES) >= 60

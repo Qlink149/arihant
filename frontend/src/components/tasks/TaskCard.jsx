@@ -1,5 +1,4 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { memo } from 'react';
 import {
   Building2,
   Calendar,
@@ -9,6 +8,7 @@ import {
   User,
 } from 'lucide-react';
 import { Button } from '../ui/button';
+import { CrmBadge } from '../ui/CrmBadge';
 import {
   formatTaskCreated,
   formatTaskDue,
@@ -23,7 +23,7 @@ import {
   getTaskReason,
 } from '../../utils/taskDisplay';
 
-export function TaskCard({
+export const TaskCard = memo(function TaskCard({
   task,
   variant = 'pending',
   index = 0,
@@ -47,10 +47,7 @@ export function TaskCard({
   const stop = (e) => e.stopPropagation();
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 5 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: Math.min(index * 0.03, 0.3) }}
+    <div
       role={onOpenDetail ? 'button' : undefined}
       tabIndex={onOpenDetail ? 0 : undefined}
       onClick={() => onOpenDetail?.(task)}
@@ -61,14 +58,14 @@ export function TaskCard({
         }
       }}
       className={[
-        'bg-[#1A1A1A] border rounded-xl p-4 transition-colors',
+        'bg-[#1A1A1A] border rounded-lg p-3 transition-colors',
         getTaskCardBorderClass(dueBucket, variant),
         onOpenDetail ? 'cursor-pointer hover:border-[#C5A059]/30' : '',
         isCompleted ? 'opacity-85' : '',
       ].join(' ')}
       data-testid={`task-card-${taskId}`}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2">
         {!isCompleted ? (
           <button
             type="button"
@@ -90,7 +87,7 @@ export function TaskCard({
           <CheckCircle size={18} className="text-emerald-500 flex-shrink-0 mt-0.5" />
         )}
 
-        <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex-1 min-w-0 space-y-1.5">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <h3
               className={`font-medium text-sm leading-snug pr-2 ${
@@ -99,11 +96,9 @@ export function TaskCard({
             >
               {title}
             </h3>
-            <span
-              className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-medium flex-shrink-0 ${statusBadge.className}`}
-            >
+            <CrmBadge variant={statusBadge.variant} size="xs" uppercase className="flex-shrink-0">
               {statusBadge.label}
-            </span>
+            </CrmBadge>
           </div>
 
           {(leadName || project) && (
@@ -143,11 +138,9 @@ export function TaskCard({
                 Due: {dueLabel}
               </span>
             )}
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider ${priorityBadge.className}`}
-            >
+            <CrmBadge variant={priorityBadge.variant} size="xs" uppercase>
               {priorityBadge.label}
-            </span>
+            </CrmBadge>
             <span className="text-[#52525B] flex items-center gap-1">
               <User size={10} />
               {getAssignedDisplay(task)}
@@ -190,8 +183,8 @@ export function TaskCard({
           )}
         </div>
       </div>
-    </motion.div>
+    </div>
   );
-}
+});
 
 export default TaskCard;

@@ -14,14 +14,37 @@ from crm.services.lead_analytics_queries import (
     build_dashboard_base_query,
     build_dashboard_snapshot_query,
     count_dashboard_cohort_metrics,
+    created_range_filter,
     created_since_filter,
     merge_query_with_valid_projects,
     project_distribution_pipeline,
+    resolve_quarter_param,
+    resolve_sales_period_filter,
 )
 from crm.services.lead_overview_service import count_dashboard_operational_metrics
 
 
 router = APIRouter()
+
+_SALES_AGG_CACHE: Dict[str, tuple[float, tuple]] = {}
+_SALES_AGG_CACHE_TTL_SEC = 60
+
+
+def _sales_cache_key(scope_filter: Optional[Dict[str, Any]]) -> str:
+    return str(sorted((scope_filter or {}).items()))
+
+
+async def _cached_sales_managers_from_aggregation(
+    scope_filter: Optional[Dict[str, Any]] = None,
+) -> tuple[List[Dict[str, Any]], Dict[str, int], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    key = _sales_cache_key(scope_filter)
+    now = utc_now().timestamp()
+    cached = _SALES_AGG_CACHE.get(key)
+    if cached and (now - cached[0]) < _SALES_AGG_CACHE_TTL_SEC:
+        return cached[1]
+    result = await _sales_managers_from_aggregation(scope_filter)
+    _SALES_AGG_CACHE[key] = (now, result)
+    return result
 
 
 def _nurturing_label_flag(label: str) -> Dict[str, Any]:
@@ -104,6 +127,30 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                 "site_visits": {
                     "$cond": [{"$regexMatch": {"input": "$ls", "regex": SITE_VISIT_STATUS_REGEX}}, 1, 0]
                 },
+                "deals_won": {
+                    "$cond": [
+                        {
+                            "$regexMatch": {
+                                "input": "$ls",
+                                "regex": r"closed\s*won|booked|advance\s*paid",
+                            }
+                        },
+                        1,
+                        0,
+                    ]
+                },
+                "deals_lost": {
+                    "$cond": [
+                        {
+                            "$regexMatch": {
+                                "input": "$ls",
+                                "regex": r"closed\s*lost|dropped|junk|unqualified",
+                            }
+                        },
+                        1,
+                        0,
+                    ]
+                },
                 "deals_closed": {
                     "$cond": [
                         {
@@ -118,7 +165,7 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                 },
                 "contacted": {
                     "$cond": [
-                        {"$gt": [{"$size": {"$ifNull": ["$context_updates", []]}}, 1]},
+                        {"$regexMatch": {"input": "$ls", "regex": r"^contacted$"}},
                         1,
                         0,
                     ]
@@ -176,6 +223,8 @@ async def _sales_managers_from_aggregation(
             "cold": {"$sum": "$cold"},
             "rnr": {"$sum": "$rnr"},
             "site_visits": {"$sum": "$site_visits"},
+            "deals_won": {"$sum": "$deals_won"},
+            "deals_lost": {"$sum": "$deals_lost"},
             "deals_closed": {"$sum": "$deals_closed"},
             "contacted": {"$sum": "$contacted"},
             "negotiation": {"$sum": "$negotiation"},
@@ -194,14 +243,18 @@ async def _sales_managers_from_aggregation(
         "negotiation": 0,
         "rnr": 0,
         "site_visits": 0,
+        "deals_won": 0,
+        "deals_lost": 0,
         "deals_closed": 0,
     }
 
     for r in main_rows:
         name = r["_id"] or "Unassigned"
         total = int(r.get("total", 0))
+        deals_won = int(r.get("deals_won", 0))
+        deals_lost = int(r.get("deals_lost", 0))
         deals = int(r.get("deals_closed", 0))
-        conv = round((deals / total) * 100) if total > 0 else 0
+        conv = round((deals_won / total) * 100) if total > 0 else 0
         la = r.get("last_active")
         last_active = ""
         if isinstance(la, datetime):
@@ -216,6 +269,8 @@ async def _sales_managers_from_aggregation(
                 "cold": int(r.get("cold", 0)),
                 "rnr": int(r.get("rnr", 0)),
                 "site_visits": int(r.get("site_visits", 0)),
+                "deals_won": deals_won,
+                "deals_lost": deals_lost,
                 "deals_closed": deals,
                 "contacted": int(r.get("contacted", 0)),
                 "negotiation": negotiation,
@@ -231,6 +286,8 @@ async def _sales_managers_from_aggregation(
         totals["negotiation"] += negotiation
         totals["rnr"] += int(r.get("rnr", 0))
         totals["site_visits"] += int(r.get("site_visits", 0))
+        totals["deals_won"] += deals_won
+        totals["deals_lost"] += deals_lost
         totals["deals_closed"] += deals
 
     managers.sort(key=lambda x: x["name"])
@@ -287,64 +344,66 @@ async def get_dashboard_analytics(
     total_leads = cohort_counts["total_leads"]
     hot_leads = cohort_counts["hot_leads"]
     warm_leads = cohort_counts["warm_leads"]
+    # NURTURE_LABELS only defines Hot/Warm — no Cold temperature in this CRM.
     cold_leads = 0
     vip_leads = cohort_counts["vip_leads"]
-    qualified = cohort_counts["qualified_leads"]
+    qualified = cohort_counts["active_pipeline_leads"]
     open_leads = cohort_counts["open_leads"]
     lost = cohort_counts["lost_leads"]
     dormant_leads = cohort_counts["dormant_leads"]
 
-    status_pipeline = [
+    breakdown_facet = [
         {"$match": cohort_query},
         {
-            "$group": {
-                "_id": {"$toLower": {"$trim": {"input": {"$ifNull": ["$lead_status", "unknown"]}}}},
-                "count": {"$sum": 1},
-                "label": {"$first": "$lead_status"},
+            "$facet": {
+                "statuses": [
+                    {
+                        "$group": {
+                            "_id": {"$toLower": {"$trim": {"input": {"$ifNull": ["$lead_status", "unknown"]}}}},
+                            "count": {"$sum": 1},
+                            "label": {"$first": "$lead_status"},
+                        }
+                    },
+                    {"$sort": {"count": -1}},
+                    {"$limit": 20},
+                ],
+                "sources": [
+                    {"$group": {"_id": "$lead_source", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10},
+                ],
+                "locations": [
+                    {"$group": {"_id": "$location", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10},
+                ],
+                "owners": [
+                    {
+                        "$group": {
+                            "_id": {
+                                "$ifNull": [
+                                    "$assigned_to_name",
+                                    {"$ifNull": ["$assigned_to", "$presales_agent"]},
+                                ]
+                            },
+                            "count": {"$sum": 1},
+                        }
+                    },
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10},
+                ],
             }
         },
-        {"$sort": {"count": -1}},
-        {"$limit": 20},
     ]
-    statuses = await db.leads.aggregate(status_pipeline).to_list(20)
-
-    source_pipeline = [
-        {"$match": cohort_query},
-        {"$group": {"_id": "$lead_source", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 10},
-    ]
-    sources = await db.leads.aggregate(source_pipeline).to_list(10)
-
-    location_pipeline = [
-        {"$match": cohort_query},
-        {"$group": {"_id": "$location", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 10},
-    ]
-    locations = await db.leads.aggregate(location_pipeline).to_list(10)
-    locations = [l for l in locations if l["_id"]]
-
-    owner_pipeline = [
-        {"$match": cohort_query},
-        {
-            "$group": {
-                "_id": {
-                    "$ifNull": [
-                        "$assigned_to_name",
-                        {"$ifNull": ["$assigned_to", "$presales_agent"]},
-                    ]
-                },
-                "count": {"$sum": 1},
-            }
-        },
-        {"$sort": {"count": -1}},
-        {"$limit": 10},
-    ]
-    owners = await db.leads.aggregate(owner_pipeline).to_list(10)
-
-    project_pipeline = project_distribution_pipeline(merge_query_with_valid_projects(cohort_query))
-    projects = await db.leads.aggregate(project_pipeline).to_list(50)
+    breakdown_rows, projects = await asyncio.gather(
+        db.leads.aggregate(breakdown_facet).to_list(1),
+        db.leads.aggregate(project_distribution_pipeline(merge_query_with_valid_projects(cohort_query))).to_list(50),
+    )
+    breakdown_doc = breakdown_rows[0] if breakdown_rows else {}
+    statuses = breakdown_doc.get("statuses") or []
+    sources = breakdown_doc.get("sources") or []
+    locations = [l for l in (breakdown_doc.get("locations") or []) if l.get("_id")]
+    owners = breakdown_doc.get("owners") or []
 
     return {
         "greeting": f"{get_time_greeting()}, {current_user['full_name'].split()[0]}",
@@ -353,6 +412,7 @@ async def get_dashboard_analytics(
         "warm_leads": warm_leads,
         "cold_leads": cold_leads,
         "vip_leads": vip_leads,
+        "active_pipeline_leads": qualified,
         "qualified_leads": qualified,
         "open_leads": open_leads,
         "lost_leads": lost,
@@ -370,14 +430,64 @@ async def get_dashboard_analytics(
 
 
 @router.get("/analytics/sales-dashboard")
-async def get_sales_dashboard_analytics(current_user: dict = Depends(get_current_user)):
+async def get_sales_dashboard_analytics(
+    current_user: dict = Depends(get_current_user),
+    quarter: Optional[str] = Query(None, description="current, all, or YYYY-Qn (e.g. 2026-Q1)"),
+    days: Optional[int] = Query(None, ge=1),
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+):
+    try:
+        period_filter, period_label = resolve_sales_period_filter(
+            quarter=quarter,
+            days=days,
+            created_from=created_from,
+            created_to=created_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     scope = role_scope_filter(current_user)
-    managers, totals, by_status, by_project = await _sales_managers_from_aggregation(scope or None)
+    query_base = merge_query(scope, period_filter) if period_filter else scope
+    managers, totals, by_status, by_project = await _cached_sales_managers_from_aggregation(query_base or None)
     return {
         "managers": managers,
         "totals": totals,
         "by_status": by_status,
         "by_project": by_project,
+        "period_label": period_label,
+    }
+
+
+@router.get("/analytics/sales-dashboard/ranking")
+async def get_sales_dashboard_ranking(
+    current_user: dict = Depends(get_current_user),
+    quarter: Optional[str] = Query(None, description="current, all, or YYYY-Qn (e.g. 2026-Q1)"),
+    days: Optional[int] = Query(None, ge=1),
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+):
+    """Agent performance ranking for leads created in the selected period."""
+    try:
+        period_filter, period_label = resolve_sales_period_filter(
+            quarter=quarter,
+            days=days,
+            created_from=created_from,
+            created_to=created_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    scope = role_scope_filter(current_user) or {}
+    query_base = merge_query(scope, period_filter) if period_filter else scope
+
+    managers, _, _, _ = await _cached_sales_managers_from_aggregation(query_base or None)
+    ranked = [m for m in managers if m.get("name") != "Unassigned"]
+    ranked.sort(key=lambda x: (-x["conversion_rate"], -x["deals_won"], x["name"]))
+
+    return {
+        "period_label": period_label,
+        "managers": ranked,
     }
 
 
@@ -386,16 +496,33 @@ async def get_sales_rep_leads(
     name: str = Query(..., min_length=1, description="Representative display name (must match dashboard row)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(150, ge=1, le=500),
+    quarter: Optional[str] = Query(None, description="current, all, or YYYY-Qn (e.g. 2026-Q1)"),
+    days: Optional[int] = Query(None, ge=1),
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
-    """Paginated leads for a sales rep; same assignment logic as sales dashboard."""
+    """Paginated leads for a sales rep; same assignment and period logic as sales dashboard."""
     if current_user.get("role") not in ("admin", "manager"):
         own = (current_user.get("full_name") or "").strip()
         if name.strip() != own:
             raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        period_filter, _ = resolve_sales_period_filter(
+            quarter=quarter,
+            days=days,
+            created_from=created_from,
+            created_to=created_to,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     scope = role_scope_filter(current_user)
     rep_expr = _rep_name_expression()
-    match_expr = merge_query(scope, {"$expr": {"$eq": [rep_expr, name]}})
+    match_expr = merge_query(
+        scope,
+        period_filter if period_filter else {},
+        {"$expr": {"$eq": [rep_expr, name]}},
+    )
     total = await db.leads.count_documents(match_expr)
 
     projection = {

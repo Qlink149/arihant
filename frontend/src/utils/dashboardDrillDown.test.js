@@ -63,6 +63,6 @@ describe('dashboardDrillDown', () => {
       projectFilter: 'all',
       dateRange: null,
     });
-    expect(path).toContain('metric=qualified_leads');
+    expect(path).toContain('metric=active_pipeline');
   });
 });

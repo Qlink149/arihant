@@ -8,6 +8,7 @@ from crm.core.state import db, resolve_user_id_by_full_name
 
 logger = logging.getLogger(__name__)
 from crm.models.schemas.assignment_schemas import AssignmentRule
+from crm.services.notification_service import create_notification
 from crm.utils.helpers import iso_utc_now, utc_now
 
 
@@ -80,24 +81,18 @@ async def auto_assign_lead(lead_id: str) -> dict:
         },
     )
 
-    await db.notifications.insert_one(
-        {
-            "id": str(uuid.uuid4()),
-            "type": "new_lead_assigned",
-            "title": "New Lead Assigned",
-            "message": f"Lead {lead.get('first_name', '')} {lead.get('last_name', '')} has been assigned to you from {lead.get('lead_source', 'Unknown')}",
-            "lead_id": lead_id,
-            "lead_name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}",
-            "assigned_to": assigned_to,
-            "user_id": assigned_to,
-            "recipient_user_id": assignee_user_id,
-            "recipient_name": assigned_to,
-            "severity": "low",
-            "urgency": "info",
-            "is_read": False,
-            "created_at": now_iso,
-            "created_at_dt": now_dt,
-        }
-    )
+    lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
+    if assignee_user_id:
+        await create_notification(
+            recipient_user_id=assignee_user_id,
+            recipient_name=assigned_to,
+            title="New Lead Assigned",
+            message=f"Lead {lead_name} has been assigned to you from {lead.get('lead_source', 'Unknown')}",
+            notification_type="new_lead_assigned",
+            lead_id=lead_id,
+            lead_name=lead_name,
+            severity="low",
+            urgency="info",
+        )
 
     return {"assigned_to": assigned_to, "active_leads": int(min_count)}

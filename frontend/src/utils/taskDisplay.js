@@ -37,44 +37,29 @@ export function getTaskDueBucket(dueDateYmd) {
 export function getDueStatusBadge(bucket) {
   switch (bucket) {
     case 'overdue':
-      return {
-        label: 'Overdue',
-        className: 'bg-red-500/20 text-red-400 border border-red-500/30',
-      };
+      return { label: 'Overdue', variant: 'danger' };
     case 'due_today':
-      return {
-        label: 'Due Today',
-        className: 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
-      };
+      return { label: 'Due Today', variant: 'warning' };
     case 'upcoming':
-      return {
-        label: 'Upcoming',
-        className: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
-      };
+      return { label: 'Upcoming', variant: 'info' };
     default:
-      return {
-        label: 'No Due Date',
-        className: 'bg-gray-500/20 text-gray-400 border border-gray-500/30',
-      };
+      return { label: 'No Due Date', variant: 'neutral' };
   }
 }
 
 export function getCompletedStatusBadge() {
-  return {
-    label: 'Completed',
-    className: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
-  };
+  return { label: 'Completed', variant: 'success' };
 }
 
 export function getPriorityBadge(priority) {
   const p = (priority || 'medium').toLowerCase();
   if (p === 'high') {
-    return { label: 'High', className: 'bg-red-500/20 text-red-400' };
+    return { label: 'High', variant: 'danger' };
   }
   if (p === 'low') {
-    return { label: 'Low', className: 'bg-gray-500/20 text-gray-400' };
+    return { label: 'Low', variant: 'neutral' };
   }
-  return { label: 'Medium', className: 'bg-amber-500/20 text-amber-400' };
+  return { label: 'Medium', variant: 'warning' };
 }
 
 export function getTaskCardBorderClass(bucket, variant) {

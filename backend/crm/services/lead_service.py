@@ -3,10 +3,16 @@ import io
 import uuid
 from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, UploadFile
 
-from crm.constants.lead_status import is_sv_followup_status, is_terminal_lead_status
+from crm.constants.lead_status import (
+    is_sv_followup_1_status,
+    is_sv_followup_2_status,
+    is_sv_followup_status,
+    is_terminal_lead_status,
+)
 from crm.core.platform_ops import assert_assignee_allowed
 from crm.core.state import db, resolve_project_id, resolve_user_id_by_full_name
 from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
@@ -15,10 +21,12 @@ from crm.services.lead_projections import (
     DUPLICATE_GROUP_PUSH,
     LEAD_LIST_SORT,
     LIST_LEAD_PROJECTION,
+    apply_list_recent_note,
     trim_context_updates_for_list,
 )
 from crm.services.lead_events import log_lead_event
-from crm.services.lead_search import build_leads_list_query
+from crm.services.notification_service import create_notification
+from crm.services.lead_list_query import compose_leads_list_query
 from crm.services.nurture_temperature import apply_nurture_temperature_rules
 from crm.services.sla_helpers import create_sla_task_for_lead
 from crm.utils.helpers import (
@@ -31,21 +39,13 @@ from crm.utils.helpers import (
     utc_now,
 )
 
+_IST = ZoneInfo("Asia/Kolkata")
 
-def _parse_created_date_boundary(value: Optional[str], *, end_of_day: bool = False) -> Optional[str]:
-    """Parse YYYY-MM-DD into inclusive UTC ISO boundary for created_at filtering."""
-    if not value or not str(value).strip():
-        return None
-    raw = str(value).strip()[:10]
-    try:
-        d = date.fromisoformat(raw)
-    except ValueError:
-        return None
-    if end_of_day:
-        dt = datetime(d.year, d.month, d.day, 23, 59, 59, 999000, tzinfo=timezone.utc)
-    else:
-        dt = datetime(d.year, d.month, d.day, 0, 0, 0, 0, tzinfo=timezone.utc)
-    return dt.isoformat().replace("+00:00", "Z")
+
+def _ist_follow_up_date(days_ahead: int, from_dt: Optional[datetime] = None) -> str:
+    """Return YYYY-MM-DD for next_action_date (IST calendar)."""
+    base = (from_dt or utc_now()).astimezone(_IST).date()
+    return (base + timedelta(days=days_ahead)).isoformat()
 
 
 def _normalize_context_updates_for_response(updates: List[dict]) -> List[dict]:
@@ -64,7 +64,7 @@ def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
     if lead.get("strategic_next_moves") is None:
         lead["strategic_next_moves"] = []
     if list_view:
-        lead["context_updates"] = trim_context_updates_for_list(lead.get("context_updates") or [])
+        apply_list_recent_note(lead)
     else:
         lead["context_updates"] = _normalize_context_updates_for_response(
             dedupe_context_updates(lead.get("context_updates") or [])
@@ -81,6 +81,26 @@ def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
     return lead
 
 
+def _apply_contact_phones(lead_dict: Dict[str, Any]) -> None:
+    """Normalize phone and work_phone in-place."""
+    if "phone" in lead_dict:
+        phone = lead_dict.get("phone")
+        lead_dict["normalized_phone"] = normalize_phone(phone) if phone else None
+    if "work_phone" in lead_dict:
+        work = lead_dict.get("work_phone")
+        lead_dict["normalized_work_phone"] = normalize_phone(work) if work else None
+
+
+def _validate_site_visit_count(value: Any) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="site_visit_count must be a non-negative integer")
+    if count < 0:
+        raise HTTPException(status_code=400, detail="site_visit_count must be a non-negative integer")
+    return count
+
+
 async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     lead_id = str(uuid.uuid4())
     normalized_phone = normalize_phone(lead.phone) if lead.phone else None
@@ -91,6 +111,11 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
             raise HTTPException(status_code=400, detail=f"Duplicate lead found with same phone number (ID: {existing['id']})")
 
     lead_dict = lead.model_dump()
+    if lead_dict.get("site_visit_count") is None:
+        lead_dict["site_visit_count"] = 0
+    else:
+        lead_dict["site_visit_count"] = _validate_site_visit_count(lead_dict["site_visit_count"])
+    _apply_contact_phones(lead_dict)
     if not lead_dict.get("project_id"):
         lead_dict["project_id"] = resolve_project_id(lead_dict.get("project"))
 
@@ -171,45 +196,61 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
 
 async def list_leads(
     project: Optional[str] = None,
+    projects: Optional[list] = None,
     project_id: Optional[str] = None,
     temperature: Optional[str] = None,
     budget: Optional[str] = None,
+    budgets: Optional[list] = None,
     location: Optional[str] = None,
+    locations: Optional[list] = None,
     intent: Optional[str] = None,
     vip: Optional[bool] = None,
     status: Optional[str] = None,
+    statuses: Optional[list] = None,
     search: Optional[str] = None,
     days: Optional[int] = None,
     created_from: Optional[str] = None,
     created_to: Optional[str] = None,
+    updated_from: Optional[str] = None,
+    updated_to: Optional[str] = None,
+    sources: Optional[list] = None,
+    source: Optional[str] = None,
+    meta_qualified: Optional[bool] = None,
+    site_visit_min: Optional[int] = None,
+    site_visit_max: Optional[int] = None,
     skip: int = 0,
     limit: int = 100,
     query_base: Optional[Dict[str, Any]] = None,
+    include_total: bool = True,
 ) -> tuple[List[LeadResponse], int]:
-    created_at_from_iso = _parse_created_date_boundary(created_from, end_of_day=False)
-    created_at_to_iso = _parse_created_date_boundary(created_to, end_of_day=True)
-
-    days_cutoff_iso = None
-    if days and not (created_at_from_iso or created_at_to_iso):
-        days_cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-
-    query = build_leads_list_query(
+    query = compose_leads_list_query(
         query_base,
         temperature=temperature,
         search=search,
         project=project,
+        projects=projects,
         project_id=project_id,
         budget=budget,
+        budgets=budgets,
         location=location,
+        locations=locations,
         intent=intent,
         vip=vip,
         status=status,
-        days_cutoff_iso=days_cutoff_iso,
-        created_at_from_iso=created_at_from_iso,
-        created_at_to_iso=created_at_to_iso,
+        statuses=statuses,
+        days=days,
+        created_from=created_from,
+        created_to=created_to,
+        updated_from=updated_from,
+        updated_to=updated_to,
+        sources=sources,
+        source=source,
+        meta_qualified=meta_qualified,
+        site_visit_min=site_visit_min,
+        site_visit_max=site_visit_max,
     )
 
-    total = await db.leads.count_documents(query)
+    total = await db.leads.count_documents(query) if include_total else 0
     cursor = (
         db.leads.find(query, LIST_LEAD_PROJECTION)
         .sort(LEAD_LIST_SORT)
@@ -298,6 +339,23 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     if not patch:
         raise HTTPException(status_code=400, detail="No fields to update")
 
+    if "phone" in patch or "work_phone" in patch:
+        merged_phones = {
+            "phone": patch.get("phone", existing.get("phone")),
+            "work_phone": patch.get("work_phone", existing.get("work_phone")),
+        }
+        _apply_contact_phones(merged_phones)
+        if "phone" in patch:
+            patch["normalized_phone"] = merged_phones["normalized_phone"]
+        if "work_phone" in patch:
+            patch["normalized_work_phone"] = merged_phones["normalized_work_phone"]
+
+    if "site_visit_count" in patch:
+        patch["site_visit_count"] = _validate_site_visit_count(patch["site_visit_count"])
+
+    if "project" in patch and patch.get("project"):
+        patch["project_id"] = resolve_project_id(patch.get("project"))
+
     if "assigned_to" in patch and "assigned_to_name" not in patch:
         patch["assigned_to_name"] = patch["assigned_to"]
 
@@ -314,6 +372,7 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     prev_status = (existing.get("lead_status") or "").strip()
     next_status = (patch.get("lead_status") or prev_status).strip()
     status_changed = ("lead_status" in patch) and (prev_status.lower() != next_status.lower())
+    is_sla_activation = False
 
     # Contacted outcome logging (client confirmed): structured enum, not free text.
     if "logged_outcome" in patch or "logged_outcome_reason" in patch:
@@ -361,11 +420,16 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                 {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
             )
 
+        is_sla_activation = bool(existing.get("sla_paused"))
+        if is_sla_activation:
+            patch["sla_paused"] = False
+            patch["sla_activated_at_dt"] = now_dt
+
         # Stage-entry timestamps (dedicated reference fields; do not reset on subsequent updates)
-        if next_status.lower() == "rnr" and not existing.get("rnr_entered_at_dt"):
+        if next_status.lower() == "rnr" and (is_sla_activation or not existing.get("rnr_entered_at_dt")):
             patch["rnr_entered_at_dt"] = now_dt
         if next_status.lower() == "contacted":
-            if not existing.get("contacted_at_dt"):
+            if is_sla_activation or not existing.get("contacted_at_dt"):
                 patch["contacted_at_dt"] = now_dt
             await db.leads.update_one(
                 {"id": lead_id},
@@ -376,7 +440,7 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                     }
                 },
             )
-        if is_sv_followup_status(next_status) and not existing.get("sv_followup_entered_at_dt"):
+        if is_sv_followup_status(next_status) and (is_sla_activation or not existing.get("sv_followup_entered_at_dt")):
             patch["sv_followup_entered_at_dt"] = now_dt
         if next_status.lower() == "gone cold":
             patch["gone_cold_entered_at_dt"] = now_dt
@@ -384,14 +448,27 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                 {"id": lead_id},
                 {"$unset": {"sla_flags.gone_cold.reevaluate_30d_at_dt": ""}},
             )
-        if "negotiat" in next_status.lower() and not existing.get("negotiation_entered_at_dt"):
+        if "negotiat" in next_status.lower() and (is_sla_activation or not existing.get("negotiation_entered_at_dt")):
             patch["negotiation_entered_at_dt"] = now_dt
         if is_terminal_lead_status(next_status):
             patch["is_rnr"] = False
-        if next_status.lower() == "visit completed" and not existing.get("visit_completed_at_dt"):
+        if next_status.lower() == "visit completed" and (is_sla_activation or not existing.get("visit_completed_at_dt")):
             patch["visit_completed_at_dt"] = now_dt
             patch["visit_sla_reference_dt"] = now_dt
-        if next_status.lower() == "future prospect" and not existing.get("future_prospect_entered_at_dt"):
+            if "site_visit_count" not in patch:
+                current_count = existing.get("site_visit_count")
+                if current_count is None:
+                    current_count = 0
+                patch["site_visit_count"] = int(current_count) + 1
+        if status_changed and next_status.lower() == "visit completed":
+            patch["next_action_date"] = _ist_follow_up_date(3, now_dt)
+        if status_changed and is_sv_followup_1_status(next_status):
+            patch["sv_followup_1_entered_at_dt"] = now_dt
+            patch["next_action_date"] = _ist_follow_up_date(7, now_dt)
+        if status_changed and is_sv_followup_2_status(next_status):
+            patch["sv_followup_2_entered_at_dt"] = now_dt
+            patch["next_action_date"] = _ist_follow_up_date(20, now_dt)
+        if next_status.lower() == "future prospect" and (is_sla_activation or not existing.get("future_prospect_entered_at_dt")):
             patch["future_prospect_entered_at_dt"] = now_dt
         if "re-engaged" in next_status.lower() or next_status.lower() == "reengaged":
             patch["reengaged_at_dt"] = now_dt
@@ -531,16 +608,34 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     await db.leads.update_one({"id": lead_id}, {"$set": patch})
 
-    if status_changed and next_status.lower() == "visit completed":
-        merged_lead = {**existing, **patch}
-        await create_sla_task_for_lead(
-            merged_lead,
-            description="Post-visit follow-up — push for booking",
-            dedupe_key=f"sla:visit_completed:t0:{lead_id}",
-            sla_rule="visit_completed",
-            sla_threshold="t0",
-            stage="visit_completed",
+    if is_sla_activation:
+        lead_name = f"{existing.get('first_name', '')} {existing.get('last_name', '')}".strip()
+        assignee_name = (
+            patch.get("assigned_to")
+            or patch.get("presales_agent")
+            or existing.get("assigned_to")
+            or existing.get("presales_agent")
+            or ""
         )
+        assignee_user_id = (
+            patch.get("assigned_user_id")
+            or existing.get("assigned_user_id")
+            or await resolve_user_id_by_full_name(assignee_name)
+        )
+        if assignee_user_id:
+            await create_notification(
+                recipient_user_id=assignee_user_id,
+                recipient_name=assignee_name,
+                title="Lead activated",
+                message=f"{lead_name}: {prev_status} → {next_status} — SLA tracking started",
+                notification_type="lead_status_changed",
+                lead_id=lead_id,
+                lead_name=lead_name,
+                severity="medium",
+                urgency="action_needed",
+                dedupe_key=f"lead_status_changed:{lead_id}",
+            )
+
     if status_changed and is_sv_followup_status(next_status):
         merged_lead = {**existing, **patch}
         await create_sla_task_for_lead(
@@ -582,29 +677,45 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     return LeadResponse(**updated)
 
 
+def _parse_meta_qualified_raw(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    s = str(value).strip().lower()
+    if not s:
+        return None
+    if s in {"yes", "y", "true", "1"}:
+        return True
+    if s in {"no", "n", "false", "0"}:
+        return False
+    return None
+
+
+def _parse_site_visit_count_raw(value: Any) -> int:
+    if value is None or str(value).strip() == "":
+        return 0
+    try:
+        count = int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, count)
+
+
+def _row_get(row: dict, *keys: str) -> str:
+    for key in keys:
+        val = row.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
 async def import_csv(
     file: UploadFile,
     current_user: dict,
-    replace_all: bool = False,
-    confirm_replace: Optional[str] = None,
 ) -> dict:
     contents = await file.read()
     decoded = contents.decode("utf-8")
     reader = csv.DictReader(io.StringIO(decoded))
     rows = list(reader)
-
-    if replace_all:
-        await db.leads.delete_many({})
-        await log_lead_event(
-            "csv_replace_all",
-            actor_user_id=current_user.get("id"),
-            actor_name=current_user.get("full_name"),
-            payload={
-                "uploaded_by": current_user.get("email"),
-                "row_count": len(rows),
-                "timestamp": iso_utc_now(),
-            },
-        )
 
     imported = 0
     duplicates = 0
@@ -619,55 +730,71 @@ async def import_csv(
             if not first_name and not last_name:
                 continue
 
-            phone = (row.get("Mobile") or row.get("Phone") or "").strip()
-            email_raw = (row.get("Email IDs") or row.get("Email") or "").strip()
+            phone = _row_get(row, "Mobile", "Phone")
+            work_phone = _row_get(row, "Work")
+            email_raw = _row_get(row, "Email IDs", "Email", "Emails")
             email = email_raw.split(",")[0].strip() if email_raw else None
 
-            project = (row.get("Project") or "").strip()
-            status_val = (row.get("Status") or row.get("Lead Status") or "New").strip()
-            source = (row.get("Source") or row.get("Lead Source") or "").strip()
-            sales_owner = (row.get("Sales owner") or row.get("Presales Agent") or "").strip()
-            recent_note = (row.get("Recent note") or row.get("Presales Description") or "").strip()
-            created_at_raw = (row.get("Created at") or "").strip()
-            external_id = (row.get("ID") or "").strip()
+            project = _row_get(row, "Project")
+            status_val = _row_get(row, "Status", "Lead Status") or "New"
+            source = _row_get(row, "Source", "Lead Source")
+            original_source = _row_get(row, "Original source", "Original Source")
+            most_recent_source = _row_get(row, "Most recent source", "Most Recent Source")
+            sales_owner = _row_get(row, "Sales owner", "Presales Agent")
+            recent_note = _row_get(row, "Recent note", "Presales Description")
+            created_at_raw = _row_get(row, "Created at", "Created At")
+            external_id = _row_get(row, "ID")
+            unit_size = _row_get(row, "Unit Size", "Unit size", "Preferred Unit")
+            configuration = _row_get(row, "Configuration", "Apartment Type", "BHK")
+            if not configuration and unit_size:
+                configuration = unit_size
+            site_visit_count = _parse_site_visit_count_raw(
+                _row_get(row, "No. of Site Visits", "Site Visits", "Site visit count")
+            )
+            meta_qualified = _parse_meta_qualified_raw(_row_get(row, "Meta Qualified", "Meta qualified"))
 
             created_at = parse_csv_date(created_at_raw) if created_at_raw else now_iso
             created_at_dt = coerce_datetime(created_at) or now_dt
 
             lead_dict = {
                 "id": str(uuid.uuid4()),
-                "external_id": external_id,
+                "external_id": external_id or None,
                 "first_name": first_name,
                 "last_name": last_name,
-                "phone": phone,
+                "phone": phone or None,
+                "work_phone": work_phone or None,
                 "email": email,
-                "project": project,
-                "project_id": resolve_project_id(project),
+                "project": project or None,
+                "project_id": resolve_project_id(project) if project else None,
                 "lead_status": status_val,
-                "lead_source": source,
-                "budget": (row.get("Budget") or "").strip() or None,
-                "configuration": (row.get("Configuration") or "").strip() or None,
-                "location": (row.get("Location") or "").strip() or None,
-                "ethnicity": (row.get("Ethnicity") or "").strip() or None,
-                "designation": (row.get("Designation") or "").strip() or None,
-                "reason_for_purchase": (row.get("Reason For Purchase") or "").strip() or None,
-                "possession_requirement": (row.get("Possession Requirement") or "").strip() or None,
-                "current_residence_type": (row.get("Current Residence Type") or "").strip() or None,
-                "campaign_name": (row.get("Campaign Name") or "").strip() or None,
-                "presales_agent": sales_owner,
-                "presales_description": recent_note,
-                "next_action_date": (row.get("Next Action Date") or "").strip() or None,
+                "lead_source": source or None,
+                "original_source": original_source or None,
+                "most_recent_source": most_recent_source or None,
+                "budget": _row_get(row, "Budget") or None,
+                "configuration": configuration or None,
+                "unit_size": unit_size or None,
+                "location": _row_get(row, "Location", "Location Interested") or None,
+                "ethnicity": _row_get(row, "Ethnicity") or None,
+                "designation": _row_get(row, "Designation") or None,
+                "reason_for_purchase": _row_get(row, "Reason For Purchase") or None,
+                "possession_requirement": _row_get(row, "Possession Requirement") or None,
+                "current_residence_type": _row_get(row, "Current Residence Type") or None,
+                "campaign_name": _row_get(row, "Campaign Name", "Campaign") or None,
+                "presales_agent": sales_owner or None,
+                "presales_description": recent_note or None,
+                "next_action_date": _row_get(row, "Next Action Date") or None,
+                "site_visit_count": site_visit_count,
+                "meta_qualified": meta_qualified,
                 "created_at": created_at,
                 "created_at_dt": created_at_dt,
                 "updated_at": now_iso,
                 "updated_at_dt": now_dt,
             }
 
-            normalized_phone = normalize_phone(lead_dict.get("phone", ""))
-            lead_dict["normalized_phone"] = normalized_phone
+            _apply_contact_phones(lead_dict)
 
-            if not replace_all and normalized_phone:
-                existing = await db.leads.find_one({"normalized_phone": normalized_phone})
+            if lead_dict.get("normalized_phone"):
+                existing = await db.leads.find_one({"normalized_phone": lead_dict["normalized_phone"]})
                 if existing:
                     duplicates += 1
                     continue
@@ -690,6 +817,7 @@ async def import_csv(
             lead_dict["ai_grounded_profile"] = None
             lead_dict["ai_last_generated_at"] = None
             lead_dict["ai_last_generated_at_dt"] = None
+            lead_dict["import_provenance"] = "csv"
             lead_dict["context_updates"] = [
                 {
                     "type": "imported",
@@ -718,7 +846,7 @@ async def import_csv(
         except Exception as e:
             errors.append(str(e))
 
-    return {"imported": imported, "duplicates": duplicates, "errors": errors, "replaced_existing": replace_all}
+    return {"imported": imported, "duplicates": duplicates, "errors": errors}
 
 
 async def merge_leads(lead_id: str, duplicate_id: str, current_user: dict) -> dict:
@@ -749,3 +877,53 @@ async def merge_leads(lead_id: str, duplicate_id: str, current_user: dict) -> di
 
     await db.leads.delete_one({"id": duplicate_id})
     return {"message": "Leads merged successfully"}
+
+
+async def backfill_lead_stats(*, batch_size: int = 500) -> Dict[str, Any]:
+    """
+    One-time maintenance: sync next_action_date from pending tasks,
+    normalize temperature casing, report assignment field gaps.
+    """
+    from crm.services.lead_follow_up import recompute_lead_next_action_date
+
+    next_action_updated = 0
+    temperature_updated = 0
+    assignment_gaps = 0
+
+    cursor = db.leads.find(
+        {},
+        {"_id": 0, "id": 1, "temperature": 1, "assigned_user_id": 1, "assigned_to": 1, "assigned_to_name": 1},
+    )
+    batch: list[str] = []
+    async for lead in cursor:
+        lid = lead.get("id")
+        if not lid:
+            continue
+
+        temp = lead.get("temperature")
+        if isinstance(temp, str) and temp.strip():
+            normalized = temp.strip().title()
+            if normalized in ("Hot", "Warm") and normalized != temp:
+                await db.leads.update_one({"id": lid}, {"$set": {"temperature": normalized}})
+                temperature_updated += 1
+
+        has_name = any(lead.get(f) for f in ("assigned_to", "assigned_to_name", "presales_agent"))
+        if has_name and not lead.get("assigned_user_id"):
+            assignment_gaps += 1
+
+        batch.append(lid)
+        if len(batch) >= batch_size:
+            for lead_id in batch:
+                await recompute_lead_next_action_date(lead_id)
+                next_action_updated += 1
+            batch = []
+
+    for lead_id in batch:
+        await recompute_lead_next_action_date(lead_id)
+        next_action_updated += 1
+
+    return {
+        "next_action_dates_recomputed": next_action_updated,
+        "temperature_normalized": temperature_updated,
+        "assignment_gaps_without_user_id": assignment_gaps,
+    }

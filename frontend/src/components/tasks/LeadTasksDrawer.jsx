@@ -2,8 +2,10 @@ import React, { useMemo } from 'react';
 import { Calendar, ExternalLink, Flag, ListChecks } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet';
 import { Button } from '../ui/button';
+import { CrmBadge } from '../ui/CrmBadge';
 import {
   formatTaskDue,
+  getAssignedDisplay,
   getDueStatusBadge,
   getPriorityBadge,
   getTaskCardBorderClass,
@@ -29,7 +31,7 @@ function TaskRow({
   return (
     <div
       className={[
-        'rounded-lg border p-3 transition-colors bg-black/20',
+        'lead-task-row rounded-lg border p-3 transition-colors bg-white/5',
         getTaskCardBorderClass(dueBucket, 'pending'),
         isHighlighted ? 'ring-2 ring-[#C5A059]/40' : '',
       ].join(' ')}
@@ -38,12 +40,12 @@ function TaskRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <p className="text-white text-sm break-words font-medium">
+            <p className="text-white text-sm break-words font-medium lead-task-title">
               {getTaskDisplayTitle(task)}
             </p>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider flex-shrink-0 ${statusBadge.className}`}>
+            <CrmBadge variant={statusBadge.variant} size="xs" uppercase className="flex-shrink-0">
               {statusBadge.label}
-            </span>
+            </CrmBadge>
           </div>
 
           {reason && (
@@ -59,14 +61,19 @@ function TaskRow({
             ) : (
               <span className="text-[#52525B]">No due date</span>
             )}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider ${priorityBadge.className}`}>
-              {priorityBadge.label}
+
+            <span className="text-[#A1A1AA]">
+              Assigned to: {getAssignedDisplay(task)}
             </span>
+
+            <CrmBadge variant={priorityBadge.variant} size="xs" uppercase>
+              {priorityBadge.label}
+            </CrmBadge>
             {isSla && (
-              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/20">
+              <CrmBadge variant="gold" size="xs" className="inline-flex items-center gap-1">
                 <Flag size={10} />
                 SLA
-              </span>
+              </CrmBadge>
             )}
           </div>
         </div>
@@ -121,7 +128,7 @@ export function LeadTasksDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="bg-[#0B0B0B] border-white/10 text-white w-[min(96vw,520px)] sm:max-w-[520px]"
+        className="lead-tasks-drawer bg-[#1A1A1A] border-white/10 text-white w-[min(96vw,520px)] sm:max-w-[520px]"
       >
         <SheetHeader className="pr-6">
           <SheetTitle className="font-serif text-xl text-white flex items-center gap-2">
@@ -142,7 +149,7 @@ export function LeadTasksDrawer({
               ))}
             </div>
           ) : !tasks?.length ? (
-            <div className="rounded-lg border border-white/10 bg-black/20 p-6 text-center">
+            <div className="lead-task-row rounded-lg border border-white/10 bg-white/5 p-6 text-center">
               <p className="text-[#A1A1AA] text-sm">No pending tasks for this lead.</p>
               <p className="text-[#52525B] text-xs mt-1">
                 “Active tasks” counts only tasks linked to this lead.

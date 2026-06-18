@@ -9,7 +9,7 @@ from crm.services.dashboard_scope import resolve_leads_base_filter, user_owns_le
 from crm.core.platform_ops import assert_assignee_allowed, is_platform_operator
 from crm.core.state import db, get_current_user, iso_utc_now, resolve_user_id_by_full_name, utc_now
 from crm.services.lead_events import log_lead_event
-from crm.services.notifications_stream import notifications_stream
+from crm.services.notification_service import create_notification
 from crm.services.transfer_queries import incoming_transfer_filter, outgoing_transfer_filter
 
 
@@ -144,25 +144,22 @@ async def transfer_lead(req: TransferLeadRequest, current_user: dict = Depends(g
             detail="Lead ownership changed. Refresh and retry the transfer.",
         )
 
-    notif = {
-        "id": str(uuid.uuid4()),
-        "type": "lead_transferred",
-        "title": "Lead Assigned to You",
-        "message": f"{lead.get('first_name', '')} {lead.get('last_name', '')} assigned by {current_user['full_name']}"
-        + (f". Notes: {req.notes}" if req.notes else ""),
-        "lead_id": req.lead_id,
-        "lead_name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}",
-        "severity": "high",
-        "urgency": "action_needed",
-        "assigned_to": req.to_rep,
-        "recipient_name": req.to_rep,
-        "recipient_user_id": to_user_id,
-        "is_read": False,
-        "created_at": now_iso,
-        "created_at_dt": now_dt,
-    }
-    await db.notifications.insert_one(notif)
-    await notifications_stream.publish(to_user_id, notif)
+    lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
+    transfer_message = (
+        f"{lead_name} assigned by {current_user['full_name']}"
+        + (f". Notes: {req.notes}" if req.notes else "")
+    )
+    await create_notification(
+        recipient_user_id=to_user_id,
+        recipient_name=req.to_rep,
+        title="Lead Assigned to You",
+        message=transfer_message,
+        notification_type="lead_transferred",
+        lead_id=req.lead_id,
+        lead_name=lead_name,
+        severity="high",
+        urgency="action_needed",
+    )
 
     await log_lead_event(
         "transfer_created",

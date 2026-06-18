@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from pymongo.errors import BulkWriteError
 
 from crm.core.state import db, get_current_user, iso_utc_now, logger, utc_now
+from crm.constants.task import TASK_REMINDER_METHOD_DEFAULT
 from crm.services.inventory_match_service import find_matching_leads, list_leads_missing_preferences
 from crm.services.notification_service import create_notification
 from crm.services.notifications_stream import notifications_stream
@@ -79,7 +80,7 @@ async def inventory_launch(item: InventoryLaunch, current_user: dict = Depends(g
             "due_time": "09:00",
             "due_at_dt": now_dt.replace(tzinfo=timezone.utc),
             "priority": "medium",
-            "reminder_method": "email",
+            "reminder_method": TASK_REMINDER_METHOD_DEFAULT,
             "assigned_to": lead.get("assigned_to") or "",
             "assigned_to_name": lead.get("assigned_to") or "",
             "assigned_user_id": uid,

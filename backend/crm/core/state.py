@@ -123,6 +123,7 @@ async def ensure_db_indexes():
             name="leads_normalized_phone_uq_sparse",
         )
         await db.leads.create_index([("created_at", -1)], name="leads_created_at_desc")
+        await db.leads.create_index([("created_at_dt", -1)], name="leads_created_at_dt_desc")
         await db.leads.create_index([("updated_at", -1)], name="leads_updated_at_desc")
         await db.leads.create_index([("lead_status", 1), ("updated_at", -1)], name="leads_status_updatedAt")
         await db.leads.create_index([("assigned_to", 1), ("updated_at", -1)], name="leads_assignedTo_updatedAt")
@@ -132,6 +133,10 @@ async def ensure_db_indexes():
             name="leads_status_temperature_updatedAtDt",
         )
         await db.leads.create_index([("lead_status", 1), ("visit_date_dt", 1)], name="leads_status_visitDateDt")
+        await db.leads.create_index(
+            [("next_action_date", 1), ("lead_status", 1)],
+            name="leads_nextActionDate_status",
+        )
 
         # tasks
         await db.tasks.create_index([("id", 1)], unique=True, name="tasks_id_uq")
@@ -169,6 +174,8 @@ async def ensure_db_indexes():
             [("from_user_id", 1), ("acknowledged", 1), ("transferred_at_dt", -1)],
             name="lead_transfers_fromUser_ack_transferredAtDt",
         )
+
+        await db.lead_filter_views.create_index([("user_id", 1)], name="lead_filter_views_user_id")
 
         # lead_events (audit log)
         await db.lead_events.create_index([("id", 1)], unique=True, name="lead_events_id_uq")

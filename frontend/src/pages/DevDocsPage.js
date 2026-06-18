@@ -89,7 +89,7 @@ const API_ENDPOINTS = [
     { method: 'POST', path: '/api/leads', desc: 'Create lead', params: 'JSON LeadCreate (first_name, last_name, phone, …)' },
     { method: 'GET', path: '/api/leads/{lead_id}', desc: 'Single lead', params: 'path lead_id' },
     { method: 'PUT', path: '/api/leads/{lead_id}', desc: 'Partial update (LeadUpdatePatch)', params: 'pipeline_category, lead_status, assigned_to, …' },
-    { method: 'POST', path: '/api/leads/upload-csv', desc: 'CSV import', params: 'multipart file; query replace_all' },
+    { method: 'POST', path: '/api/leads/upload-csv', desc: 'CSV import', params: 'multipart file' },
     { method: 'POST', path: '/api/leads/{lead_id}/merge/{duplicate_id}', desc: 'Merge duplicate into primary', params: 'two lead IDs in path' },
     { method: 'POST', path: '/api/leads/auto-assign', desc: 'Assign to rep with lowest load', params: 'query lead_id' },
     { method: 'POST', path: '/api/leads/{lead_id}/context', desc: 'Append context timeline note', params: 'note, update_type (registered under tasks router)' },
@@ -150,10 +150,10 @@ const DevDocsPage = () => {
   const copy = (text) => { navigator.clipboard.writeText(text); setCopied(text); setTimeout(() => setCopied(''), 2000); };
 
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-3 max-w-5xl">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="font-serif text-3xl text-white" data-testid="dev-docs-title">Developer Documentation</h1>
-        <p className="text-[#A1A1AA] mt-2">Technical architecture, database schema, API reference, and data flow</p>
+        <h1 className="text-xl font-semibold text-white" data-testid="dev-docs-title">Developer Documentation</h1>
+        <p className="text-[#A1A1AA] mt-1 text-sm">Technical architecture, database schema, API reference, and data flow</p>
         <p className="text-[#52525B] text-sm mt-4 max-w-3xl leading-relaxed">
           The React app talks to a FastAPI backend under the <code className="bg-black/50 px-1.5 py-0.5 rounded text-[#C5A059] text-xs">/api</code> prefix.
           Authenticate with <code className="bg-black/50 px-1 rounded text-xs text-[#C5A059]">POST /api/auth/login</code> (form-encoded username/password), store the JWT, then send{' '}

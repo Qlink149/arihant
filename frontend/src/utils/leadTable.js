@@ -2,35 +2,15 @@
 
 import { dedupeContextUpdates } from './contextUpdates';
 import { formatDateTimeIST, formatDueDateTime } from './datetime';
+import { getStatusBadgeVariant } from '../constants/badgeVariants';
 
-export const STATUS_COLORS = {
-  New: 'bg-amber-400/25 text-amber-300 ring-1 ring-amber-400/60 font-semibold',
-  Open: 'bg-blue-500/20 text-blue-400',
-  Contacted: 'bg-sky-500/20 text-sky-400',
-  'Follow Up': 'bg-amber-500/20 text-amber-400',
-  'Follow Up 1': 'bg-amber-500/20 text-amber-400',
-  'Follow Up 2': 'bg-amber-600/20 text-amber-500',
-  Interested: 'bg-cyan-500/20 text-cyan-400',
-  'Site Visit': 'bg-purple-500/20 text-purple-400',
-  'Site Visit Scheduled': 'bg-purple-500/20 text-purple-400',
-  'Visit Completed': 'bg-green-500/20 text-green-400',
-  'SV Completed – Follow Up': 'bg-teal-500/20 text-teal-400',
-  'Re-engaged': 'bg-cyan-500/20 text-cyan-400',
-  'Advance Paid': 'bg-emerald-500/20 text-emerald-400',
-  RNR: 'bg-red-500/20 text-red-400',
-  Nurturing: 'bg-orange-500/20 text-orange-400',
-  'Gone Cold': 'bg-gray-500/20 text-gray-400',
-  Lost: 'bg-gray-600/20 text-gray-500',
-  Won: 'bg-emerald-500/20 text-emerald-400',
-};
-
+/** @deprecated Use getStatusBadgeVariant + CrmBadge instead */
 export function getStatusBadgeClass(status) {
-  if (!status) return 'bg-gray-500/20 text-gray-400';
-  if (status === 'New' || /^new$/i.test(status)) {
-    return STATUS_COLORS.New;
-  }
-  return STATUS_COLORS[status] || 'bg-gray-500/20 text-gray-400';
+  const variant = getStatusBadgeVariant(status);
+  return `crm-badge crm-badge--${variant}`;
 }
+
+export { getStatusBadgeVariant, STATUS_VARIANTS } from '../constants/badgeVariants';
 
 /**
  * Row background tint for Nurturing + Hot/Warm leads.
@@ -57,6 +37,8 @@ export function getOwnerDisplay(lead) {
 
 /** Latest timeline note, or presales description from import. */
 export function getRecentNote(lead) {
+  const direct = (lead?.recent_note || '').trim();
+  if (direct) return direct;
   const updates = dedupeContextUpdates(lead?.context_updates || []);
   const latest = updates.find((u) => (u.description || '').trim());
   if (latest?.description?.trim()) return latest.description.trim();

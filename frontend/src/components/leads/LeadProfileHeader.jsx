@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Briefcase, Home, MapPin } from 'lucide-react';
+import { Briefcase, ChevronDown, Home, MapPin, Building } from 'lucide-react';
 import { toast } from 'sonner';
 import { leadsAPI, myDashboardAPI, usersAPI } from '../../services/api';
 import { UI_LEAD_STATUSES } from '../../constants/leadStatus';
 import {
-  getNurtureLabelColor,
   isNurturingStatus,
   NURTURE_LABELS,
   NURTURING_STATUS,
@@ -33,7 +32,7 @@ function formatVisitDateDisplay(iso) {
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
+export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false, contactSlot = null }) {
   const { user } = useAuth();
   const [savingStatus, setSavingStatus] = useState(false);
   const [showNurturePicker, setShowNurturePicker] = useState(false);
@@ -63,6 +62,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
   const [pendingLostReason, setPendingLostReason] = useState(lead?.lost_reason || '');
   const [visitDateDt, setVisitDateDt] = useState(() => toLocalDatetimeInput(lead?.visit_date_dt));
   const [savingVisitDate, setSavingVisitDate] = useState(false);
+  const [extraFieldsOpen, setExtraFieldsOpen] = useState(false);
 
   const canAssign = useMemo(() => {
     const role = (user?.role || 'rep').toLowerCase();
@@ -125,6 +125,16 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
   }, [lead?.visit_date_dt]);
 
   const showVisitDateField = VISIT_DATE_STATUSES.includes(lead?.lead_status || '');
+
+  const hasExtraFields =
+    showVisitDateField ||
+    String(lead?.lead_status || '').toLowerCase() === 'contacted' ||
+    showNurturePicker ||
+    (lead?.visit_date_dt && !showVisitDateField);
+
+  useEffect(() => {
+    if (hasExtraFields) setExtraFieldsOpen(true);
+  }, [hasExtraFields, showVisitDateField, lead?.lead_status, showNurturePicker, lead?.visit_date_dt]);
 
   const handleLeadStatusChange = async (newStatus) => {
     if (!newStatus) return;
@@ -280,17 +290,46 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
     }
   };
 
+  const selectClass = compact
+    ? 'h-8 min-w-[130px] px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs disabled:opacity-50'
+    : 'h-9 min-w-[200px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50';
+  const assignSelectClass = compact
+    ? 'h-8 min-w-[150px] px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs disabled:opacity-50'
+    : 'h-9 min-w-[240px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50';
+  const labelClass = 'text-[#52525B] text-[10px] uppercase tracking-wider shrink-0';
+  const rowGap = compact ? 'gap-2 mt-2' : 'gap-3 mt-4';
+  const inlineRow = compact ? 'flex flex-wrap items-center gap-2 mt-2' : 'mt-4 flex flex-wrap items-center gap-3';
+
   return (
     <div className={`flex-1 min-w-0 rounded-xl ${tint}`}>
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="font-serif text-3xl text-white">
+      <div className={`flex flex-wrap items-center ${compact ? 'gap-2' : 'gap-3'}`}>
+        <h1 className={compact ? 'text-lg font-semibold text-white' : 'font-serif text-3xl text-white'}>
           {lead.first_name} {lead.last_name}
         </h1>
+        {compact && lead.project && (
+          <span className="text-[#52525B] text-xs flex items-center gap-1">
+            <Building size={12} className="text-[#C5A059]" />
+            {lead.project}
+          </span>
+        )}
+        {contactSlot}
+        {lead.sla_paused && (
+          <span
+            className={
+              compact
+                ? 'text-[10px] px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-200'
+                : 'text-xs px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-200'
+            }
+            title="SLA timers start after the next status change"
+          >
+            {lead.import_provenance === 'freshworks' ? 'Freshworks import' : 'Imported'} — SLA paused
+          </span>
+        )}
         {isNurturingStatus(lead.lead_status) && lead.temperature && (
           <TemperatureBadge
             temperature={lead.temperature}
-            text={`Nurturing ${lead.temperature}`}
-            className="text-sm px-3 py-1"
+            text={compact ? lead.temperature : `Nurturing ${lead.temperature}`}
+            className={compact ? 'text-[10px] px-1.5 py-0' : 'text-sm px-3 py-1'}
           />
         )}
         {isNurturingStatus(lead.lead_status) && (
@@ -300,26 +339,26 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
             variant="ghost"
             onClick={openNurturePicker}
             disabled={savingStatus}
-            className="h-8 px-2 text-[#A1A1AA] hover:text-white hover:bg-white/5"
+            className="h-7 px-2 text-[#A1A1AA] hover:text-white hover:bg-white/5 text-xs"
             data-testid="change-nurture-label"
           >
             {lead.temperature ? 'Change label' : 'Set label'}
           </Button>
         )}
         {lead.vip && (
-          <span className="px-3 py-1 rounded-full text-sm font-medium bg-purple-500/20 text-purple-400">
+          <span className={`rounded-full font-medium bg-purple-500/20 text-purple-400 ${compact ? 'text-[10px] px-1.5 py-0' : 'px-3 py-1 text-sm'}`}>
             VIP
           </span>
         )}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <label className="text-[#52525B] text-xs uppercase tracking-wider">LEAD STATUS</label>
+      <div className={inlineRow}>
+        <label className={labelClass}>Status</label>
         <select
           value={statusSelectValue}
           onChange={(e) => handleLeadStatusChange(e.target.value)}
           disabled={savingStatus}
-          className="h-9 min-w-[200px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50"
+          className={selectClass}
           data-testid="lead-status-select"
         >
           <option value="">Select status</option>
@@ -330,13 +369,42 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
           ))}
         </select>
 
+        <span className="text-[#52525B] hidden sm:inline">|</span>
+
+        <label className={labelClass}>Assign</label>
+        <select
+          value={currentAssigneeId}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (!next || next === currentAssigneeId) return;
+            openAssignModal(next);
+          }}
+          disabled={!canAssign || loadingAssignees || transferring}
+          className={assignSelectClass}
+          data-testid="assign-to-select"
+        >
+          <option value="">
+            {loadingAssignees ? 'Loading…' : 'Unassigned'}
+          </option>
+          {assignees.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.full_name}
+            </option>
+          ))}
+        </select>
+        {!canAssign && (
+          <span className="text-[#52525B] text-[10px]" data-testid="assign-to-disabled-hint">
+            Owner/admin only
+          </span>
+        )}
+
         {showNurturePicker && (
           <>
-            <span className="text-[#52525B] text-xs">Nurture label</span>
+            <span className="text-[#52525B] text-xs">Nurture</span>
             {NURTURE_LABELS.map((label) => (
               <label
                 key={label}
-                className="flex items-center gap-1.5 cursor-pointer text-white text-sm"
+                className="flex items-center gap-1 cursor-pointer text-white text-xs"
               >
                 <input
                   type="radio"
@@ -354,7 +422,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
               size="sm"
               onClick={handleConfirmNurtureLabel}
               disabled={savingStatus || !pendingNurtureLabel}
-              className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90 h-8"
+              className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90 h-7 text-xs"
             >
               Apply
             </Button>
@@ -364,7 +432,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
               variant="outline"
               onClick={handleCancelNurture}
               disabled={savingStatus}
-              className="border-white/10 text-white h-8"
+              className="border-white/10 text-white h-7 text-xs"
             >
               Cancel
             </Button>
@@ -374,19 +442,31 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
         {savingStatus && <span className="text-[#52525B] text-xs">Saving...</span>}
       </div>
 
-      {showVisitDateField && (
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <label className="text-[#52525B] text-xs uppercase tracking-wider">Visit Date &amp; Time</label>
+      {compact && hasExtraFields && !extraFieldsOpen && (
+        <button
+          type="button"
+          onClick={() => setExtraFieldsOpen(true)}
+          className="flex items-center gap-1 mt-1.5 text-[#52525B] text-xs hover:text-[#A1A1AA]"
+          data-testid="expand-extra-fields"
+        >
+          <ChevronDown size={12} />
+          More fields
+        </button>
+      )}
+
+      {(!compact || extraFieldsOpen) && showVisitDateField && (
+        <div className={`flex flex-wrap items-center ${rowGap}`}>
+          <label className={labelClass}>Visit Date</label>
           <input
             type="datetime-local"
             value={visitDateDt}
             onChange={(e) => setVisitDateDt(e.target.value)}
-            className="h-9 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm"
+            className={compact ? 'h-8 px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs' : 'h-9 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm'}
             data-testid="visit-date-dt-input"
           />
           {!visitDateDt && (
-            <span className="text-amber-400/90 text-xs">
-              Required — SLA reminders won&apos;t fire without this
+            <span className="text-amber-400/90 text-[10px]">
+              Required for SLA reminders
             </span>
           )}
           <Button
@@ -394,28 +474,28 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
             size="sm"
             onClick={saveVisitDate}
             disabled={savingVisitDate || !visitDateDt}
-            className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90 h-8"
+            className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90 h-7 text-xs"
             data-testid="save-visit-date"
           >
-            {savingVisitDate ? 'Saving…' : 'Save visit date'}
+            {savingVisitDate ? 'Saving…' : 'Save'}
           </Button>
         </div>
       )}
 
-      {lead?.visit_date_dt && !showVisitDateField && (
-        <p className="mt-2 text-[#A1A1AA] text-sm" data-testid="visit-date-display">
-          Visit scheduled: {formatVisitDateDisplay(lead.visit_date_dt)}
+      {(!compact || extraFieldsOpen) && lead?.visit_date_dt && !showVisitDateField && (
+        <p className="mt-1.5 text-[#A1A1AA] text-xs" data-testid="visit-date-display">
+          Visit: {formatVisitDateDisplay(lead.visit_date_dt)}
         </p>
       )}
 
-      {String(lead?.lead_status || '').toLowerCase() === 'contacted' && (
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <label className="text-[#52525B] text-xs uppercase tracking-wider">OUTCOME</label>
+      {(!compact || extraFieldsOpen) && String(lead?.lead_status || '').toLowerCase() === 'contacted' && (
+        <div className={`flex flex-wrap items-center ${rowGap}`}>
+          <label className={labelClass}>Outcome</label>
           <select
             value={pendingOutcome}
             onChange={(e) => setPendingOutcome(e.target.value)}
             disabled={savingOutcome}
-            className="h-9 min-w-[220px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50"
+            className={compact ? 'h-8 min-w-[150px] px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs disabled:opacity-50' : 'h-9 min-w-[220px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50'}
             data-testid="contacted-outcome-select"
           >
             <option value="">Select outcome</option>
@@ -430,7 +510,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
               value={pendingOutcomeReason}
               onChange={(e) => setPendingOutcomeReason(e.target.value)}
               placeholder="Reason (required)"
-              className="bg-black/50 border-white/10 text-white min-w-[260px]"
+              className="bg-black/50 border-white/10 text-white min-w-[180px] h-8 text-xs"
               data-testid="contacted-outcome-reason"
             />
           )}
@@ -439,43 +519,15 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
             size="sm"
             onClick={saveOutcome}
             disabled={savingOutcome || !pendingOutcome || (pendingOutcome === 'Others' && !(pendingOutcomeReason || '').trim())}
-            className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90 h-8"
+            className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90 h-7 text-xs"
             data-testid="save-contacted-outcome"
           >
-            {savingOutcome ? 'Saving…' : 'Save outcome'}
+            {savingOutcome ? 'Saving…' : 'Save'}
           </Button>
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <label className="text-[#52525B] text-xs uppercase tracking-wider">ASSIGN TO</label>
-        <select
-          value={currentAssigneeId}
-          onChange={(e) => {
-            const next = e.target.value;
-            if (!next || next === currentAssigneeId) return;
-            openAssignModal(next);
-          }}
-          disabled={!canAssign || loadingAssignees || transferring}
-          className="h-9 min-w-[240px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50"
-          data-testid="assign-to-select"
-        >
-          <option value="">
-            {loadingAssignees ? 'Loading users…' : 'Unassigned'}
-          </option>
-          {assignees.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.full_name}
-            </option>
-          ))}
-        </select>
-        {!canAssign && (
-          <span className="text-[#52525B] text-xs" data-testid="assign-to-disabled-hint">
-            Only admins or the current owner can reassign
-          </span>
-        )}
-      </div>
-
+      {!compact && (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
         <div className="flex items-center gap-2 text-[#A1A1AA]">
           <Briefcase size={16} className="text-[#C5A059]" />
@@ -490,6 +542,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated }) {
           <span>{lead.current_residence_type || 'Not specified'}</span>
         </div>
       </div>
+      )}
 
       <Dialog open={assignModalOpen} onOpenChange={setAssignModalOpen}>
         <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-md">

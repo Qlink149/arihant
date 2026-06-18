@@ -1,10 +1,8 @@
 /**
  * SSE client over fetch() so we can send Authorization headers.
- *
- * Server sends:
- *   event: notification
- *   data: {...json...}
+ * Beep audio lives in notificationAlerts.js (re-exported here for compatibility).
  */
+export { playNotificationBeep } from './notificationAlerts';
 
 export function connectNotificationsStream({ url, onNotification, onError }) {
   const controller = new AbortController();
@@ -74,26 +72,3 @@ export function connectNotificationsStream({ url, onNotification, onError }) {
 
   return () => controller.abort();
 }
-
-export function playNotificationBeep() {
-  try {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-    const ctx = new AudioContext();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.value = 880;
-    g.gain.value = 0.06;
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.start();
-    setTimeout(() => {
-      o.stop();
-      ctx.close?.();
-    }, 140);
-  } catch {
-    // non-blocking
-  }
-}
-

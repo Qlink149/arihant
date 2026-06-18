@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from crm.constants.lead_status import sla_paused_exclusion_clause
 from crm.core.state import db, iso_utc_now, utc_now
 from crm.services.brevo_service import send_nurturing_review_email
 from crm.services.notification_service import create_notification
@@ -24,6 +25,7 @@ async def process_nurturing_review() -> dict:
             "lead_status": _RE_NURTURING,
             "nurture_entered_at_dt": {"$lte": cutoff},
             "sla_flags.nurturing.admin_review_14d_at_dt": {"$exists": False},
+            "sla_paused": sla_paused_exclusion_clause(),
         },
         {"_id": 0},
     ).to_list(500)

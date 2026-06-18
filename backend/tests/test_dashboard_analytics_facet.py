@@ -16,19 +16,27 @@ def test_cohort_facet_pipeline_includes_all_branches():
     pipeline = build_dashboard_cohort_facet_pipeline({"project": "ECR"})
     assert pipeline[0]["$match"] == {"project": "ECR"}
     facet = pipeline[1]["$facet"]
-    for key in ("total", "hot", "warm", "vip", "qualified", "open", "lost", "dormant"):
+    for key in ("total", "hot", "warm", "vip", "active_pipeline", "open", "lost", "dormant"):
         assert key in facet
 
 
 def test_operational_facet_pipeline_uses_metric_filters():
-    pipeline = build_dashboard_operational_facet_pipeline(
-        {},
-        ("missed_follow_up", "rnr"),
-    )
-    facet = pipeline[0]["$facet"]
-    assert "missed_follow_up" in facet
-    assert "rnr" in facet
-    assert "$match" in facet["missed_follow_up"][0]
+    async def _run():
+        with patch(
+            "crm.services.lead_overview_service.pending_task_due_lead_ids",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            pipeline = await build_dashboard_operational_facet_pipeline(
+                {},
+                ("missed_follow_up", "rnr"),
+            )
+        facet = pipeline[0]["$facet"]
+        assert "missed_follow_up" in facet
+        assert "rnr" in facet
+        assert "$match" in facet["missed_follow_up"][0]
+
+    asyncio.run(_run())
 
 
 def test_count_dashboard_cohort_metrics_parses_facet():
@@ -38,7 +46,7 @@ def test_count_dashboard_cohort_metrics_parses_facet():
             "hot": [{"n": 5}],
             "warm": [{"n": 3}],
             "vip": [{"n": 2}],
-            "qualified": [{"n": 10}],
+            "active_pipeline": [{"n": 10}],
             "open": [{"n": 40}],
             "lost": [{"n": 8}],
             "dormant": [{"n": 1}],

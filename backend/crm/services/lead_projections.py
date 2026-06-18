@@ -1,7 +1,7 @@
 """MongoDB field projections and list-view timeline trimming for lead APIs."""
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from crm.services.context_updates import dedupe_context_updates
 from crm.utils.helpers import coerce_datetime
@@ -43,19 +43,28 @@ LIST_LEAD_PROJECTION: Dict[str, int] = {
     "first_name": 1,
     "last_name": 1,
     "phone": 1,
+    "work_phone": 1,
     "normalized_phone": 1,
+    "normalized_work_phone": 1,
     "lead_status": 1,
     "temperature": 1,
     "vip": 1,
     "project": 1,
     "lead_source": 1,
+    "original_source": 1,
+    "most_recent_source": 1,
+    "budget": 1,
+    "location": 1,
+    "configuration": 1,
+    "unit_size": 1,
+    "site_visit_count": 1,
+    "meta_qualified": 1,
     "next_action_date": 1,
     "assigned_to": 1,
     "assigned_to_name": 1,
     "presales_agent": 1,
     "assigned_user_id": 1,
     "presales_description": 1,
-    "context_updates": 1,
     "created_at": 1,
     "updated_at": 1,
     "created_at_dt": 1,
@@ -77,6 +86,58 @@ LEAD_LIST_SORT = [
     ("updated_at", -1),
     ("created_at_dt", -1),
 ]
+
+# Full projection for CSV export (includes notes and CRM metadata)
+EXPORT_LEAD_PROJECTION: Dict[str, int] = {
+    "_id": 0,
+    "id": 1,
+    "external_id": 1,
+    "first_name": 1,
+    "last_name": 1,
+    "phone": 1,
+    "work_phone": 1,
+    "email": 1,
+    "lead_status": 1,
+    "lost_reason": 1,
+    "lead_source": 1,
+    "original_source": 1,
+    "most_recent_source": 1,
+    "assigned_to": 1,
+    "assigned_to_name": 1,
+    "presales_agent": 1,
+    "created_at": 1,
+    "updated_at": 1,
+    "created_at_dt": 1,
+    "updated_at_dt": 1,
+    "project": 1,
+    "budget": 1,
+    "location": 1,
+    "configuration": 1,
+    "unit_size": 1,
+    "site_visit_count": 1,
+    "meta_qualified": 1,
+    "reason_for_purchase": 1,
+    "possession_requirement": 1,
+    "intent": 1,
+    "temperature": 1,
+    "vip": 1,
+    "presales_description": 1,
+    "campaign_name": 1,
+    "next_action_date": 1,
+    "context_updates": 1,
+}
+
+
+def list_recent_note_from_lead(lead: dict) -> Optional[str]:
+    """Recent note snippet for list views without loading full context_updates."""
+    presales = (lead.get("presales_description") or "").strip()
+    return presales or None
+
+
+def apply_list_recent_note(lead: dict) -> None:
+    """Attach a single synthetic context_updates entry for list API responses."""
+    note = list_recent_note_from_lead(lead)
+    lead["context_updates"] = [{"description": note}] if note else []
 
 
 def trim_context_updates_for_list(updates: List[dict]) -> List[dict]:

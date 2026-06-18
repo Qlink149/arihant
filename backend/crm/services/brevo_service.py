@@ -113,7 +113,8 @@ async def _send_template_email(
         "sender": {"name": sender_name, "email": sender_email},
         "to": [{"email": to_email}],
         "subject": subject,
-        "htmlContent": (
+        "htmlContent": params.get("body_html")
+        or (
             f"<p>{subject}</p>"
             f"<p>Leads in nurturing review: {params.get('lead_count', 0)}</p>"
             f"{params.get('lead_table', '')}"
@@ -188,3 +189,32 @@ async def process_failed_email_queue() -> int:
         if ok:
             sent += 1
     return sent
+
+
+async def send_sla_alert_email(
+    *,
+    subject: str,
+    body_html: str,
+    admin_user_id: str,
+    dedupe_key: str,
+) -> bool:
+    """Send a one-off SLA escalation email to the configured admin alert address."""
+    settings = await get_brevo_settings()
+    if not settings.get("brevo_enabled") or not settings.get("brevo_api_key"):
+        return False
+    alert_email = settings.get("alert_email")
+    if not alert_email:
+        return False
+    dashboard_url = settings.get("dashboard_url") or ""
+    html = body_html
+    if dashboard_url:
+        html += f'<p><a href="{dashboard_url}">Open dashboard</a></p>'
+    return await _send_template_email(
+        settings=settings,
+        to_email=alert_email,
+        template_name="sla_alert",
+        params={"body_html": html},
+        subject=subject,
+        admin_user_id=admin_user_id,
+        dedupe_key=dedupe_key,
+    )

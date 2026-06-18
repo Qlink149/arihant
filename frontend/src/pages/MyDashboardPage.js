@@ -8,10 +8,11 @@ import { toast } from 'sonner';
 import {
   CheckCircle,
   ArrowRightLeft, Eye, X, Search,
-  Plus
+  Plus, ListChecks
 } from 'lucide-react';
 import { formatStatusDisplay } from '../utils/nurtureLabel';
 import { Button } from '../components/ui/button';
+import { CrmBadge } from '../components/ui/CrmBadge';
 import { LeadOverviewGrid } from '../components/dashboard/LeadOverviewGrid';
 import { MyDashboardLeadCard } from '../components/dashboard/MyDashboardLeadCard';
 import {
@@ -19,15 +20,19 @@ import {
   VIRTUAL_CARD_ESTIMATE_PX,
 } from '../constants/performanceFlags';
 import { useInfiniteScrollNearBottom } from '../hooks/useInfiniteScrollNearBottom';
+import { useStatsAutoRefresh } from '../hooks/useStatsAutoRefresh';
 import { resolveDrillDown } from '../utils/leadOverview';
+import { dashboardMetricsChanged, metricsCountsChanged } from '../utils/shallowCompare';
 import { formatDateTimeIST, parseApiDate } from '../utils/datetime';
 import { buildEarliestPendingTaskMap, buildPendingTaskMap, formatFollowUp } from '../utils/leadTable';
 import { TaskDetailModal } from '../components/tasks/TaskDetailModal';
 import { TaskCard } from '../components/tasks/TaskCard';
 import { TaskEditModal } from '../components/tasks/TaskEditModal';
 import { TaskCompleteModal } from '../components/tasks/TaskCompleteModal';
+import { LeadTasksDrawer } from '../components/tasks/LeadTasksDrawer';
 
 const LEADS_PAGE = 150;
+const STATS_REFRESH_MS = 60_000;
 
 const COMPLETED_TASK_STATUSES = new Set(['completed', 'done', 'cancelled']);
 
@@ -47,7 +52,9 @@ const MyDashboardPage = () => {
   const [leadsTotal, setLeadsTotal] = useState(0);
   const [leadsLoading, setLeadsLoading] = useState(false);
   const [taskLeadOptions, setTaskLeadOptions] = useState([]);
-  const [overviewRefreshToken, setOverviewRefreshToken] = useState(0);
+  const [overviewMetrics, setOverviewMetrics] = useState([]);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewError, setOverviewError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
@@ -67,6 +74,12 @@ const MyDashboardPage = () => {
   const [savingTaskEdit, setSavingTaskEdit] = useState(false);
   const [taskCompleteOpen, setTaskCompleteOpen] = useState(false);
   const [completingTask, setCompletingTask] = useState(false);
+
+  const [leadTasksDrawerOpen, setLeadTasksDrawerOpen] = useState(false);
+  const [leadTasksDrawerLead, setLeadTasksDrawerLead] = useState(null);
+  const [leadTasksDrawerTasks, setLeadTasksDrawerTasks] = useState([]);
+  const [leadTasksDrawerLoading, setLeadTasksDrawerLoading] = useState(false);
+  const [leadTasksDrawerHighlightId, setLeadTasksDrawerHighlightId] = useState(null);
 
   const leadsFetchBusy = useRef(false);
   const leadsFetchGeneration = useRef(0);
@@ -143,6 +156,23 @@ const MyDashboardPage = () => {
     }
   }, [searchQuery, buildLeadsParams]);
 
+  const fetchOverview = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setOverviewLoading(true);
+    setOverviewError(null);
+    try {
+      const { data } = await myDashboardAPI.getLeadOverview();
+      const next = Array.isArray(data?.metrics) ? data.metrics : [];
+      setOverviewMetrics((prev) => (metricsCountsChanged(prev, next) ? next : prev));
+    } catch {
+      if (!silent) {
+        setOverviewError('Could not load lead overview');
+        setOverviewMetrics([]);
+      }
+    } finally {
+      if (!silent) setOverviewLoading(false);
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
     try {
       const [dashRes, repsRes] = await Promise.all([
@@ -151,13 +181,13 @@ const MyDashboardPage = () => {
       ]);
       setData(dashRes.data);
       setReps(repsRes.data || []);
-      setOverviewRefreshToken((t) => t + 1);
+      await fetchOverview({ silent: true });
       leadsFetchBusy.current = false;
       await loadLeadsPage(0, { append: false });
     } catch {
       toast.error('Failed to load dashboard');
     }
-  }, [loadLeadsPage]);
+  }, [loadLeadsPage, fetchOverview]);
 
   useEffect(() => {
     const init = async () => {
@@ -168,6 +198,7 @@ const MyDashboardPage = () => {
         ]);
         setData(dashRes.data);
         setReps(repsRes.data || []);
+        await fetchOverview();
       } catch {
         toast.error('Failed to load dashboard');
       } finally {
@@ -175,7 +206,22 @@ const MyDashboardPage = () => {
       }
     };
     init();
-  }, []);
+  }, [fetchOverview]);
+
+  useStatsAutoRefresh(async () => {
+    if (loading || !data) return;
+    try {
+      const [{ data: dashRes }, { data: overviewRes }] = await Promise.all([
+        myDashboardAPI.getData(),
+        myDashboardAPI.getLeadOverview(),
+      ]);
+      setData((prev) => (dashboardMetricsChanged(prev, dashRes) ? dashRes : prev));
+      const nextMetrics = Array.isArray(overviewRes?.metrics) ? overviewRes.metrics : [];
+      setOverviewMetrics((prev) => (metricsCountsChanged(prev, nextMetrics) ? nextMetrics : prev));
+    } catch {
+      /* silent refresh */
+    }
+  }, { intervalMs: STATS_REFRESH_MS, enabled: Boolean(data) });
 
   useEffect(() => {
     if (loading) return;
@@ -322,6 +368,69 @@ const MyDashboardPage = () => {
     }
   };
 
+  const fetchLeadPendingTasks = useCallback(async (leadId) => {
+    if (!leadId) return [];
+    const { data: rows } = await tasksAPI.getAll({ status: 'pending', lead_id: leadId, mine: true });
+    return Array.isArray(rows) ? rows : [];
+  }, []);
+
+  const openLeadTasksDrawer = useCallback(
+    async (lead, { highlightTaskId = null } = {}) => {
+      if (!lead?.id) return;
+      setLeadTasksDrawerLead(lead);
+      setLeadTasksDrawerTasks([]);
+      setLeadTasksDrawerHighlightId(highlightTaskId);
+      setLeadTasksDrawerOpen(true);
+      setLeadTasksDrawerLoading(true);
+      try {
+        const list = await fetchLeadPendingTasks(lead.id);
+        const sorted = [...list].sort((a, b) => {
+          const ad = String(a?.due_date || '');
+          const bd = String(b?.due_date || '');
+          if (ad !== bd) return ad.localeCompare(bd);
+          return String(b?.created_at || '').localeCompare(String(a?.created_at || ''));
+        });
+        setLeadTasksDrawerTasks(sorted);
+      } catch {
+        toast.error('Failed to load tasks for this lead');
+      } finally {
+        setLeadTasksDrawerLoading(false);
+      }
+    },
+    [fetchLeadPendingTasks]
+  );
+
+  const handleCompleteDrawerTask = useCallback(
+    async (task) => {
+      const taskId = task?.id;
+      const leadId = leadTasksDrawerLead?.id;
+      if (!taskId) return;
+      try {
+        await tasksAPI.update(taskId, { status: 'completed' });
+        toast.success('Task marked complete');
+        if (leadId) {
+          setLeadTasksDrawerLoading(true);
+          const list = await fetchLeadPendingTasks(leadId);
+          setLeadTasksDrawerTasks(list);
+          setLeadTasksDrawerLoading(false);
+        }
+        await refreshAll();
+      } catch {
+        toast.error('Failed to update task');
+      }
+    },
+    [leadTasksDrawerLead?.id, fetchLeadPendingTasks]
+  );
+
+  const handleOpenDrawerLead = useCallback(
+    (leadId) => {
+      if (!leadId) return;
+      setLeadTasksDrawerOpen(false);
+      navigate(`/lead/${leadId}`);
+    },
+    [navigate]
+  );
+
   const getGreeting = () => {
     const h = new Date().getHours();
     if (h < 12) return 'Good Morning';
@@ -332,6 +441,8 @@ const MyDashboardPage = () => {
   const m = data?.metrics || {};
   const incomingTransfers = useMemo(() => data?.transferred_leads || [], [data?.transferred_leads]);
   const outgoingTransfers = useMemo(() => data?.outgoing_transfers || [], [data?.outgoing_transfers]);
+  const incomingTransfersTotal = data?.incoming_transfers_total ?? data?.metrics?.leads_received ?? incomingTransfers.length;
+  const outgoingTransfersTotal = data?.outgoing_transfers_total ?? data?.metrics?.leads_transferred ?? outgoingTransfers.length;
   const displayTransfers = transferSubTab === 'sent' ? outgoingTransfers : incomingTransfers;
   const latestIncomingTransferMs = useMemo(() => {
     if (!Array.isArray(incomingTransfers) || incomingTransfers.length === 0) return 0;
@@ -345,8 +456,24 @@ const MyDashboardPage = () => {
   }, [incomingTransfers]);
   const showTransferBanner = incomingTransfers.length > 0 && latestIncomingTransferMs > transferBannerAckMs;
   const tasks = data?.my_tasks || [];
-  const pendingTasks = tasks.filter((t) => t.status === 'pending');
-  const completedTasks = tasks.filter((t) => COMPLETED_TASK_STATUSES.has(t.status));
+  const tasksSorted = useMemo(() => {
+    const rows = Array.isArray(tasks) ? [...tasks] : [];
+    const createdMs = (t) => {
+      const raw = t?.created_at_dt || t?.created_at;
+      return parseApiDate(raw)?.getTime?.() ?? 0;
+    };
+    // Most recent first (top). Fallback to id for determinism.
+    rows.sort((a, b) => {
+      const am = createdMs(a);
+      const bm = createdMs(b);
+      if (am !== bm) return bm - am;
+      return String(b?.id || '').localeCompare(String(a?.id || ''));
+    });
+    return rows;
+  }, [tasks]);
+
+  const pendingTasks = tasksSorted.filter((t) => t.status === 'pending');
+  const completedTasks = tasksSorted.filter((t) => COMPLETED_TASK_STATUSES.has(t.status));
   const pendingTaskMap = useMemo(() => buildPendingTaskMap(pendingTasks), [pendingTasks]);
   const earliestTaskMap = useMemo(
     () => buildEarliestPendingTaskMap(pendingTasks),
@@ -357,10 +484,10 @@ const MyDashboardPage = () => {
     return leads.map((lead) => ({
       lead,
       statusDisplay: formatStatusDisplay(lead.lead_status, lead.temperature),
-      followUp: formatFollowUp(lead, pendingTasks, pendingTaskMap, earliestTaskMap),
+      followUp: formatFollowUp(lead, [], pendingTaskMap, earliestTaskMap),
       taskCount: pendingTaskMap?.get(lead.id) || 0,
     }));
-  }, [leads, pendingTasks, pendingTaskMap, earliestTaskMap]);
+  }, [leads, pendingTaskMap, earliestTaskMap]);
 
   const useVirtualLeads = shouldUseVirtualList(leads.length);
 
@@ -378,6 +505,19 @@ const MyDashboardPage = () => {
     setShowTransferModal(true);
   }, []);
 
+  const handleLeadOverviewDrillDown = useCallback((drillDown) => {
+    resolveDrillDown(drillDown, {
+      navigate,
+      setActiveTab,
+      setTransferSubTab,
+    });
+  }, [navigate]);
+
+  const handleOpenLeadTasks = useCallback(
+    (lead, opts) => openLeadTasksDrawer(lead, opts),
+    [openLeadTasksDrawer],
+  );
+
   if (loading) {
     return (
       <motion.div
@@ -390,22 +530,14 @@ const MyDashboardPage = () => {
     );
   }
 
-  const handleLeadOverviewDrillDown = (drillDown) => {
-    resolveDrillDown(drillDown, {
-      navigate,
-      setActiveTab,
-      setTransferSubTab,
-    });
-  };
-
   const tabs = [
     { id: 'leads', label: 'My Leads', count: m.total_leads || 0 },
     { id: 'tasks', label: 'Tasks', count: pendingTasks.length },
-    { id: 'transfers', label: 'Transfers', count: incomingTransfers.length + outgoingTransfers.length },
+    { id: 'transfers', label: 'Transfers', count: incomingTransfersTotal + outgoingTransfersTotal },
   ];
 
   return (
-    <div className="space-y-6" data-testid="my-dashboard">
+    <div className="space-y-3" data-testid="my-dashboard">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
@@ -417,7 +549,7 @@ const MyDashboardPage = () => {
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.05 }}
         >
-          <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight" data-testid="my-dashboard-greeting">
+          <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="my-dashboard-greeting">
             {getGreeting()}, <span className="text-[#C5A059]">{data?.rep_name || user?.full_name || 'Rep'}</span>
           </h1>
           <p className="text-[#52525B] mt-1 text-sm">Your personalized sales workspace</p>
@@ -426,7 +558,10 @@ const MyDashboardPage = () => {
 
       <LeadOverviewGrid
         onDrillDown={handleLeadOverviewDrillDown}
-        refreshToken={overviewRefreshToken}
+        metrics={overviewMetrics}
+        loading={overviewLoading}
+        error={overviewError}
+        onRetry={() => fetchOverview()}
       />
 
       {/* Transferred Leads Alert */}
@@ -498,9 +633,13 @@ const MyDashboardPage = () => {
           >
             {tab.label}
             {tab.count > 0 && (
-              <span className={`ml-2 px-1.5 py-0.5 rounded-full text-xs ${
-                activeTab === tab.id ? 'bg-[#C5A059]/30 text-[#C5A059]' : 'bg-white/10 text-[#52525B]'
-              }`}>{tab.count}</span>
+              <CrmBadge
+                variant={activeTab === tab.id ? 'gold' : 'neutral'}
+                size="xs"
+                className="ml-2"
+              >
+                {tab.count}
+              </CrmBadge>
             )}
           </button>
         ))}
@@ -572,6 +711,7 @@ const MyDashboardPage = () => {
                         statusDisplay={row.statusDisplay}
                         isManager={data?.is_manager}
                         onTransfer={handleTransferLead}
+                        onOpenTasks={handleOpenLeadTasks}
                       />
                     </div>
                   );
@@ -588,6 +728,7 @@ const MyDashboardPage = () => {
                     statusDisplay={row.statusDisplay}
                     isManager={data?.is_manager}
                     onTransfer={handleTransferLead}
+                    onOpenTasks={handleOpenLeadTasks}
                   />
                 ))}
               </div>
@@ -772,7 +913,7 @@ const MyDashboardPage = () => {
               }`}
               data-testid="transfer-subtab-received"
             >
-              Received ({incomingTransfers.length})
+              Received ({incomingTransfersTotal})
             </button>
             <button
               type="button"
@@ -784,7 +925,7 @@ const MyDashboardPage = () => {
               }`}
               data-testid="transfer-subtab-sent"
             >
-              Sent ({outgoingTransfers.length})
+              Sent ({outgoingTransfersTotal})
             </button>
           </div>
 
@@ -806,7 +947,16 @@ const MyDashboardPage = () => {
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                className={`bg-[#1A1A1A] border rounded-xl p-4 ${
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate(`/lead/${t.lead_id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navigate(`/lead/${t.lead_id}`);
+                  }
+                }}
+                className={`bg-[#1A1A1A] border rounded-xl p-4 cursor-pointer hover:bg-white/[0.02] transition-colors ${
                   transferSubTab === 'sent' ? 'border-teal-500/20' : 'border-amber-500/20'
                 }`}
                 data-testid={`transfer-${t.id}`}
@@ -834,17 +984,17 @@ const MyDashboardPage = () => {
                     {t.notes && <p className="text-[#52525B] text-xs mt-1 italic">&ldquo;{t.notes}&rdquo;</p>}
                     <p className="text-[#52525B] text-[10px] mt-1">{formatTransferDate(t)}</p>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-[#A1A1AA] hover:text-white h-8"
+                      className="text-[#A1A1AA] hover:text-white h-8 w-8 p-0"
                       onClick={() => navigate(`/lead/${t.lead_id}`)}
                       data-testid={`view-transfer-lead-${t.id}`}
+                      aria-label="View lead"
                     >
-                      <Eye size={14} className="mr-1" /> View
+                      <Eye size={14} />
                     </Button>
-                    {/* no acknowledgement flow */}
                   </div>
                 </div>
               </motion.div>
@@ -888,6 +1038,25 @@ const MyDashboardPage = () => {
         task={selectedTask}
         saving={completingTask}
         onConfirm={handleConfirmTaskComplete}
+      />
+
+      <LeadTasksDrawer
+        open={leadTasksDrawerOpen}
+        onOpenChange={(open) => {
+          setLeadTasksDrawerOpen(open);
+          if (!open) {
+            setLeadTasksDrawerLead(null);
+            setLeadTasksDrawerTasks([]);
+            setLeadTasksDrawerHighlightId(null);
+            setLeadTasksDrawerLoading(false);
+          }
+        }}
+        lead={leadTasksDrawerLead}
+        tasks={leadTasksDrawerTasks}
+        loading={leadTasksDrawerLoading}
+        highlightedTaskId={leadTasksDrawerHighlightId}
+        onCompleteTask={handleCompleteDrawerTask}
+        onOpenLead={handleOpenDrawerLead}
       />
 
       {/* Transfer Modal */}

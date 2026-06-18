@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { platformOpsAPI } from '../services/api';
 
@@ -78,14 +78,14 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token, user, fetchUser]);
 
-  const applySessionTokens = (accessToken, refreshToken) => {
+  const applySessionTokens = useCallback((accessToken, refreshToken) => {
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refresh_token', refreshToken);
     setToken(accessToken);
     axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
-  };
+  }, []);
 
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     const formData = new URLSearchParams();
     formData.append('username', email);
     formData.append('password', password);
@@ -105,9 +105,9 @@ export const AuthProvider = ({ children }) => {
       logout();
       throw error;
     }
-  };
+  }, [hydrateSession, logout]);
 
-  const impersonateUser = async (userId) => {
+  const impersonateUser = useCallback(async (userId) => {
     const operatorToken = localStorage.getItem('token');
     const operatorRefresh = localStorage.getItem('refresh_token');
     if (!operatorToken) {
@@ -123,9 +123,9 @@ export const AuthProvider = ({ children }) => {
 
     setIsImpersonating(true);
     return hydrateSession(data.access_token, data.refresh_token);
-  };
+  }, [hydrateSession]);
 
-  const exitImpersonation = async () => {
+  const exitImpersonation = useCallback(async () => {
     const operatorToken = localStorage.getItem(OPERATOR_TOKEN_KEY);
     const operatorRefresh = localStorage.getItem(OPERATOR_REFRESH_KEY);
 
@@ -138,20 +138,33 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem(OPERATOR_REFRESH_KEY);
     setIsImpersonating(false);
     return hydrateSession(operatorToken, operatorRefresh || '');
-  };
+  }, [hydrateSession]);
 
-  const value = {
-    user,
-    token,
-    loading,
-    login,
-    logout,
-    applySessionTokens,
-    impersonateUser,
-    exitImpersonation,
-    isImpersonating,
-    isAuthenticated: !!token && !!user
-  };
+  const value = useMemo(
+    () => ({
+      user,
+      token,
+      loading,
+      login,
+      logout,
+      applySessionTokens,
+      impersonateUser,
+      exitImpersonation,
+      isImpersonating,
+      isAuthenticated: !!token && !!user,
+    }),
+    [
+      user,
+      token,
+      loading,
+      login,
+      logout,
+      applySessionTokens,
+      impersonateUser,
+      exitImpersonation,
+      isImpersonating,
+    ],
+  );
 
   return (
     <AuthContext.Provider value={value}>

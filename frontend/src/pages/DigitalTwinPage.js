@@ -1,8 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { leadsAPI, whatsappAPI } from '../services/api';
+import { leadsAPI, whatsappAPI, usersAPI } from '../services/api';
 import { LeadProfileHeader } from '../components/leads/LeadProfileHeader';
+import { LeadAvatar } from '../components/leads/LeadAvatar';
+import { StickySummaryBar } from '../components/leads/StickySummaryBar';
+import { DataDnaGrid } from '../components/leads/DataDnaGrid';
+import { RoleBasedTimeInput } from '../components/ui/RoleBasedTimeInput';
+import { useAuth } from '../context/AuthContext';
 import {
   getTimelineForDisplay,
   contextUpdateKey,
@@ -24,10 +29,6 @@ import {
   MessageCircle,
   Bot,
   MapPin,
-  Home,
-  DollarSign,
-  Calendar,
-  Target,
   Sparkles,
   Clock,
   Building,
@@ -47,6 +48,7 @@ import {
   Video,
   StickyNote,
   AlertCircle,
+  Target,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -60,6 +62,8 @@ import {
 const DigitalTwinPage = () => {
   const { leadId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [lead, setLead] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -75,10 +79,15 @@ const DigitalTwinPage = () => {
   const [savingContext, setSavingContext] = useState(false);
   const [taskForm, setTaskForm] = useState({
     description: '', due_date: '', due_time: '', priority: 'medium',
-    reminder_method: 'email', assigned_to: ''
+    reminder_method: 'default', assigned_to: ''
   });
   const [savingTask, setSavingTask] = useState(false);
+  const [assignees, setAssignees] = useState([]);
+  const [loadingAssignees, setLoadingAssignees] = useState(false);
   const [timelineVisibleCount, setTimelineVisibleCount] = useState(TIMELINE_INITIAL_VISIBLE);
+  const [stickySummaryVisible, setStickySummaryVisible] = useState(false);
+  const [aiPersonaExpanded, setAiPersonaExpanded] = useState(false);
+  const heroSentinelRef = useRef(null);
   const aiPollCount = useRef(0);
 
   const fetchLead = useCallback(async ({ silent = false } = {}) => {
@@ -110,6 +119,47 @@ const DigitalTwinPage = () => {
   useEffect(() => {
     setTimelineVisibleCount(TIMELINE_INITIAL_VISIBLE);
   }, [leadId]);
+
+  useEffect(() => {
+    const sentinel = heroSentinelRef.current;
+    if (!sentinel) return undefined;
+    const observer = new IntersectionObserver(
+      ([entry]) => setStickySummaryVisible(!entry.isIntersecting),
+      { root: null, rootMargin: '-56px 0px 0px 0px', threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [lead?.id]);
+
+  useEffect(() => {
+    let alive = true;
+    setLoadingAssignees(true);
+    usersAPI
+      .listAssignees()
+      .then(({ data }) => {
+        if (!alive) return;
+        setAssignees(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setAssignees([]);
+      })
+      .finally(() => {
+        if (!alive) return;
+        setLoadingAssignees(false);
+      });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!showTaskModal || !lead) return;
+    const defaultName = lead.assigned_to || lead.presales_agent || '';
+    const matching = assignees.find((a) => a.full_name === defaultName);
+    setTaskForm((prev) => ({
+      ...prev,
+      assigned_to: prev.assigned_to || matching?.full_name || defaultName,
+    }));
+  }, [showTaskModal, lead, assignees]);
 
   const fullTimeline = useMemo(
     () => getTimelineForDisplay(lead?.context_updates || []),
@@ -266,7 +316,7 @@ const DigitalTwinPage = () => {
         assigned_to: taskForm.assigned_to || lead?.assigned_to || lead?.presales_agent || ''
       });
       toast.success('Task created successfully');
-      setTaskForm({ description: '', due_date: '', due_time: '', priority: 'medium', reminder_method: 'email', assigned_to: '' });
+      setTaskForm({ description: '', due_date: '', due_time: '', priority: 'medium', reminder_method: 'default', assigned_to: '' });
       setShowTaskModal(false);
       fetchLead();
     } catch (error) {
@@ -327,100 +377,102 @@ const DigitalTwinPage = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
+      <StickySummaryBar
+        lead={lead}
+        visible={stickySummaryVisible}
+        onWhatsApp={() => setShowWhatsAppModal(true)}
+        onAICall={handleAICall}
+      />
+
       {/* Back Button */}
       <motion.button
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-[#A1A1AA] hover:text-white transition-colors"
+        className="flex items-center gap-2 text-[#A1A1AA] hover:text-white transition-colors text-sm"
         data-testid="back-btn"
       >
-        <ArrowLeft size={18} />
+        <ArrowLeft size={16} />
         Back to Explorer
       </motion.button>
 
-      {/* Branded Header Strip */}
+      {/* Compact lead header */}
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="relative rounded-xl overflow-hidden h-20"
-      >
-        <div className="absolute inset-0 bg-gradient-to-r from-[#0A0A0A] via-[#1A1A1A] to-[#C5A059]/20" />
-        <div className="relative z-10 h-full flex items-center px-6">
-          <div className="flex items-center gap-4">
-            <Building className="text-[#C5A059]" size={24} />
-            <div>
-              <p className="text-[#C5A059] font-serif text-lg">{lead.project || 'No Project Assigned'}</p>
-              <p className="text-[#52525B] text-xs">Managed by {lead.assigned_to || lead.presales_agent || 'Unassigned'}</p>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Hero Section */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-lg p-6 lg:p-8"
+        className="glass-card rounded-lg p-3 lg:p-4"
         data-testid="lead-hero-section"
       >
-        <div className="flex flex-col lg:flex-row lg:items-start gap-6">
-          {/* Avatar */}
-          <div className="flex-shrink-0">
-            <div className="w-24 h-24 lg:w-32 lg:h-32 rounded-full bg-[#C5A059]/20 flex items-center justify-center text-[#C5A059] font-serif text-4xl lg:text-5xl">
-              {lead.first_name?.charAt(0)}{lead.last_name?.charAt(0)}
-            </div>
-          </div>
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+          <LeadAvatar lead={lead} size="lg" className="hidden sm:flex" />
 
           <div className="flex-1 min-w-0">
-            <LeadProfileHeader lead={lead} leadId={leadId} onLeadUpdated={fetchLead} />
-            <div className="flex flex-wrap items-center gap-4 mt-4 text-[#52525B] text-sm">
-              {lead.phone && (
-                <span className="flex items-center gap-1">
-                  <Phone size={14} />
-                  {lead.phone}
-                </span>
+            <LeadProfileHeader
+              lead={lead}
+              leadId={leadId}
+              onLeadUpdated={fetchLead}
+              compact
+              contactSlot={(
+                <>
+                  {lead.phone && (
+                    <span className="text-[#52525B] text-xs flex items-center gap-1">
+                      <Phone size={12} />
+                      {lead.phone}
+                    </span>
+                  )}
+                  {lead.email && (
+                    <span className="text-[#52525B] text-xs flex items-center gap-1">
+                      <MessageCircle size={12} />
+                      <span className="truncate max-w-[160px]">{lead.email}</span>
+                    </span>
+                  )}
+                </>
               )}
-              {lead.email && (
-                <span className="flex items-center gap-1">
-                  <MessageCircle size={14} />
-                  {lead.email}
-                </span>
-              )}
-            </div>
+            />
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col gap-3 lg:ml-auto">
+          <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
             <Button
+              size="primary"
               onClick={() => setShowWhatsAppModal(true)}
               className="bg-green-600 hover:bg-green-700 text-white"
               data-testid="whatsapp-btn"
             >
-              <MessageCircle size={18} className="mr-2" />
-              Send WhatsApp
+              <MessageCircle size={16} className="mr-1.5" />
+              WhatsApp
             </Button>
             <Button
+              size="secondary"
               onClick={fetchChatHistory}
               variant="outline"
               className="border-green-600 text-green-500 hover:bg-green-600/10"
               data-testid="chat-history-btn"
             >
-              <History size={18} className="mr-2" />
-              Chat History
+              <History size={16} className="mr-1.5" />
+              History
             </Button>
             <Button
+              size="primary"
               onClick={handleAICall}
               className="bg-[#C5A059] hover:bg-[#E5C079] text-black"
               data-testid="ai-call-btn"
             >
-              <Bot size={18} className="mr-2" />
-              Trigger AI Call
+              <Bot size={16} className="mr-1.5" />
+              AI Call
             </Button>
           </div>
         </div>
       </motion.div>
+      <div ref={heroSentinelRef} className="h-px" aria-hidden="true" />
+
+      {/* Lead Overview — sticky property grid */}
+      <DataDnaGrid
+        lead={lead}
+        leadId={leadId}
+        onLeadUpdated={fetchLead}
+        stickySummaryVisible={stickySummaryVisible}
+      />
 
       {lead.ai_generation_pending && lead.ai_configured && (
         <div className="rounded-lg border border-[#C5A059]/40 bg-[#C5A059]/10 px-4 py-3 text-sm text-[#E5C079] flex items-center gap-2">
@@ -440,14 +492,26 @@ const DigitalTwinPage = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="glass-card rounded-lg p-6 ai-glow"
+        className="glass-card rounded-lg p-3 lg:p-4 ai-glow"
         data-testid="ai-persona-section"
       >
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="text-[#C5A059]" size={20} />
-          <h2 className="font-serif text-xl text-white">AI Persona Summary</h2>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="text-[#C5A059]" size={16} />
+            <h2 className="text-base font-semibold text-white">AI Persona Summary</h2>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setAiPersonaExpanded((v) => !v)}
+            className="h-7 px-2 text-[#52525B] hover:text-white text-xs"
+            data-testid="ai-persona-toggle"
+          >
+            {aiPersonaExpanded ? 'Collapse' : 'Expand'}
+          </Button>
         </div>
-        <p className="text-[#A1A1AA] leading-relaxed">
+        <p className={`text-[#A1A1AA] text-sm leading-relaxed ${aiPersonaExpanded ? '' : 'line-clamp-3'}`}>
           {lead.ai_persona_summary ||
             (lead.ai_configured
               ? 'Insights will appear shortly after notes or calls are loaded (refresh if you just added context).'
@@ -457,17 +521,17 @@ const DigitalTwinPage = () => {
 
       {(Array.isArray(lead.strategic_next_moves) && lead.strategic_next_moves.length > 0) ||
       suggestions.length > 0 ? (
-        <Accordion type="multiple" className="space-y-3">
+        <Accordion type="multiple" className="space-y-2">
           {Array.isArray(lead.strategic_next_moves) && lead.strategic_next_moves.length > 0 && (
             <AccordionItem
               value="strategic-moves"
-              className="glass-card rounded-lg border-l-4 border-emerald-600/60 border-b-0 px-6"
+              className="glass-card rounded-lg border-l-4 border-emerald-600/60 border-b-0 px-4"
               data-testid="ai-strategic-moves-section"
             >
-              <AccordionTrigger className="hover:no-underline py-4">
+              <AccordionTrigger className="hover:no-underline py-3">
                 <div className="flex items-center gap-2 text-left">
-                  <TrendingUp className="text-emerald-400 shrink-0" size={20} />
-                  <span className="font-serif text-xl text-white">AI strategic next moves</span>
+                  <TrendingUp className="text-emerald-400 shrink-0" size={16} />
+                  <span className="text-base font-semibold text-white">AI strategic next moves</span>
                   <span className="text-[#52525B] text-xs font-normal">from conversations</span>
                 </div>
               </AccordionTrigger>
@@ -493,13 +557,13 @@ const DigitalTwinPage = () => {
           {suggestions.length > 0 && (
             <AccordionItem
               value="portfolio-suggestions"
-              className="glass-card rounded-lg border-l-4 border-[#C5A059] border-b-0 px-6"
+              className="glass-card rounded-lg border-l-4 border-[#C5A059] border-b-0 px-4"
               data-testid="strategic-move-section"
             >
-              <AccordionTrigger className="hover:no-underline py-4">
+              <AccordionTrigger className="hover:no-underline py-3">
                 <div className="flex items-center gap-2 text-left">
-                  <Target className="text-[#C5A059] shrink-0" size={20} />
-                  <span className="font-serif text-xl text-white">Portfolio suggestions</span>
+                  <Target className="text-[#C5A059] shrink-0" size={16} />
+                  <span className="text-base font-semibold text-white">Portfolio suggestions</span>
                   <span className="text-[#52525B] text-xs font-normal">cross-project</span>
                 </div>
               </AccordionTrigger>
@@ -532,65 +596,18 @@ const DigitalTwinPage = () => {
         </Accordion>
       ) : null}
 
-      {/* Data DNA Grid */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="grid grid-cols-2 lg:grid-cols-5 gap-4"
-        data-testid="data-dna-grid"
-      >
-        <div className="glass-card rounded-lg p-4 text-center">
-          <DollarSign className="mx-auto text-[#C5A059]" size={24} />
-          <p className="text-[#52525B] text-xs uppercase tracking-wider mt-2">Budget</p>
-          <p className="text-white font-medium mt-1">{lead.budget || 'Not specified'}</p>
-          {lead.ai_grounded_profile?.budget && lead.ai_grounded_profile.budget !== 'Not specified' && (
-            <p className="text-[#737373] text-xs mt-1">From conversations (AI): {lead.ai_grounded_profile.budget}</p>
-          )}
-        </div>
-        <div className="glass-card rounded-lg p-4 text-center">
-          <Home className="mx-auto text-[#C5A059]" size={24} />
-          <p className="text-[#52525B] text-xs uppercase tracking-wider mt-2">Configuration</p>
-          <p className="text-white font-medium mt-1">{lead.configuration || 'Not specified'}</p>
-          {lead.ai_grounded_profile?.configuration && lead.ai_grounded_profile.configuration !== 'Not specified' && (
-            <p className="text-[#737373] text-xs mt-1">From conversations (AI): {lead.ai_grounded_profile.configuration}</p>
-          )}
-        </div>
-        <div className="glass-card rounded-lg p-4 text-center">
-          <Calendar className="mx-auto text-[#C5A059]" size={24} />
-          <p className="text-[#52525B] text-xs uppercase tracking-wider mt-2">Possession</p>
-          <p className="text-white font-medium mt-1">{lead.possession_requirement || 'Not specified'}</p>
-          {lead.ai_grounded_profile?.possession_requirement && lead.ai_grounded_profile.possession_requirement !== 'Not specified' && (
-            <p className="text-[#737373] text-xs mt-1">From conversations (AI): {lead.ai_grounded_profile.possession_requirement}</p>
-          )}
-        </div>
-        <div className="glass-card rounded-lg p-4 text-center">
-          <MapPin className="mx-auto text-[#C5A059]" size={24} />
-          <p className="text-[#52525B] text-xs uppercase tracking-wider mt-2">Location</p>
-          <p className="text-white font-medium mt-1">{lead.location || 'Not specified'}</p>
-        </div>
-        <div className="glass-card rounded-lg p-4 text-center">
-          <Target className="mx-auto text-[#C5A059]" size={24} />
-          <p className="text-[#52525B] text-xs uppercase tracking-wider mt-2">Purpose</p>
-          <p className="text-white font-medium mt-1">{lead.reason_for_purchase || lead.intent || 'Unknown'}</p>
-          {lead.ai_grounded_profile?.intent && lead.ai_grounded_profile.intent !== 'Not specified' && (
-            <p className="text-[#737373] text-xs mt-1">From conversations (AI): {lead.ai_grounded_profile.intent}</p>
-          )}
-        </div>
-      </motion.div>
-
       {/* Context Updates Timeline */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
-        className="glass-card rounded-lg p-6"
+        className="glass-card rounded-lg p-3 lg:p-4"
         data-testid="context-timeline"
       >
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <div className="flex items-center gap-2">
-            <Clock className="text-[#C5A059]" size={20} />
-            <h2 className="font-serif text-xl text-white">Context Updates Timeline</h2>
+            <Clock className="text-[#C5A059]" size={16} />
+            <h2 className="text-base font-semibold text-white">Context Updates Timeline</h2>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex flex-col items-end gap-1">
@@ -634,7 +651,7 @@ const DigitalTwinPage = () => {
           </div>
         </div>
 
-        <div className="timeline-line space-y-6">
+        <div className="timeline-line space-y-3">
           {visibleTimeline.map((update, idx) => {
             const IconComponent = getContextIcon(update.type);
             const isNew = idx === 0;
@@ -646,25 +663,25 @@ const DigitalTwinPage = () => {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.1 }}
-                className="relative pl-10"
+                className="relative pl-8"
               >
                 {/* Icon */}
-                <div className={`absolute left-0 w-6 h-6 rounded-full flex items-center justify-center ${
+                <div className={`absolute left-0 w-5 h-5 rounded-full flex items-center justify-center ${
                   isNew ? 'bg-[#C5A059] gold-glow' : 'bg-[#1A1A1A] border border-white/10'
                 }`}>
-                  <IconComponent size={12} className={isNew ? 'text-black' : 'text-[#A1A1AA]'} />
+                  <IconComponent size={10} className={isNew ? 'text-black' : 'text-[#A1A1AA]'} />
                 </div>
 
                 {/* Content */}
-                <div className={`p-4 rounded-lg ${isNew ? 'bg-[#C5A059]/10 border border-[#C5A059]/30' : 'bg-black/30'}`}>
+                <div className={`p-3 rounded-lg ${isNew ? 'bg-[#C5A059]/10 border border-[#C5A059]/30' : 'bg-black/30'}`}>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`text-xs px-2 py-0.5 rounded uppercase tracking-wider ${
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider ${
                       isNew ? 'bg-[#C5A059] text-black' : 'bg-white/10 text-[#A1A1AA]'
                     }`}>
                       {update.type}
                     </span>
                   </div>
-                  <p className="text-[#C5A059] text-sm font-medium mt-2" data-testid="timeline-attribution">
+                  <p className="text-[#C5A059] text-xs font-medium mt-1" data-testid="timeline-attribution">
                     {attribution.label}
                   </p>
                   {update.type === 'updated' && Array.isArray(update.changes) && update.changes.length > 0 ? (
@@ -793,8 +810,12 @@ const DigitalTwinPage = () => {
               </div>
               <div>
                 <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Due Time</label>
-                <input type="time" value={taskForm.due_time} onChange={e => setTaskForm({...taskForm, due_time: e.target.value})}
-                  className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm" data-testid="task-due-time" />
+                <RoleBasedTimeInput
+                  value={taskForm.due_time}
+                  onChange={(due_time) => setTaskForm({ ...taskForm, due_time })}
+                  isAdmin={isAdmin}
+                  testId="task-due-time"
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -809,20 +830,38 @@ const DigitalTwinPage = () => {
               </div>
               <div>
                 <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Reminder</label>
-                <select value={taskForm.reminder_method} onChange={e => setTaskForm({...taskForm, reminder_method: e.target.value})}
-                  className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm" data-testid="task-reminder">
-                  <option value="email">Email</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="both">Both</option>
+                <select
+                  value={taskForm.reminder_method}
+                  disabled
+                  className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm opacity-70 cursor-not-allowed"
+                  data-testid="task-reminder"
+                >
+                  <option value="default">Default</option>
                 </select>
               </div>
             </div>
             <div>
               <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Assign To</label>
-              <input type="text" value={taskForm.assigned_to} onChange={e => setTaskForm({...taskForm, assigned_to: e.target.value})}
-                placeholder={lead?.assigned_to || lead?.presales_agent || 'Sales manager name'}
-                className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm placeholder:text-[#52525B]"
-                data-testid="task-assigned-to" />
+              <select
+                value={taskForm.assigned_to}
+                onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}
+                className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm"
+                data-testid="task-assigned-to"
+                disabled={loadingAssignees}
+              >
+                <option value="">
+                  {loadingAssignees ? 'Loading agents…' : 'Select agent'}
+                </option>
+                {taskForm.assigned_to &&
+                  !assignees.some((u) => u.full_name === taskForm.assigned_to) && (
+                    <option value={taskForm.assigned_to}>{taskForm.assigned_to}</option>
+                  )}
+                {assignees.map((u) => (
+                  <option key={u.id} value={u.full_name}>
+                    {u.full_name}{u.role ? ` (${u.role})` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => setShowTaskModal(false)} className="flex-1 border-white/10 text-white hover:bg-white/5">Cancel</Button>

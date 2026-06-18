@@ -79,22 +79,42 @@ export const authAPI = {
 };
 
 // Leads API
+let filterOptionsCache = null;
+let filterOptionsCacheAt = 0;
+const FILTER_OPTIONS_TTL_MS = 300_000;
+
 export const leadsAPI = {
-  getFilterOptions: () => api.get('/leads/filter-options'),
+  getFilterOptions: async () => {
+    const now = Date.now();
+    if (filterOptionsCache && now - filterOptionsCacheAt < FILTER_OPTIONS_TTL_MS) {
+      return { data: filterOptionsCache };
+    }
+    const res = await api.get('/leads/filter-options');
+    filterOptionsCache = res.data;
+    filterOptionsCacheAt = now;
+    return res;
+  },
+  getFilterViews: () => api.get('/leads/filter-views'),
+  createFilterView: (data) => api.post('/leads/filter-views', data),
+  updateFilterView: (id, data) => api.put(`/leads/filter-views/${id}`, data),
+  deleteFilterView: (id) => api.delete(`/leads/filter-views/${id}`),
   getAll: (params) => api.get('/leads', { params }),
   getDuplicateGroups: (params) => api.get('/leads/duplicates', { params }),
   getOne: (id) => api.get(`/leads/${id}`),
   create: (data) => api.post('/leads', data),
   update: (id, data) => api.put(`/leads/${id}`, data),
-  uploadCSV: (file, replaceAll = false, confirmReplace = null) => {
+  uploadCSV: (file) => {
     const formData = new FormData();
     formData.append('file', file);
-    const params = new URLSearchParams({ replace_all: String(replaceAll) });
-    if (confirmReplace) params.set('confirm_replace', confirmReplace);
-    return api.post(`/leads/upload-csv?${params.toString()}`, formData, {
+    return api.post('/leads/upload-csv', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
+  getExportFields: () => api.get('/leads/export/fields'),
+  startExport: (params, fields) => api.post('/leads/export', { fields }, { params }),
+  getExportJob: (jobId) => api.get(`/leads/export/jobs/${jobId}`),
+  downloadExport: (jobId) =>
+    api.get(`/leads/export/jobs/${jobId}/download`, { responseType: 'blob' }),
   merge: (primaryId, duplicateId) => api.post(`/leads/${primaryId}/merge/${duplicateId}`),
   addCallSummary: (id, data) => api.post(`/leads/${id}/call-summary`, data),
   addContext: (id, data) => api.post(`/leads/${id}/context`, data),
@@ -121,7 +141,7 @@ export const settingsAPI = {
 };
 
 export const notificationsAPI = {
-  getAll: (params) => api.get('/notifications', { params: { unread_only: false, ...params } }),
+  getAll: (params) => api.get('/notifications', { params: { unread_only: true, ...params } }),
   markRead: (id) => api.put(`/notifications/${id}/read`),
   markAllRead: () => api.put('/notifications/read-all'),
   getPreferences: () => api.get('/notifications/preferences'),
@@ -131,7 +151,8 @@ export const notificationsAPI = {
 // Analytics API
 export const analyticsAPI = {
   getDashboard: (params) => api.get('/analytics/dashboard', { params }),
-  getSalesDashboard: () => api.get('/analytics/sales-dashboard'),
+  getSalesDashboard: (params) => api.get('/analytics/sales-dashboard', { params }),
+  getSalesRanking: (params) => api.get('/analytics/sales-dashboard/ranking', { params }),
   getSalesRepLeads: (name, params) =>
     api.get('/analytics/sales-dashboard/rep-leads', { params: { name, ...params } }),
 };

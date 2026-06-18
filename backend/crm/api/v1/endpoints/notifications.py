@@ -6,8 +6,10 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from crm.services.dashboard_scope import resolve_leads_base_filter
-from crm.core.platform_ops import is_platform_operator
+from crm.constants.lead_kpi import RNR_STATUS_REGEX
+from crm.services.dashboard_scope import role_scope_filter
+from crm.constants.lead_status import sla_paused_exclusion_clause, terminal_exclusion_clause
+from crm.services.reminder_queries import stale_updated_clause
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now
 from crm.services.notification_service import enrich_notification
 from crm.services.notifications_stream import notifications_stream
@@ -49,35 +51,74 @@ def _recipient_filter(uid: str, name: str) -> Dict[str, Any]:
     }
 
 
+def _filter_redundant_auto_alerts(stored: List[Dict[str, Any]], auto: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Drop auto alerts when the reminder engine already raised a stored notification."""
+    reminder_lead_ids = {
+        n["lead_id"]
+        for n in stored
+        if n.get("lead_id") and (n.get("type") == "reminder" or n.get("notification_type") == "reminder")
+    }
+    reminder_task_ids = {
+        n["task_id"]
+        for n in stored
+        if n.get("task_id")
+        and (
+            n.get("type") in ("reminder", "task_overdue")
+            or n.get("notification_type") in ("reminder", "task_overdue")
+        )
+    }
+
+    filtered: List[Dict[str, Any]] = []
+    for n in auto:
+        atype = n.get("type")
+        # Overdue tasks are owned by the reminder engine (stored + deduped).
+        if atype == "task_overdue":
+            continue
+        if atype in ("rnr_followup", "dormant_lead") and n.get("lead_id") in reminder_lead_ids:
+            continue
+        if n.get("task_id") and n.get("task_id") in reminder_task_ids:
+            continue
+        filtered.append(n)
+    return filtered
+
+
 async def _build_auto_notifications(current_user: dict) -> List[Dict[str, Any]]:
     auto_notifications: List[Dict[str, Any]] = []
     now_dt = utc_now()
     now_iso = iso_utc_now()
+    lead_scope = role_scope_filter(current_user)
 
-    rnr_cutoff = (now_dt - timedelta(hours=24)).isoformat()
+    rnr_cutoff_dt = now_dt - timedelta(hours=24)
+    rnr_cutoff = rnr_cutoff_dt.isoformat()
+    rnr_query: Dict[str, Any] = {
+        "$and": [
+            stale_updated_clause(rnr_cutoff_dt, rnr_cutoff),
+            {"sla_paused": sla_paused_exclusion_clause()},
+            {
+                "$or": [
+                    {"is_rnr": True},
+                    {"lead_status": {"$regex": RNR_STATUS_REGEX}},
+                    {"original_fw_status": {"$regex": RNR_STATUS_REGEX}},
+                ]
+            },
+        ]
+    }
+    if lead_scope:
+        rnr_query["$and"].insert(0, lead_scope)
     rnr_leads = await db.leads.find(
-        {
-            "$and": [
-                {"updated_at": {"$lt": rnr_cutoff}},
-                {
-                    "$or": [
-                        {"lead_status": {"$regex": "rnr", "$options": "i"}},
-                        {"is_rnr": True},
-                    ]
-                },
-            ]
-        },
-        {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "updated_at": 1, "assigned_to": 1},
+        rnr_query,
+        {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "updated_at": 1, "updated_at_dt": 1, "assigned_to": 1},
     ).to_list(50)
     for lead in rnr_leads:
-        updated_dt = _parse_lead_ts(lead.get("updated_at"), now_dt)
-        hours_ago = int((now_dt - updated_dt).total_seconds() / 3600)
+        updated_dt = _parse_lead_ts(lead.get("updated_at_dt") or lead.get("updated_at"), now_dt)
+        days_ago = max(1, int((now_dt - updated_dt).total_seconds() / 86400))
+        time_ago = "1 day ago" if days_ago == 1 else f"{days_ago} days ago"
         auto_notifications.append(
             {
                 "id": f"auto-rnr-{lead['id']}",
                 "type": "rnr_followup",
                 "title": "RNR Follow-up Needed",
-                "message": f"{lead.get('first_name', '')} {lead.get('last_name', '')} hasn't been followed up — last attempt was {hours_ago}h ago",
+                "message": f"{lead.get('first_name', '')} {lead.get('last_name', '')} hasn't been followed up — last attempt was {time_ago}",
                 "lead_id": lead["id"],
                 "lead_name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}",
                 "severity": "high",
@@ -89,20 +130,27 @@ async def _build_auto_notifications(current_user: dict) -> List[Dict[str, Any]]:
             }
         )
 
-    dormant_cutoff = (now_dt - timedelta(days=7)).isoformat()
+    dormant_cutoff_dt = now_dt - timedelta(days=7)
+    dormant_cutoff = dormant_cutoff_dt.isoformat()
+    dormant_query: Dict[str, Any] = {
+        "$and": [
+            stale_updated_clause(dormant_cutoff_dt, dormant_cutoff),
+            {"sla_paused": sla_paused_exclusion_clause()},
+            {"lead_status": terminal_exclusion_clause()},
+        ]
+    }
+    if lead_scope:
+        dormant_query["$and"].insert(0, lead_scope)
     dormant_leads = (
         await db.leads.find(
-            {
-                "updated_at": {"$lt": dormant_cutoff},
-                "lead_status": {"$nin": ["Advance Paid", "Closed", "Booked", "Dropped", "Unqualified", "Won", "Lost"]},
-            },
-            {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "updated_at": 1},
+            dormant_query,
+            {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "updated_at": 1, "updated_at_dt": 1},
         )
         .limit(30)
         .to_list(30)
     )
     for lead in dormant_leads:
-        updated_dt = _parse_lead_ts(lead.get("updated_at"), now_dt)
+        updated_dt = _parse_lead_ts(lead.get("updated_at_dt") or lead.get("updated_at"), now_dt)
         days_ago = int((now_dt - updated_dt).total_seconds() / 86400)
         auto_notifications.append(
             {
@@ -114,43 +162,6 @@ async def _build_auto_notifications(current_user: dict) -> List[Dict[str, Any]]:
                 "lead_name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}",
                 "severity": "medium",
                 "urgency": "action_needed",
-                "is_read": False,
-                "is_auto": True,
-                "created_at": now_iso,
-                "created_at_dt": now_dt,
-            }
-        )
-
-    uid = current_user["id"]
-    name = current_user["full_name"]
-    _, is_manager = await resolve_leads_base_filter(uid, name, current_user)
-    overdue_query: Dict[str, Any] = {"status": "pending", "due_date": {"$lt": now_dt.strftime("%Y-%m-%d")}}
-    if not is_manager and not is_platform_operator(current_user):
-        overdue_query = {
-            "$and": [
-                overdue_query,
-                {
-                    "$or": [
-                        {"assigned_user_id": uid},
-                        {"assigned_to": name},
-                        {"assigned_to_name": name},
-                    ],
-                },
-            ]
-        }
-    overdue_tasks = await db.tasks.find(overdue_query, {"_id": 0}).to_list(50)
-    for task in overdue_tasks:
-        auto_notifications.append(
-            {
-                "id": f"auto-task-{task['id']}",
-                "type": "task_overdue",
-                "title": "Overdue Task",
-                "message": f"Task '{task['description'][:50]}' was due on {task['due_date']}",
-                "lead_id": task.get("lead_id", ""),
-                "lead_name": task.get("description", "")[:30],
-                "task_id": task["id"],
-                "severity": "high",
-                "urgency": "urgent",
                 "is_read": False,
                 "is_auto": True,
                 "created_at": now_iso,
@@ -177,8 +188,10 @@ async def get_notifications(
     stored = await db.notifications.find(query, {"_id": 0}).sort("fired_at_dt", -1).to_list(200)
     stored = [enrich_notification(n, now_dt) for n in stored]
 
-    dismissed = set(current_user.get("notification_dismissals") or [])
+    user_doc = await db.users.find_one({"id": uid}, {"_id": 0, "notification_dismissals": 1}) or {}
+    dismissed = set(user_doc.get("notification_dismissals") or [])
     auto_notifications = [n for n in await _build_auto_notifications(current_user) if n.get("id") not in dismissed]
+    auto_notifications = _filter_redundant_auto_alerts(stored, auto_notifications)
     for n in auto_notifications:
         n["is_overdue"] = False
 

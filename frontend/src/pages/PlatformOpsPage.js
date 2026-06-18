@@ -51,7 +51,7 @@ const PlatformOpsPage = () => {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl" data-testid="platform-ops-page">
+    <div className="space-y-3 max-w-5xl" data-testid="platform-ops-page">
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-lg bg-[#C5A059]/10 flex items-center justify-center">
           <Shield size={20} className="text-[#C5A059]" />

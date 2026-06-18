@@ -3,7 +3,20 @@ import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { leadsAPI, tasksAPI, usersAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { LeadDataTable } from '../components/leads/LeadDataTable';
+import { LeadListSearchInput } from '../components/leads/LeadListSearchInput';
+import { LeadListTable } from '../components/leads/LeadListTable';
+import { LeadExportModal } from '../components/leads/LeadExportModal';
+import { MultiSelectFilterDropdown } from '../components/leads/MultiSelectFilterDropdown';
+import { LeadFilterViewsBar } from '../components/leads/LeadFilterViewsBar';
+import {
+  applyViewFiltersToState,
+  buildLeadListParams,
+  countActiveFilters,
+  emptyLeadFilters,
+  filtersFromSearchParams,
+  filtersToSearchParams,
+  snapshotFiltersForView,
+} from '../utils/leadFilters';
 import { buildEarliestPendingTaskMap, buildPendingTaskMap } from '../utils/leadTable';
 import { LeadTasksDrawer } from '../components/tasks/LeadTasksDrawer';
 import { METRIC_LABELS } from '../utils/leadOverview';
@@ -21,6 +34,7 @@ import {
   Phone,
   Mail,
   Upload,
+  Download,
   X,
   Plus,
   Copy,
@@ -30,6 +44,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { CrmBadge } from '../components/ui/CrmBadge';
 import { Input } from '../components/ui/input';
 import {
   DropdownMenu,
@@ -45,6 +60,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
+import { SelectWithOther } from '../components/ui/SelectWithOther';
 import {
   Select,
   SelectContent,
@@ -52,7 +68,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { isOtherModeWithEmptyText } from '../utils/selectWithOther';
+import { TABLE_DENSITY_STORAGE_KEY } from '../constants/performanceFlags';
 import { Calendar as CalendarUI } from '../components/ui/calendar';
+import {
+  BUDGET_RANGES,
+  CANONICAL_LOCATIONS,
+  CANONICAL_PROJECTS,
+  CANONICAL_SOURCES,
+  mergePicklistWithApi,
+  picklistNames,
+} from '../constants/leadPicklists';
 
 const VC_PAGE = 50;
 
@@ -93,6 +119,34 @@ const getDateFilterLabel = (filters) => {
 const isDateFilterActive = (filters) =>
   Boolean(filters.days || filters.created_from || filters.created_to);
 
+const getMetaQualifiedLabel = (filters) => {
+  if (filters.meta_qualified === true) return 'Meta: Yes';
+  if (filters.meta_qualified === false) return 'Meta: No';
+  return 'Meta Qualified';
+};
+
+const EMPTY_NEW_CUSTOMER = {
+  first_name: '',
+  last_name: '',
+  phone: '',
+  work_phone: '',
+  email: '',
+  project: '',
+  budget: '',
+  reason_for_purchase: '',
+  location: '',
+  lead_source: '',
+  original_source: '',
+  most_recent_source: '',
+  unit_size: '',
+  site_visit_count: 0,
+  meta_qualified: null,
+  presales_agent: '',
+  assigned_user_id: '',
+  presales_description: '',
+  lead_status: '',
+};
+
 const parseTotalFromResponse = (response) => {
   const headers = response?.headers;
   if (!headers) return null;
@@ -103,50 +157,6 @@ const parseTotalFromResponse = (response) => {
   }
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : null;
-};
-
-const emptyLeadFilters = () => ({
-  budget: '',
-  location: '',
-  project: '',
-  intent: '',
-  vip: null,
-  status: '',
-  temperature: '',
-  days: '',
-  created_from: '',
-  created_to: '',
-  metric: '',
-  dormant: false,
-});
-
-const filtersFromSearchParams = (searchParams) => ({
-  ...emptyLeadFilters(),
-  project: searchParams.get('project') || '',
-  location: searchParams.get('location') || '',
-  status: searchParams.get('status') || '',
-  temperature: searchParams.get('temperature') || '',
-  days: searchParams.get('days') || '',
-  created_from: searchParams.get('created_from') || '',
-  created_to: searchParams.get('created_to') || '',
-  metric: searchParams.get('metric') || '',
-  dormant: searchParams.get('dormant') === '1' || searchParams.get('dormant') === 'true',
-});
-
-const filtersToSearchParams = (filters, agentQuery) => {
-  const params = new URLSearchParams();
-  if (filters.project) params.set('project', filters.project);
-  if (filters.location) params.set('location', filters.location);
-  if (filters.status) params.set('status', filters.status);
-  if (filters.temperature) params.set('temperature', filters.temperature);
-  if (filters.days) params.set('days', String(filters.days));
-  if (filters.created_from) params.set('created_from', filters.created_from);
-  if (filters.created_to) params.set('created_to', filters.created_to);
-  if (filters.metric) params.set('metric', filters.metric);
-  if (filters.dormant) params.set('dormant', '1');
-  const agent = (agentQuery || '').trim();
-  if (agent) params.set('agent', agent);
-  return params;
 };
 
 const VirtualCustomerPage = () => {
@@ -168,14 +178,20 @@ const VirtualCustomerPage = () => {
   const prevShowDuplicates = useRef(false);
   const [duplicateGroups, setDuplicateGroups] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('agent') || '');
+  const [searchInputValue, setSearchInputValue] = useState(() => searchParams.get('agent') || '');
   const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('agent') || '');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
+  const [tableDensity, setTableDensity] = useState(() => {
+    try {
+      return localStorage.getItem(TABLE_DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'comfortable';
+    } catch {
+      return 'comfortable';
+    }
+  });
   const [uploadingFile, setUploadingFile] = useState(false);
-  const [csvReplaceAll, setCsvReplaceAll] = useState(false);
-  const [csvReplaceConfirm, setCsvReplaceConfirm] = useState('');
   const [submittingCustomer, setSubmittingCustomer] = useState(false);
   const [leadStatusTouched, setLeadStatusTouched] = useState(false);
   const [createNurtureLabel, setCreateNurtureLabel] = useState('');
@@ -189,60 +205,58 @@ const VirtualCustomerPage = () => {
   const [quickNote, setQuickNote] = useState('');
   const [savingQuickNote, setSavingQuickNote] = useState(false);
 
-  // New customer form state
-  const [newCustomer, setNewCustomer] = useState({
-    first_name: '',
-    last_name: '',
-    phone: '',
-    email: '',
-    project: '',
-    budget: '',
-    reason_for_purchase: '',
-    location: '',
-    lead_source: '',
-    presales_agent: '',
-    assigned_user_id: '',
-    presales_description: '',
-    lead_status: '',
-  });
+  const [newCustomer, setNewCustomer] = useState({ ...EMPTY_NEW_CUSTOMER });
   
   const [filters, setFilters] = useState(() => filtersFromSearchParams(searchParams));
   const [customDateRange, setCustomDateRange] = useState(null);
   const [dateMenuMode, setDateMenuMode] = useState('presets');
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
 
-  const budgetRanges = ['Under 1Cr', '1-2 Cr', '2-5 Cr', '5 Cr+'];
   const [locationOptions, setLocationOptions] = useState([]);
   const [projectOptions, setProjectOptions] = useState([]);
+  const [sourceOptions, setSourceOptions] = useState([]);
   const [filterOptionsLoading, setFilterOptionsLoading] = useState(true);
+  const [filterViews, setFilterViews] = useState([]);
+  const [filterViewsLoading, setFilterViewsLoading] = useState(true);
+  const [activeFilterViewId, setActiveFilterViewId] = useState(null);
   const [assigneeOptions, setAssigneeOptions] = useState([]);
   const [assigneesLoading, setAssigneesLoading] = useState(true);
-  const intents = ['Investor', 'Self-Occupation', 'Not Decided'];
-  const leadSources = ['Facebook Lead Form', 'facebook_ad', 'google', 'website', 'instagram', 'whatsapp', 'newspaper', 'direct-walkin', 'propmart', 'management reference', 'CREDAI FAIRPRO 2026'];
+  const [addCustomerFieldModes, setAddCustomerFieldModes] = useState({
+    project: 'preset',
+    budget: 'preset',
+    location: 'preset',
+    lead_source: 'preset',
+  });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [filterRes, assigneeRes] = await Promise.all([
+        const [filterRes, assigneeRes, viewsRes] = await Promise.all([
           leadsAPI.getFilterOptions(),
           usersAPI.listAssignees(),
+          leadsAPI.getFilterViews(),
         ]);
         if (cancelled) return;
         const filterData = filterRes?.data;
-        setLocationOptions(Array.isArray(filterData?.locations) ? filterData.locations : []);
-        setProjectOptions(Array.isArray(filterData?.projects) ? filterData.projects : []);
+        setLocationOptions(mergePicklistWithApi(CANONICAL_LOCATIONS, filterData?.locations || []));
+        setProjectOptions(mergePicklistWithApi(CANONICAL_PROJECTS, filterData?.projects || []));
+        setSourceOptions(mergePicklistWithApi(CANONICAL_SOURCES, filterData?.sources || []));
         setAssigneeOptions(Array.isArray(assigneeRes?.data) ? assigneeRes.data : []);
+        setFilterViews(Array.isArray(viewsRes?.data) ? viewsRes.data : []);
       } catch {
         if (!cancelled) {
-          setLocationOptions([]);
-          setProjectOptions([]);
+          setLocationOptions(mergePicklistWithApi(CANONICAL_LOCATIONS, []));
+          setProjectOptions(mergePicklistWithApi(CANONICAL_PROJECTS, []));
+          setSourceOptions(mergePicklistWithApi(CANONICAL_SOURCES, []));
           setAssigneeOptions([]);
+          setFilterViews([]);
         }
       } finally {
         if (!cancelled) {
           setFilterOptionsLoading(false);
           setAssigneesLoading(false);
+          setFilterViewsLoading(false);
         }
       }
     })();
@@ -269,8 +283,13 @@ const VirtualCustomerPage = () => {
       return prevKey === nextKey ? prev : fromUrl;
     });
     const agent = searchParams.get('agent') || '';
-    setSearchQuery(agent);
+    setSearchInputValue(agent);
+    setDebouncedSearch(agent);
   }, [searchParams]);
+
+  const handleDebouncedSearchChange = useCallback((value) => {
+    setDebouncedSearch(value);
+  }, []);
 
   useEffect(() => {
     if (showDuplicates) return;
@@ -362,36 +381,17 @@ const VirtualCustomerPage = () => {
   );
 
   useEffect(() => {
-    const delay = searchQuery.trim() ? 400 : 0;
-    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), delay);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
-
-  useEffect(() => {
     leadsLengthRef.current = leads.length;
   }, [leads.length]);
 
   const buildLeadQueryParams = useCallback((skip = 0) => {
-    const params = { skip, limit: VC_PAGE };
-    if (filters.budget) params.budget = filters.budget;
-    if (filters.location) params.location = filters.location;
-    if (filters.project) params.project = filters.project;
-    if (filters.intent) params.intent = filters.intent;
-    if (filters.vip !== null) params.vip = filters.vip;
-    if (filters.status) params.status = filters.status;
-    if (filters.temperature) params.temperature = filters.temperature;
-    if (filters.dormant) params.dormant = true;
-    if (filters.days) {
-      const d = parseInt(filters.days, 10);
-      if (Number.isFinite(d) && d > 0) params.days = d;
-    } else {
-      if (filters.created_from) params.created_from = filters.created_from;
-      if (filters.created_to) params.created_to = filters.created_to;
-    }
-    if (filters.metric) params.metric = filters.metric;
-    if (debouncedSearch) params.search = debouncedSearch;
-    return params;
+    return { skip, limit: VC_PAGE, ...buildLeadListParams(filters, debouncedSearch) };
   }, [filters, debouncedSearch]);
+
+  const exportParams = useMemo(
+    () => buildLeadListParams(filters, debouncedSearch),
+    [filters, debouncedSearch],
+  );
 
   const prefetchKey = useCallback(
     () => JSON.stringify(buildLeadQueryParams(0)),
@@ -567,24 +567,67 @@ const VirtualCustomerPage = () => {
     }
   };
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    fetchLeads();
-  };
-
   const clearFilters = () => {
     const empty = emptyLeadFilters();
     setFilters(empty);
+    setActiveFilterViewId(null);
     setCustomDateRange(null);
     setDateMenuMode('presets');
     setDateDropdownOpen(false);
-    setSearchQuery('');
+    setSearchInputValue('');
     setDebouncedSearch('');
     setShowDuplicates(false);
     setSearchParams(new URLSearchParams(), { replace: true });
   };
 
+  const applyFilterView = useCallback((view) => {
+    if (!view?.filters) return;
+    const { filters: nextFilters, search } = applyViewFiltersToState(view.filters);
+    setFilters(nextFilters);
+    setSearchInputValue(search);
+    setDebouncedSearch(search);
+    setActiveFilterViewId(view.id);
+    setShowDuplicates(false);
+  }, []);
+
+  const handleSaveFilterView = useCallback(
+    async (name) => {
+      const payload = {
+        name,
+        filters: snapshotFiltersForView(filters, debouncedSearch),
+      };
+      const { data } = await leadsAPI.createFilterView(payload);
+      setFilterViews((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setActiveFilterViewId(data.id);
+      return data;
+    },
+    [filters, debouncedSearch]
+  );
+
+  const handleUpdateFilterView = useCallback(
+    async (viewId, { name } = {}) => {
+      const payload = name
+        ? { name, filters: snapshotFiltersForView(filters, debouncedSearch) }
+        : { filters: snapshotFiltersForView(filters, debouncedSearch) };
+      const { data } = await leadsAPI.updateFilterView(viewId, payload);
+      setFilterViews((prev) =>
+        prev
+          .map((v) => (v.id === viewId ? data : v))
+          .sort((a, b) => a.name.localeCompare(b.name))
+      );
+      return data;
+    },
+    [filters, debouncedSearch]
+  );
+
+  const handleDeleteFilterView = useCallback(async (viewId) => {
+    await leadsAPI.deleteFilterView(viewId);
+    setFilterViews((prev) => prev.filter((v) => v.id !== viewId));
+    setActiveFilterViewId((prev) => (prev === viewId ? null : prev));
+  }, []);
+
   const applyDatePreset = (preset) => {
+    setActiveFilterViewId(null);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const clearDateFields = { days: '', created_from: '', created_to: '' };
@@ -612,6 +655,7 @@ const VirtualCustomerPage = () => {
   };
 
   const handleCustomRangeSelect = (range) => {
+    setActiveFilterViewId(null);
     setCustomDateRange(range);
     if (!range?.from) return;
 
@@ -630,12 +674,37 @@ const VirtualCustomerPage = () => {
     }
   };
 
-  const handleViewLead = (id) => navigate(`/lead/${id}`);
+  const handleViewLead = useCallback((id) => navigate(`/lead/${id}`), [navigate]);
 
-  const handleOpenNote = (id) => {
+  const handleOpenNote = useCallback((id) => {
     setNoteLeadId(id);
     setQuickNote('');
-  };
+  }, []);
+
+  const handleBudgetsChange = useCallback((budgets) => {
+    setActiveFilterViewId(null);
+    setFilters((prev) => ({ ...prev, budgets }));
+  }, []);
+
+  const handleLocationsChange = useCallback((locations) => {
+    setActiveFilterViewId(null);
+    setFilters((prev) => ({ ...prev, locations }));
+  }, []);
+
+  const handleProjectsChange = useCallback((projects) => {
+    setActiveFilterViewId(null);
+    setFilters((prev) => ({ ...prev, projects }));
+  }, []);
+
+  const handleSourcesChange = useCallback((sources) => {
+    setActiveFilterViewId(null);
+    setFilters((prev) => ({ ...prev, sources }));
+  }, []);
+
+  const handleStatusesChange = useCallback((statuses) => {
+    setActiveFilterViewId(null);
+    setFilters((prev) => ({ ...prev, statuses }));
+  }, []);
 
   const handleSaveQuickNote = async () => {
     if (!noteLeadId || !quickNote.trim()) {
@@ -663,19 +732,11 @@ const VirtualCustomerPage = () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (csvReplaceAll && csvReplaceConfirm.trim() !== 'REPLACE ALL') {
-      toast.error('Type REPLACE ALL to confirm wiping all existing leads');
-      return;
-    }
-
     setUploadingFile(true);
     try {
-      const confirmReplace = csvReplaceAll ? 'CONFIRM_REPLACE_ALL' : null;
-      const result = await leadsAPI.uploadCSV(file, csvReplaceAll, confirmReplace);
+      const result = await leadsAPI.uploadCSV(file);
       toast.success(`Imported ${result.data.imported} leads. ${result.data.duplicates} duplicates skipped.`);
       setShowUploadModal(false);
-      setCsvReplaceAll(false);
-      setCsvReplaceConfirm('');
       fetchLeads();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to upload CSV');
@@ -697,16 +758,34 @@ const VirtualCustomerPage = () => {
       return;
     }
 
+    const otherFieldChecks = [
+      { key: 'project', label: 'Interested Project', mode: addCustomerFieldModes.project },
+      { key: 'budget', label: 'Budget', mode: addCustomerFieldModes.budget },
+      { key: 'location', label: 'Location', mode: addCustomerFieldModes.location },
+      { key: 'lead_source', label: 'Lead Source', mode: addCustomerFieldModes.lead_source },
+    ];
+    for (const field of otherFieldChecks) {
+      if (isOtherModeWithEmptyText(field.mode, newCustomer[field.key])) {
+        toast.error(`Please enter a custom value for ${field.label}`);
+        return;
+      }
+    }
+
     setSubmittingCustomer(true);
     try {
       const payload = { ...newCustomer };
+      if (payload.meta_qualified === 'yes') payload.meta_qualified = true;
+      else if (payload.meta_qualified === 'no') payload.meta_qualified = false;
+      else if (payload.meta_qualified === 'unset' || payload.meta_qualified === '') payload.meta_qualified = null;
+      const svCount = parseInt(payload.site_visit_count, 10);
+      payload.site_visit_count = Number.isFinite(svCount) && svCount >= 0 ? svCount : 0;
       if (isNurturingStatus(newCustomer.lead_status)) {
         payload.temperature = createNurtureLabel;
       } else {
         delete payload.temperature;
       }
       if (payload.assigned_user_id) {
-        const assignee = assigneeOptions.find((a) => a.id === payload.assigned_user_id);
+        const assignee = assigneeOptions.find((a) => String(a.id) === String(payload.assigned_user_id));
         if (assignee?.full_name) {
           payload.presales_agent = assignee.full_name;
           payload.assigned_to_name = assignee.full_name;
@@ -731,23 +810,10 @@ const VirtualCustomerPage = () => {
 
       toast.success('Customer added successfully!');
       setShowAddCustomerModal(false);
-      setNewCustomer({
-        first_name: '',
-        last_name: '',
-        phone: '',
-        email: '',
-        project: '',
-        budget: '',
-        reason_for_purchase: '',
-        location: '',
-        lead_source: '',
-        presales_agent: '',
-        assigned_user_id: '',
-        presales_description: '',
-        lead_status: '',
-      });
+      setNewCustomer({ ...EMPTY_NEW_CUSTOMER });
       setLeadStatusTouched(false);
       setCreateNurtureLabel('');
+      setAddCustomerFieldModes({ project: 'preset', budget: 'preset', location: 'preset', lead_source: 'preset' });
       fetchLeads();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add customer');
@@ -756,10 +822,10 @@ const VirtualCustomerPage = () => {
     }
   };
 
-  const activeFiltersCount = Object.values(filters).filter(v => v !== '' && v !== null).length + (showDuplicates ? 1 : 0);
+  const activeFiltersCount = countActiveFilters(filters, { includeDuplicates: showDuplicates });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -767,7 +833,7 @@ const VirtualCustomerPage = () => {
         className="flex flex-col lg:flex-row lg:items-center justify-between gap-4"
       >
         <div>
-          <h1 className="font-serif text-3xl text-white" data-testid="virtual-customer-title">
+          <h1 className="text-xl font-semibold text-white" data-testid="virtual-customer-title">
             Virtual Customer Explorer
           </h1>
           <motion.div className="mt-1" data-testid="virtual-customer-lead-count" role="status">
@@ -808,13 +874,19 @@ const VirtualCustomerPage = () => {
             Add New Customer
           </Button>
           
+          {isAdmin && !showDuplicates && (
+            <Button
+              onClick={() => setShowExportModal(true)}
+              className="bg-[#1A1A1A] border border-white/10 text-white hover:bg-white/5"
+              data-testid="export-csv-btn"
+            >
+              <Download size={16} className="mr-2" />
+              Export CSV
+            </Button>
+          )}
           {isAdmin && (
             <Button
-              onClick={() => {
-                setCsvReplaceAll(false);
-                setCsvReplaceConfirm('');
-                setShowUploadModal(true);
-              }}
+              onClick={() => setShowUploadModal(true)}
               className="bg-[#1A1A1A] border border-white/10 text-white hover:bg-white/5"
               data-testid="upload-csv-btn"
             >
@@ -831,30 +903,30 @@ const VirtualCustomerPage = () => {
           data-testid="lead-overview-filter-chip"
         >
           {filters.metric ? (
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#C5A059]/30 bg-[#C5A059]/10 text-[#C5A059] text-xs font-medium">
+            <CrmBadge chip variant="gold" className="gap-2">
               Lead overview: {METRIC_LABELS[filters.metric] || filters.metric}
               <button
                 type="button"
                 onClick={() => setFilters((prev) => ({ ...prev, metric: '' }))}
-                className="ml-1 text-[#C5A059]/80 hover:text-[#C5A059] underline-offset-2 hover:underline"
+                className="ml-1 opacity-80 hover:opacity-100 underline-offset-2 hover:underline"
                 aria-label="Clear lead overview filter"
               >
                 Clear
               </button>
-            </span>
+            </CrmBadge>
           ) : null}
           {filters.dormant ? (
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 text-orange-400 text-xs font-medium">
+            <CrmBadge chip variant="warning" className="gap-2">
               {METRIC_LABELS.dormant || 'Dormant leads'}
               <button
                 type="button"
                 onClick={() => setFilters((prev) => ({ ...prev, dormant: false }))}
-                className="ml-1 text-orange-400/80 hover:text-orange-300 underline-offset-2 hover:underline"
+                className="ml-1 opacity-80 hover:opacity-100 underline-offset-2 hover:underline"
                 aria-label="Clear dormant filter"
               >
                 Clear
               </button>
-            </span>
+            </CrmBadge>
           ) : null}
         </div>
       ) : null}
@@ -868,18 +940,11 @@ const VirtualCustomerPage = () => {
       >
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Search */}
-          <form onSubmit={handleSearch} className="flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525B]" size={18} />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by name, email, or phone..."
-                className="pl-10 bg-black/50 border-white/10 text-white placeholder:text-[#52525B] h-11"
-                data-testid="search-input"
-              />
-            </div>
-          </form>
+          <LeadListSearchInput
+            value={searchInputValue}
+            onDebouncedChange={handleDebouncedSearchChange}
+            onSubmit={fetchLeads}
+          />
 
           {/* Filter Dropdowns */}
           <div className="flex flex-wrap items-center gap-2">
@@ -905,167 +970,57 @@ const VirtualCustomerPage = () => {
             </Button>
 
             {/* Budget Filter */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
-                    filters.budget ? 'border-[#C5A059] text-[#C5A059]' : ''
-                  }`}
-                  data-testid="budget-filter"
-                >
-                  <Filter size={14} className="mr-2" />
-                  {filters.budget || 'Budget'}
-                  <ChevronDown size={14} className="ml-2" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
-                <DropdownMenuLabel className="text-[#A1A1AA]">Budget Range</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem
-                  onClick={() => setFilters({ ...filters, budget: '' })}
-                  className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                >
-                  All budgets
-                </DropdownMenuItem>
-                {budgetRanges.map((range) => (
-                  <DropdownMenuItem
-                    key={range}
-                    onClick={() => setFilters({ ...filters, budget: range })}
-                    className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                  >
-                    {range}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <MultiSelectFilterDropdown
+              label="Budget"
+              icon={Filter}
+              options={BUDGET_RANGES}
+              selected={filters.budgets}
+              onChange={handleBudgetsChange}
+              testId="budget-filter"
+            />
 
             {/* Location Filter */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
-                    filters.location ? 'border-[#C5A059] text-[#C5A059]' : ''
-                  }`}
-                  data-testid="location-filter"
-                >
-                  <MapPin size={14} className="mr-2" />
-                  {filters.location || 'Location'}
-                  <ChevronDown size={14} className="ml-2" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10 max-h-72 overflow-y-auto">
-                <DropdownMenuLabel className="text-[#A1A1AA]">Location</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem
-                  onClick={() => setFilters({ ...filters, location: '' })}
-                  className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                >
-                  All locations
-                </DropdownMenuItem>
-                {filterOptionsLoading ? (
-                  <DropdownMenuItem disabled className="text-[#52525B]">
-                    Loading…
-                  </DropdownMenuItem>
-                ) : (
-                  locationOptions.map((item) => (
-                    <DropdownMenuItem
-                      key={item.name}
-                      onClick={() => setFilters({ ...filters, location: item.name })}
-                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                    >
-                      {item.name}
-                      {item.count != null ? (
-                        <span className="ml-2 text-[#52525B] text-xs">({item.count})</span>
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <MultiSelectFilterDropdown
+              label="Location"
+              icon={MapPin}
+              options={locationOptions}
+              selected={filters.locations}
+              loading={filterOptionsLoading}
+              onChange={handleLocationsChange}
+              testId="location-filter"
+            />
 
             {/* Project Filter */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
-                    filters.project ? 'border-[#C5A059] text-[#C5A059]' : ''
-                  }`}
-                  data-testid="project-filter"
-                >
-                  <Building size={14} className="mr-2" />
-                  {filters.project || 'Project'}
-                  <ChevronDown size={14} className="ml-2" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10 max-h-72 overflow-y-auto">
-                <DropdownMenuLabel className="text-[#A1A1AA]">Project Interest</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem
-                  onClick={() => setFilters({ ...filters, project: '' })}
-                  className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                >
-                  All projects
-                </DropdownMenuItem>
-                {filterOptionsLoading ? (
-                  <DropdownMenuItem disabled className="text-[#52525B]">
-                    Loading…
-                  </DropdownMenuItem>
-                ) : (
-                  projectOptions.map((item) => (
-                    <DropdownMenuItem
-                      key={item.name}
-                      onClick={() => setFilters({ ...filters, project: item.name })}
-                      className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                    >
-                      {item.name}
-                      {item.count != null ? (
-                        <span className="ml-2 text-[#52525B] text-xs">({item.count})</span>
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <MultiSelectFilterDropdown
+              label="Project"
+              icon={Building}
+              options={projectOptions}
+              selected={filters.projects}
+              loading={filterOptionsLoading}
+              onChange={handleProjectsChange}
+              testId="project-filter"
+            />
+
+            {/* Source Filter */}
+            <MultiSelectFilterDropdown
+              label="Source"
+              icon={Filter}
+              options={sourceOptions}
+              selected={filters.sources}
+              loading={filterOptionsLoading}
+              onChange={handleSourcesChange}
+              testId="source-filter"
+            />
 
             {/* Status Filter */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
-                    filters.status ? 'border-[#C5A059] text-[#C5A059]' : ''
-                  }`}
-                  data-testid="status-filter"
-                >
-                  <CircleDot size={14} className="mr-2" />
-                  {filters.status ? `Status: ${filters.status}` : 'Status'}
-                  <ChevronDown size={14} className="ml-2" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10 max-h-[min(24rem,70vh)] overflow-y-auto">
-                <DropdownMenuLabel className="text-[#A1A1AA]">Lead Status</DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem
-                  onClick={() => setFilters({ ...filters, status: '' })}
-                  className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                >
-                  All Statuses
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-white/10" />
-                {LEAD_STATUSES.map((status) => (
-                  <DropdownMenuItem
-                    key={status}
-                    onClick={() => setFilters({ ...filters, status })}
-                    className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
-                  >
-                    {status}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <MultiSelectFilterDropdown
+              label="Status"
+              icon={CircleDot}
+              options={LEAD_STATUSES}
+              selected={filters.statuses}
+              onChange={handleStatusesChange}
+              testId="status-filter"
+            />
 
             {/* Date Filter */}
             <DropdownMenu
@@ -1173,10 +1128,60 @@ const VirtualCustomerPage = () => {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {/* Meta Qualified Filter */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
+                    filters.meta_qualified === true || filters.meta_qualified === false
+                      ? 'border-[#C5A059] text-[#C5A059]'
+                      : ''
+                  }`}
+                  data-testid="meta-qualified-filter"
+                >
+                  {getMetaQualifiedLabel(filters)}
+                  <ChevronDown size={14} className="ml-2" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
+                <DropdownMenuItem
+                  onClick={() => {
+                    setActiveFilterViewId(null);
+                    setFilters((prev) => ({ ...prev, meta_qualified: null }));
+                  }}
+                  className="text-white hover:bg-[#C5A059]/10 cursor-pointer"
+                >
+                  Any
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setActiveFilterViewId(null);
+                    setFilters((prev) => ({ ...prev, meta_qualified: true }));
+                  }}
+                  className="text-white hover:bg-[#C5A059]/10 cursor-pointer"
+                >
+                  Yes
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setActiveFilterViewId(null);
+                    setFilters((prev) => ({ ...prev, meta_qualified: false }));
+                  }}
+                  className="text-white hover:bg-[#C5A059]/10 cursor-pointer"
+                >
+                  No
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             {/* VIP Filter */}
             <Button
               variant="outline"
-              onClick={() => setFilters({ ...filters, vip: filters.vip === true ? null : true })}
+              onClick={() => {
+                setActiveFilterViewId(null);
+                setFilters({ ...filters, vip: filters.vip === true ? null : true });
+              }}
               className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
                 filters.vip === true ? 'border-[#C5A059] text-[#C5A059]' : ''
               }`}
@@ -1200,6 +1205,19 @@ const VirtualCustomerPage = () => {
             )}
           </div>
         </div>
+
+        <LeadFilterViewsBar
+          views={filterViews}
+          loading={filterViewsLoading}
+          currentFilters={filters}
+          currentSearch={debouncedSearch}
+          activeViewId={activeFilterViewId}
+          onApplyView={applyFilterView}
+          onSaveView={handleSaveFilterView}
+          onUpdateView={handleUpdateFilterView}
+          onDeleteView={handleDeleteFilterView}
+          onClearActiveView={() => setActiveFilterViewId(null)}
+        />
       </motion.div>
 
       {/* Duplicate Groups View */}
@@ -1239,9 +1257,9 @@ const VirtualCustomerPage = () => {
                       <p className="text-[#A1A1AA] text-sm">{lead.phone}</p>
                       <p className="text-[#52525B] text-xs mt-1">Source: {lead.lead_source}</p>
                       {lidx === 0 ? (
-                        <span className="inline-block mt-2 px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">
+                        <CrmBadge variant="success" className="mt-2">
                           Primary
-                        </span>
+                        </CrmBadge>
                       ) : (
                         <Button
                           size="sm"
@@ -1262,33 +1280,19 @@ const VirtualCustomerPage = () => {
 
       {/* Lead table */}
       {!showDuplicates && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-          >
-            <LeadDataTable
-              leads={leads}
-              loading={loading}
-              pendingTaskMap={pendingTaskMap}
-              pendingTasksList={pendingTasks}
-              earliestTaskMap={earliestTaskMap}
-              onRowClick={handleViewLead}
-              onView={handleViewLead}
-              onNote={handleOpenNote}
-              onOpenLeadTasks={openLeadTasksDrawer}
-            />
-          </motion.div>
-          {!loading && leads.length > 0 && (
-            <>
-              <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
-              {loadingMore && (
-                <p className="text-center text-[#52525B] text-sm py-3 w-full">Loading more leads…</p>
-              )}
-            </>
-          )}
-        </>
+        <LeadListTable
+          leads={leads}
+          loading={loading}
+          loadingMore={loadingMore}
+          pendingTaskMap={pendingTaskMap}
+          earliestTaskMap={earliestTaskMap}
+          tableDensity={tableDensity}
+          onTableDensityChange={setTableDensity}
+          onRowClick={handleViewLead}
+          onNote={handleOpenNote}
+          onOpenLeadTasks={openLeadTasksDrawer}
+          loadMoreSentinelRef={loadMoreSentinelRef}
+        />
       )}
 
       {/* Quick note modal */}
@@ -1348,7 +1352,10 @@ const VirtualCustomerPage = () => {
 
       {/* Add New Customer Modal */}
       <Dialog open={showAddCustomerModal} onOpenChange={setShowAddCustomerModal}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="bg-[#1A1A1A] border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto"
+          aria-describedby={undefined}
+        >
           <DialogHeader>
             <DialogTitle className="font-serif text-xl flex items-center gap-2">
               <UserPlus className="text-[#C5A059]" size={24} />
@@ -1392,6 +1399,18 @@ const VirtualCustomerPage = () => {
                 />
               </div>
               <div>
+                <label className="text-[#A1A1AA] text-sm mb-2 block">Work (alternate number)</label>
+                <Input
+                  value={newCustomer.work_phone}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, work_phone: e.target.value })}
+                  placeholder="Alternate phone"
+                  className="bg-black/50 border-white/10 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
                 <label className="text-[#A1A1AA] text-sm mb-2 block">Email Address</label>
                 <Input
                   type="email"
@@ -1401,55 +1420,48 @@ const VirtualCustomerPage = () => {
                   className="bg-black/50 border-white/10 text-white"
                 />
               </div>
+              <div>
+                <label className="text-[#A1A1AA] text-sm mb-2 block">Unit Size</label>
+                <Input
+                  value={newCustomer.unit_size}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, unit_size: e.target.value })}
+                  placeholder="e.g. 3 BHK"
+                  className="bg-black/50 border-white/10 text-white"
+                />
+              </div>
             </div>
 
             {/* Project & Budget Row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-[#A1A1AA] text-sm mb-2 block">Interested Project</label>
-                <Select
+                <SelectWithOther
                   value={newCustomer.project}
-                  onValueChange={(value) => setNewCustomer({ ...newCustomer, project: value })}
-                >
-                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                    <SelectValue placeholder="Select Project" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10 max-h-60 overflow-y-auto">
-                    {filterOptionsLoading ? (
-                      <SelectItem value="__loading" disabled className="text-[#52525B]">
-                        Loading projects…
-                      </SelectItem>
-                    ) : (
-                      projectOptions.map((item) => (
-                        <SelectItem
-                          key={item.name}
-                          value={item.name}
-                          className="text-white hover:bg-[#C5A059]/10"
-                        >
-                          {item.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                  onChange={(value) => setNewCustomer({ ...newCustomer, project: value })}
+                  onModeChange={(mode) =>
+                    setAddCustomerFieldModes((prev) => ({ ...prev, project: mode }))
+                  }
+                  options={picklistNames(projectOptions)}
+                  placeholder="Select Project"
+                  otherPlaceholder="Enter project name"
+                  loading={filterOptionsLoading}
+                  loadingLabel="Loading projects…"
+                  otherInputTestId="add-customer-project-other"
+                />
               </div>
               <div>
                 <label className="text-[#A1A1AA] text-sm mb-2 block">Budget Alignment</label>
-                <Select
+                <SelectWithOther
                   value={newCustomer.budget}
-                  onValueChange={(value) => setNewCustomer({ ...newCustomer, budget: value })}
-                >
-                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                    <SelectValue placeholder="Select Budget" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10">
-                    {budgetRanges.map((range) => (
-                      <SelectItem key={range} value={range} className="text-white hover:bg-[#C5A059]/10">
-                        {range}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={(value) => setNewCustomer({ ...newCustomer, budget: value })}
+                  onModeChange={(mode) =>
+                    setAddCustomerFieldModes((prev) => ({ ...prev, budget: mode }))
+                  }
+                  options={BUDGET_RANGES}
+                  placeholder="Select Budget"
+                  otherPlaceholder="Enter budget range"
+                  otherInputTestId="add-customer-budget-other"
+                />
               </div>
             </div>
 
@@ -1458,7 +1470,7 @@ const VirtualCustomerPage = () => {
               <div>
                 <label className="text-[#A1A1AA] text-sm mb-2 block">Intent Type</label>
                 <Select
-                  value={newCustomer.reason_for_purchase}
+                  value={newCustomer.reason_for_purchase || undefined}
                   onValueChange={(value) => setNewCustomer({ ...newCustomer, reason_for_purchase: value })}
                 >
                   <SelectTrigger className="bg-black/50 border-white/10 text-white">
@@ -1473,31 +1485,19 @@ const VirtualCustomerPage = () => {
               </div>
               <div>
                 <label className="text-[#A1A1AA] text-sm mb-2 block">Location Preference</label>
-                <Select
+                <SelectWithOther
                   value={newCustomer.location}
-                  onValueChange={(value) => setNewCustomer({ ...newCustomer, location: value })}
-                >
-                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                    <SelectValue placeholder="Select Location" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10 max-h-60 overflow-y-auto">
-                    {filterOptionsLoading ? (
-                      <SelectItem value="__loading_loc" disabled className="text-[#52525B]">
-                        Loading locations…
-                      </SelectItem>
-                    ) : (
-                      locationOptions.map((item) => (
-                        <SelectItem
-                          key={item.name}
-                          value={item.name}
-                          className="text-white hover:bg-[#C5A059]/10"
-                        >
-                          {item.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                  onChange={(value) => setNewCustomer({ ...newCustomer, location: value })}
+                  onModeChange={(mode) =>
+                    setAddCustomerFieldModes((prev) => ({ ...prev, location: mode }))
+                  }
+                  options={picklistNames(locationOptions)}
+                  placeholder="Select Location"
+                  otherPlaceholder="Enter location"
+                  loading={filterOptionsLoading}
+                  loadingLabel="Loading locations…"
+                  otherInputTestId="add-customer-location-other"
+                />
               </div>
             </div>
 
@@ -1505,26 +1505,24 @@ const VirtualCustomerPage = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-[#A1A1AA] text-sm mb-2 block">Lead Source</label>
-                <Select
+                <SelectWithOther
                   value={newCustomer.lead_source}
-                  onValueChange={(value) => setNewCustomer({ ...newCustomer, lead_source: value })}
-                >
-                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
-                    <SelectValue placeholder="Select Source" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10">
-                    {leadSources.map((source) => (
-                      <SelectItem key={source} value={source} className="text-white hover:bg-[#C5A059]/10">
-                        {source}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onChange={(value) => setNewCustomer({ ...newCustomer, lead_source: value })}
+                  onModeChange={(mode) =>
+                    setAddCustomerFieldModes((prev) => ({ ...prev, lead_source: mode }))
+                  }
+                  options={picklistNames(sourceOptions)}
+                  placeholder="Select Source"
+                  otherPlaceholder="Enter source"
+                  loading={filterOptionsLoading}
+                  loadingLabel="Loading sources…"
+                  otherInputTestId="add-customer-source-other"
+                />
               </div>
               <div>
                 <label className="text-[#A1A1AA] text-sm mb-2 block">Assigned Sales Manager</label>
                 <Select
-                  value={newCustomer.assigned_user_id || '__unassigned__'}
+                  value={newCustomer.assigned_user_id ? String(newCustomer.assigned_user_id) : '__unassigned__'}
                   onValueChange={(value) => {
                     if (value === '__unassigned__') {
                       setNewCustomer({
@@ -1534,7 +1532,7 @@ const VirtualCustomerPage = () => {
                       });
                       return;
                     }
-                    const assignee = assigneeOptions.find((a) => a.id === value);
+                    const assignee = assigneeOptions.find((a) => String(a.id) === value);
                     setNewCustomer({
                       ...newCustomer,
                       assigned_user_id: value,
@@ -1557,16 +1555,75 @@ const VirtualCustomerPage = () => {
                       assigneeOptions.map((user) => (
                         <SelectItem
                           key={user.id}
-                          value={user.id}
+                          value={String(user.id)}
                           className="text-white hover:bg-[#C5A059]/10"
                         >
                           {user.full_name}
-                          {user.role ? (
-                            <span className="ml-2 text-[#52525B] text-xs">({user.role})</span>
-                          ) : null}
+                          {user.role ? ` (${user.role})` : ''}
                         </SelectItem>
                       ))
                     )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[#A1A1AA] text-sm mb-2 block">Original source</label>
+                <Input
+                  value={newCustomer.original_source}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, original_source: e.target.value })}
+                  placeholder="Original source"
+                  className="bg-black/50 border-white/10 text-white"
+                />
+              </div>
+              <div>
+                <label className="text-[#A1A1AA] text-sm mb-2 block">Most recent source</label>
+                <Input
+                  value={newCustomer.most_recent_source}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, most_recent_source: e.target.value })}
+                  placeholder="Most recent source"
+                  className="bg-black/50 border-white/10 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[#A1A1AA] text-sm mb-2 block">No. of Site Visits</label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={newCustomer.site_visit_count}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, site_visit_count: e.target.value })}
+                  className="bg-black/50 border-white/10 text-white"
+                />
+              </div>
+              <div>
+                <label className="text-[#A1A1AA] text-sm mb-2 block">Meta Qualified</label>
+                <Select
+                  value={
+                    newCustomer.meta_qualified === true
+                      ? 'yes'
+                      : newCustomer.meta_qualified === false
+                        ? 'no'
+                        : 'unset'
+                  }
+                  onValueChange={(value) =>
+                    setNewCustomer({
+                      ...newCustomer,
+                      meta_qualified: value === 'yes' ? true : value === 'no' ? false : null,
+                    })
+                  }
+                >
+                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                    <SelectValue placeholder="Not set" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1A1A1A] border-white/10">
+                    <SelectItem value="unset" className="text-white hover:bg-[#C5A059]/10">Not set</SelectItem>
+                    <SelectItem value="yes" className="text-white hover:bg-[#C5A059]/10">Yes</SelectItem>
+                    <SelectItem value="no" className="text-white hover:bg-[#C5A059]/10">No</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1691,6 +1748,14 @@ const VirtualCustomerPage = () => {
         </DialogContent>
       </Dialog>
 
+      <LeadExportModal
+        open={showExportModal}
+        onOpenChange={setShowExportModal}
+        totalLeads={totalLeads}
+        activeFiltersCount={activeFiltersCount}
+        exportParams={exportParams}
+      />
+
       {/* Upload CSV Modal */}
       <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
         <DialogContent className="bg-[#1A1A1A] border-white/10 text-white">
@@ -1701,33 +1766,6 @@ const VirtualCustomerPage = () => {
             <p className="text-[#A1A1AA] text-sm">
               Upload a CSV file with lead data. The system will automatically detect and skip duplicates.
             </p>
-            <label className="flex items-center gap-2 text-sm text-[#A1A1AA] cursor-pointer">
-              <input
-                type="checkbox"
-                checked={csvReplaceAll}
-                onChange={(e) => {
-                  setCsvReplaceAll(e.target.checked);
-                  if (!e.target.checked) setCsvReplaceConfirm('');
-                }}
-                className="accent-[#C5A059]"
-              />
-              Replace all existing leads with CSV (destructive)
-            </label>
-            {csvReplaceAll && (
-              <div className="space-y-2 p-3 rounded-lg border border-red-500/40 bg-red-500/10">
-                <p className="text-red-300 text-sm">
-                  This will permanently delete ALL existing leads and replace them with the CSV contents.
-                  This cannot be undone.
-                </p>
-                <Input
-                  value={csvReplaceConfirm}
-                  onChange={(e) => setCsvReplaceConfirm(e.target.value)}
-                  placeholder='Type REPLACE ALL to confirm'
-                  className="bg-black/50 border-white/10 text-white"
-                  data-testid="csv-replace-confirm"
-                />
-              </div>
-            )}
             <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center hover:border-[#C5A059]/50 transition-colors">
               <input
                 type="file"

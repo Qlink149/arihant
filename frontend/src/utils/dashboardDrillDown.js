@@ -96,7 +96,8 @@ export function buildVirtualCustomerDrillPath(tile, dashboardFilters) {
       params.set('temperature', 'Hot');
       break;
     case 'qualified':
-      params.set('metric', 'qualified_leads');
+    case 'active_pipeline':
+      params.set('metric', 'active_pipeline');
       break;
     case 'total':
     default:

@@ -15,12 +15,21 @@ SLA_OVERDUE_WINDOWS = {
     "new": {"30m": 30 * 60, "2h": 2 * 3600},
     "rnr": {"24h": 24 * 3600, "48h": 48 * 3600},
     "contacted": {"48h": 48 * 3600, "72h": 72 * 3600},
-    "visit_completed": {"48h": 48 * 3600, "72h": 72 * 3600, "7d": 7 * 24 * 3600},
+    "visit_completed": {"3d": 3 * 24 * 3600},
     "sv_followup": {"72h": 72 * 3600, "7d": 7 * 24 * 3600},
+    "sv_followup_1": {"7d": 7 * 24 * 3600},
+    "sv_followup_2": {"20d": 20 * 24 * 3600},
     "negotiation": {"48h": 48 * 3600, "stalled_7d": 7 * 24 * 3600, "admin_15d": 15 * 24 * 3600},
     "reengaged": {"12h": 12 * 3600, "24h": 24 * 3600, "48h": 48 * 3600},
     "nurturing": {"14d": 14 * 24 * 3600},
 }
+
+# Notification types still emitted while a lead is on historical import hold (sla_paused).
+SLA_PAUSED_ALLOWED_TYPES = frozenset({
+    "new_lead_assigned",
+    "lead_transferred",
+    "lead_status_changed",
+})
 
 
 def compute_is_overdue(
@@ -66,7 +75,12 @@ async def create_notification(
     urgency: str = "action_needed",
     dedupe_key: Optional[str] = None,
     publish_sse: bool = True,
-) -> dict:
+) -> Optional[dict]:
+    if lead_id and notification_type not in SLA_PAUSED_ALLOWED_TYPES:
+        lead = await db.leads.find_one({"id": lead_id}, {"_id": 0, "sla_paused": 1})
+        if lead and lead.get("sla_paused") is True:
+            return None
+
     now_dt = utc_now()
     now_iso = iso_utc_now()
     doc = {

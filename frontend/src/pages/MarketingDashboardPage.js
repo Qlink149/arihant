@@ -163,11 +163,11 @@ const MarketingDashboardPage = () => {
   };
 
   return (
-    <div className="space-y-6" data-testid="marketing-dashboard">
+    <div className="space-y-3" data-testid="marketing-dashboard">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold text-white tracking-tight" data-testid="marketing-title">
+          <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="marketing-title">
             Marketing <span className="text-[#C5A059]">Dashboard</span>
           </h1>
           <p className="text-[#52525B] mt-1 text-sm">Track spends, leads generated, and ROI across channels</p>

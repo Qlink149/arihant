@@ -2,11 +2,8 @@ import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { notificationsAPI } from '../services/api';
 
-function optimisticClear(prev) {
-  // Mark all as read, and hide auto notifications immediately (dismiss semantics).
-  return (prev || [])
-    .map((n) => ({ ...n, is_read: true }))
-    .filter((n) => !n?.is_auto);
+function optimisticClear() {
+  return [];
 }
 
 /**
@@ -28,7 +25,7 @@ export function useMarkAllNotificationsRead({ getItems, setItems, refetch }) {
 
     const snapshot = Array.isArray(getItems?.()) ? getItems() : [];
     snapshotRef.current = snapshot;
-    setItems((prev) => optimisticClear(prev));
+    setItems(optimisticClear());
 
     try {
       await notificationsAPI.markAllRead();

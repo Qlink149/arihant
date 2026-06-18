@@ -41,16 +41,16 @@ describe('getTaskDisplayTitle', () => {
 });
 
 describe('badges', () => {
-  it('returns overdue badge styling', () => {
+  it('returns overdue badge variant', () => {
     const badge = getDueStatusBadge('overdue');
     expect(badge.label).toBe('Overdue');
-    expect(badge.className).toMatch(/red/);
+    expect(badge.variant).toBe('danger');
   });
 
-  it('returns priority colors', () => {
-    expect(getPriorityBadge('high').className).toMatch(/red/);
-    expect(getPriorityBadge('medium').className).toMatch(/amber/);
-    expect(getPriorityBadge('low').className).toMatch(/gray/);
+  it('returns priority variants', () => {
+    expect(getPriorityBadge('high').variant).toBe('danger');
+    expect(getPriorityBadge('medium').variant).toBe('warning');
+    expect(getPriorityBadge('low').variant).toBe('neutral');
   });
 });
 

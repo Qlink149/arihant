@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { alertsAPI, remindersAPI, notificationsAPI, settingsAPI } from '../services/api';
+import { alertsAPI, remindersAPI, settingsAPI } from '../services/api';
 import { toast } from 'sonner';
 import { formatDateTimeIST } from '../utils/datetime';
 import {
@@ -14,7 +14,6 @@ import {
   Trash2,
   ChevronDown,
   AlertTriangle,
-  Play,
   History,
   Zap,
 } from 'lucide-react';
@@ -42,7 +41,6 @@ const SettingsPage = () => {
   const [reminderRules, setReminderRules] = useState([]);
   const [reminderHistory, setReminderHistory] = useState([]);
   const [triggering, setTriggering] = useState(false);
-  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true);
   const [brevo, setBrevo] = useState({
     brevo_enabled: false,
     brevo_api_key: '',
@@ -67,12 +65,11 @@ const SettingsPage = () => {
 
   const fetchData = async () => {
     try {
-      const [alertsRes, pendingRes, remRulesRes, remHistRes, notifPrefsRes, brevoRes, routingRes] = await Promise.all([
+      const [alertsRes, pendingRes, remRulesRes, remHistRes, brevoRes, routingRes] = await Promise.all([
         alertsAPI.getConfig(),
         alertsAPI.getPending(),
         remindersAPI.getRules(),
         remindersAPI.getHistory(20),
-        notificationsAPI.getPreferences(),
         settingsAPI.getBrevo().catch(() => ({ data: {} })),
         settingsAPI.getRouting().catch(() => ({ data: {} })),
       ]);
@@ -80,24 +77,12 @@ const SettingsPage = () => {
       setPendingAlerts(pendingRes.data);
       setReminderRules(remRulesRes.data || []);
       setReminderHistory(remHistRes.data || []);
-      setNotificationSoundEnabled(Boolean(notifPrefsRes.data?.notification_sound_enabled));
       if (brevoRes?.data) setBrevo((p) => ({ ...p, ...brevoRes.data }));
       if (routingRes?.data?.capacity_cap) setRoutingCap(routingRes.data.capacity_cap);
     } catch (error) {
       console.error('Failed to fetch settings:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleToggleNotificationSound = async (enabled) => {
-    setNotificationSoundEnabled(enabled);
-    try {
-      await notificationsAPI.updatePreferences({ notification_sound_enabled: enabled });
-      toast.success(`Notification sound ${enabled ? 'enabled' : 'disabled'}`);
-    } catch {
-      toast.error('Failed to update notification settings');
-      setNotificationSoundEnabled((prev) => !prev);
     }
   };
 
@@ -162,13 +147,13 @@ const SettingsPage = () => {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-3">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <h1 className="font-serif text-3xl text-white" data-testid="settings-title">
+        <h1 className="text-xl font-semibold text-white" data-testid="settings-title">
           Settings
         </h1>
         <p className="text-[#A1A1AA] mt-2">Configure alerts and notifications</p>
@@ -291,17 +276,6 @@ const SettingsPage = () => {
               <span className="text-white">Push Notifications</span>
             </div>
             <Switch />
-          </div>
-          <div className="flex items-center justify-between p-4 bg-black/30 rounded-lg">
-            <div className="flex items-center gap-3">
-              <Play className="text-amber-400" size={20} />
-              <span className="text-white">Notification Sound</span>
-            </div>
-            <Switch
-              checked={notificationSoundEnabled}
-              onCheckedChange={handleToggleNotificationSound}
-              data-testid="notification-sound-toggle"
-            />
           </div>
         </div>
       </motion.div>

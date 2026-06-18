@@ -9,6 +9,9 @@ from crm.services.dashboard_scope import resolve_lead_or_403, resolve_leads_base
 from crm.core.platform_ops import assert_assignee_allowed, is_platform_operator
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now, resolve_user_id_by_full_name
 from crm.services.lead_events import log_lead_event
+from crm.services.notification_service import create_notification
+from crm.constants.task import TASK_REMINDER_METHOD_DEFAULT
+from crm.services.lead_follow_up import recompute_lead_next_action_date
 from crm.services.task_enrichment import enrich_tasks
 
 
@@ -25,7 +28,7 @@ class TaskCreate(BaseModel):
     due_date: str
     due_time: Optional[str] = None
     priority: str = "medium"
-    reminder_method: str = "email"
+    reminder_method: str = TASK_REMINDER_METHOD_DEFAULT
     assigned_to: Optional[str] = None
     assigned_user_id: Optional[str] = None
 
@@ -185,26 +188,20 @@ async def add_task(lead_id: str, task: TaskCreate, current_user: dict = Depends(
     }
 
     await db.leads.update_one({"id": lead_id}, {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}})
+    await recompute_lead_next_action_date(lead_id)
 
-    notification_doc = {
-        "id": str(uuid.uuid4()),
-        "type": "task_reminder",
-        "title": f"Task: {task.description[:50]}",
-        "message": f"Due {due_str} for {lead.get('first_name', '')} {lead.get('last_name', '')}",
-        "lead_id": lead_id,
-        "lead_name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}",
-        "task_id": task_id,
-        "severity": "high" if task.priority == "high" else "medium" if task.priority == "medium" else "low",
-        "urgency": "action_needed",
-        "assigned_to": assigned,
-        "recipient_name": assigned,
-        "recipient_user_id": assigned_user_id,
-        "is_read": False,
-        "created_at": now_iso,
-        "created_at_dt": now_dt,
-        "due_at": f"{task.due_date}T{task.due_time or '09:00'}:00",
-    }
-    await db.notifications.insert_one(notification_doc)
+    await create_notification(
+        recipient_user_id=assigned_user_id,
+        recipient_name=assigned,
+        title=f"Task: {task.description[:50]}",
+        message=f"Due {due_str} for {lead_name}",
+        notification_type="task_reminder",
+        lead_id=lead_id,
+        lead_name=lead_name,
+        task_id=task_id,
+        severity="high" if task.priority == "high" else "medium" if task.priority == "medium" else "low",
+        urgency="action_needed",
+    )
 
     return {"message": "Task created", "task_id": task_id, "context_entry": context_entry}
 
@@ -237,7 +234,7 @@ async def create_standalone_task(task: StandaloneTaskCreate, current_user: dict 
         "due_time": task.due_time,
         "due_at_dt": datetime.fromisoformat(f"{task.due_date}T{task.due_time or '09:00'}:00").replace(tzinfo=timezone.utc),
         "priority": task.priority,
-        "reminder_method": "email",
+        "reminder_method": TASK_REMINDER_METHOD_DEFAULT,
         "assigned_to": assigned,
         "assigned_to_name": assigned,
         "assigned_user_id": assigned_user_id,
@@ -267,6 +264,7 @@ async def create_standalone_task(task: StandaloneTaskCreate, current_user: dict 
             {"id": task.lead_id},
             {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
         )
+        await recompute_lead_next_action_date(task.lead_id)
 
     await log_lead_event(
         "task_created",
@@ -275,6 +273,27 @@ async def create_standalone_task(task: StandaloneTaskCreate, current_user: dict 
         actor_name=current_user.get("full_name"),
         payload={"task_id": task_id},
     )
+
+    due_str = task.due_date
+    if task.due_time:
+        due_str += f" at {task.due_time}"
+    message = f"Due {due_str}"
+    if lead_name:
+        message += f" for {lead_name}"
+
+    await create_notification(
+        recipient_user_id=assigned_user_id,
+        recipient_name=assigned,
+        title=f"Task: {task.description[:50]}",
+        message=message,
+        notification_type="task_reminder",
+        lead_id=task.lead_id or "",
+        lead_name=lead_name,
+        task_id=task_id,
+        severity="high" if task.priority == "high" else "medium" if task.priority == "medium" else "low",
+        urgency="action_needed",
+    )
+
     return {"message": "Task created", "task_id": task_id}
 
 
@@ -389,10 +408,18 @@ async def update_task(task_id: str, update: TaskUpdatePatch, current_user: dict 
             {"$push": {"context_updates": context_entry}, "$set": lead_set},
         )
 
+    lead_id = task.get("lead_id") or ""
+    if lead_id and (
+        completing
+        or "due_date" in patch
+        or patch.get("status") == "pending"
+    ):
+        await recompute_lead_next_action_date(lead_id)
+
     if new_status:
         await log_lead_event(
             "task_updated",
-            lead_id=task.get("lead_id") or None,
+            lead_id=lead_id or None,
             actor_user_id=current_user.get("id"),
             actor_name=current_user.get("full_name"),
             payload={"task_id": task_id, "status": new_status},

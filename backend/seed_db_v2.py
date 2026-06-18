@@ -896,11 +896,21 @@ def transform_to_lead(
         row["Emails"] = email_fb[contact_id]
 
     # Phone
-    raw_phone = row.get("Mobile") or row.get("Work") or ""
+    raw_mobile = (row.get("Mobile") or "").strip()
+    raw_work = (row.get("Work") or "").strip()
+    raw_phone = raw_mobile or raw_work
     display_phone = clean_phone_display(raw_phone)
     normalized = normalize_phone(raw_phone)
     if len(normalized) != 10:
         return None
+    work_phone = None
+    normalized_work_phone = None
+    if raw_mobile and raw_work and raw_work != raw_mobile:
+        work_phone = clean_phone_display(raw_work)
+        normalized_work_phone = normalize_phone(raw_work) if work_phone else None
+
+    original_source = (row.get("Original source") or "").strip() or None
+    most_recent_source = (row.get("Most recent source") or "").strip() or None
 
     # Names
     first = (row.get("First name") or "").strip() or "Unknown"
@@ -967,7 +977,7 @@ def transform_to_lead(
     unit = (
         (row.get("Unit Size") or row.get("Unit size") or row.get("Preferred Unit") or row.get("Preferred unit") or "")
         .strip()
-    )
+    ) or None
     apt = (
         (
             row.get("Apartment Type")
@@ -978,9 +988,25 @@ def transform_to_lead(
             or ""
         ).strip()
     )
-    configuration = " ".join(x for x in [apt, unit] if x).strip() or None
+    configuration = apt.strip() or None
     if configuration and configuration.lower() in ("yes", "may_be", "no", "yes ", "may_be "):
         configuration = None
+    unit_size = unit
+
+    meta_raw = (row.get("Meta Qualified") or row.get("Meta qualified") or "").strip().lower()
+    meta_qualified = None
+    if meta_raw in ("yes", "y", "true", "1"):
+        meta_qualified = True
+    elif meta_raw in ("no", "n", "false", "0"):
+        meta_qualified = False
+
+    site_visit_raw = (row.get("No. of Site Visits") or row.get("Site Visits") or "").strip()
+    site_visit_count = 0
+    if site_visit_raw:
+        try:
+            site_visit_count = max(0, int(float(site_visit_raw)))
+        except ValueError:
+            site_visit_count = 0
     possession_requirement = (
         (row.get("Possession") or row.get("Possession timeline") or row.get("Possession requirement") or "").strip()
         or None
@@ -1036,6 +1062,8 @@ def transform_to_lead(
         "last_name": last,
         "phone": display_phone,
         "normalized_phone": normalized,
+        "work_phone": work_phone,
+        "normalized_work_phone": normalized_work_phone,
         "email": email,
         "project": project,
         "project_id": project_id,
@@ -1043,9 +1071,14 @@ def transform_to_lead(
         "location": location,
         "lead_status": lead_status,
         "lead_source": lead_source,
+        "original_source": original_source,
+        "most_recent_source": most_recent_source,
         "original_fw_status": fw_status or None,
         "is_rnr": is_rnr,
         "configuration": configuration,
+        "unit_size": unit_size,
+        "site_visit_count": site_visit_count,
+        "meta_qualified": meta_qualified,
         "possession_requirement": possession_requirement,
         "reason_for_purchase": reason_for_purchase,
         "pipeline_category": pipeline_category if pipeline_category in UI_PIPELINE_CATEGORIES else "Standard",
@@ -1071,6 +1104,8 @@ def transform_to_lead(
         # Provenance
         "source_system": "merged" if cm.fw and cm.fs else ("freshsales" if cm.fs else "freshworks"),
         "seed_inputs": ["Contacts.csv", "FreshSales Data - Organized (1).csv"] if cm.fs else ["Contacts.csv"],
+        "import_provenance": "freshworks",
+        "sla_paused": True,
     }
 
     # ai_persona_summary / Grok fields left None for live AI service (GET lead stale-while-revalidate)

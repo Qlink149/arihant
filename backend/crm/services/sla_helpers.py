@@ -29,6 +29,8 @@ async def create_sla_task_for_lead(
     stage: str = "",
 ) -> Optional[str]:
     """Insert task + notification + audit event. Returns task_id or None."""
+    if lead.get("sla_paused"):
+        return None
     now_dt = utc_now()
     now_iso = iso_utc_now()
     name_to_user_id = await _name_map()

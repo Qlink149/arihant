@@ -43,6 +43,81 @@
     --nurture-row-hot-hover-bg: rgba(194, 65, 12, 0.32);
     --nurture-row-warm-bg: rgba(180, 83, 9, 0.24);
     --nurture-row-warm-hover-bg: rgba(180, 83, 9, 0.32);
+
+    /* CRM badge / chip tokens (dark mode) */
+    --badge-gold-bg: rgba(197, 160, 89, 0.15);
+    --badge-gold-border: rgba(197, 160, 89, 0.35);
+    --badge-gold-text: #E5C079;
+
+    --badge-danger-bg: rgba(239, 68, 68, 0.18);
+    --badge-danger-border: rgba(239, 68, 68, 0.35);
+    --badge-danger-text: #FCA5A5;
+
+    --badge-warning-bg: rgba(245, 158, 11, 0.18);
+    --badge-warning-border: rgba(245, 158, 11, 0.35);
+    --badge-warning-text: #FCD34D;
+
+    --badge-success-bg: rgba(16, 185, 129, 0.18);
+    --badge-success-border: rgba(52, 211, 153, 0.35);
+    --badge-success-text: #6EE7B7;
+
+    --badge-info-bg: rgba(59, 130, 246, 0.18);
+    --badge-info-border: rgba(96, 165, 250, 0.35);
+    --badge-info-text: #93C5FD;
+
+    --badge-neutral-bg: rgba(113, 113, 122, 0.18);
+    --badge-neutral-border: rgba(161, 161, 170, 0.30);
+    --badge-neutral-text: #A1A1AA;
+
+    --badge-purple-bg: rgba(168, 85, 247, 0.18);
+    --badge-purple-border: rgba(192, 132, 252, 0.35);
+    --badge-purple-text: #D8B4FE;
+
+    --badge-teal-bg: rgba(20, 184, 166, 0.18);
+    --badge-teal-border: rgba(45, 212, 191, 0.35);
+    --badge-teal-text: #5EEAD4;
+
+    --badge-cyan-bg: rgba(6, 182, 212, 0.18);
+    --badge-cyan-border: rgba(34, 211, 238, 0.35);
+    --badge-cyan-text: #67E8F9;
+
+    --badge-sky-bg: rgba(14, 165, 233, 0.18);
+    --badge-sky-border: rgba(56, 189, 248, 0.35);
+    --badge-sky-text: #7DD3FC;
+
+    --badge-orange-bg: rgba(249, 115, 22, 0.18);
+    --badge-orange-border: rgba(251, 146, 60, 0.35);
+    --badge-orange-text: #FDBA74;
+
+    --badge-emerald-bg: rgba(16, 185, 129, 0.18);
+    --badge-emerald-border: rgba(52, 211, 153, 0.35);
+    --badge-emerald-text: #6EE7B7;
+
+    --badge-amber-bg: rgba(245, 158, 11, 0.18);
+    --badge-amber-border: rgba(251, 191, 36, 0.40);
+    --badge-amber-text: #FCD34D;
+
+    --badge-new-bg: rgba(251, 191, 36, 0.22);
+    --badge-new-border: rgba(251, 191, 36, 0.55);
+    --badge-new-text: #FDE68A;
+    --badge-new-ring: rgba(251, 191, 36, 0.45);
+
+    /* Density tokens — enterprise CRM spacing */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 12px;
+    --space-lg: 16px;
+    --space-xl: 24px;
+    --card-padding: var(--space-md);
+    --section-gap: var(--space-md);
+    --page-padding: var(--space-lg);
+    --header-height-compact: 72px;
+    --sidebar-width: 256px;
+    --sidebar-width-collapsed: 64px;
+    --text-page-title: 1.25rem;
+    --text-section-title: 1rem;
+    --text-body: 0.875rem;
+    --text-caption: 0.75rem;
 }
 
 /* Light Mode Colors */
@@ -71,6 +146,64 @@
     --nurture-row-hot-hover-bg: rgba(194, 65, 12, 0.20);
     --nurture-row-warm-bg: rgba(180, 83, 9, 0.14);
     --nurture-row-warm-hover-bg: rgba(180, 83, 9, 0.20);
+
+    /* CRM badge / chip tokens (light mode) */
+    --badge-gold-bg: rgba(197, 160, 89, 0.12);
+    --badge-gold-border: rgba(197, 160, 89, 0.30);
+    --badge-gold-text: #6B5328;
+
+    --badge-danger-bg: rgba(239, 68, 68, 0.10);
+    --badge-danger-border: rgba(239, 68, 68, 0.25);
+    --badge-danger-text: #991B1B;
+
+    --badge-warning-bg: rgba(245, 158, 11, 0.12);
+    --badge-warning-border: rgba(245, 158, 11, 0.28);
+    --badge-warning-text: #92400E;
+
+    --badge-success-bg: rgba(16, 185, 129, 0.10);
+    --badge-success-border: rgba(16, 185, 129, 0.25);
+    --badge-success-text: #065F46;
+
+    --badge-info-bg: rgba(59, 130, 246, 0.10);
+    --badge-info-border: rgba(59, 130, 246, 0.25);
+    --badge-info-text: #1E40AF;
+
+    --badge-neutral-bg: rgba(113, 113, 122, 0.10);
+    --badge-neutral-border: rgba(113, 113, 122, 0.22);
+    --badge-neutral-text: #52525B;
+
+    --badge-purple-bg: rgba(168, 85, 247, 0.10);
+    --badge-purple-border: rgba(168, 85, 247, 0.25);
+    --badge-purple-text: #6B21A8;
+
+    --badge-teal-bg: rgba(20, 184, 166, 0.10);
+    --badge-teal-border: rgba(20, 184, 166, 0.25);
+    --badge-teal-text: #115E59;
+
+    --badge-cyan-bg: rgba(6, 182, 212, 0.10);
+    --badge-cyan-border: rgba(6, 182, 212, 0.25);
+    --badge-cyan-text: #155E75;
+
+    --badge-sky-bg: rgba(14, 165, 233, 0.10);
+    --badge-sky-border: rgba(14, 165, 233, 0.25);
+    --badge-sky-text: #075985;
+
+    --badge-orange-bg: rgba(249, 115, 22, 0.10);
+    --badge-orange-border: rgba(249, 115, 22, 0.25);
+    --badge-orange-text: #9A3412;
+
+    --badge-emerald-bg: rgba(16, 185, 129, 0.10);
+    --badge-emerald-border: rgba(16, 185, 129, 0.25);
+    --badge-emerald-text: #065F46;
+
+    --badge-amber-bg: rgba(245, 158, 11, 0.12);
+    --badge-amber-border: rgba(245, 158, 11, 0.30);
+    --badge-amber-text: #92400E;
+
+    --badge-new-bg: rgba(245, 158, 11, 0.14);
+    --badge-new-border: rgba(217, 119, 6, 0.40);
+    --badge-new-text: #78350F;
+    --badge-new-ring: rgba(217, 119, 6, 0.35);
 }
 
 .light-mode .glass-card {
@@ -138,6 +271,62 @@
 
 /* Light mode sidebar & header */
 .light-mode .bg-\[\#0A0A0A\]\/80 { background-color: rgba(255,255,255,0.92) !important; }
+.light-mode .bg-\[\#0A0A0A\]\/95 { background-color: rgba(255,255,255,0.96) !important; }
+
+/* Sticky lead overview — dark + light */
+.lead-overview-sticky {
+    position: sticky;
+    z-index: 15;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: rgba(10, 10, 10, 0.96);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.light-mode .lead-overview-sticky {
+    background: rgba(255, 255, 255, 0.96);
+    border-bottom-color: #E0E0E0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.lead-overview-field {
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(0, 0, 0, 0.22);
+}
+.lead-overview-field:hover {
+    border-color: rgba(197, 160, 89, 0.35);
+    background: rgba(255, 255, 255, 0.03);
+}
+.light-mode .lead-overview-field {
+    border-color: #E8E8E8;
+    background: rgba(245, 245, 240, 0.9);
+}
+.light-mode .lead-overview-field:hover {
+    border-color: rgba(197, 160, 89, 0.45);
+    background: rgba(197, 160, 89, 0.06);
+}
+
+.lead-overview-index {
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.06);
+}
+.light-mode .lead-overview-index {
+    color: #71717A;
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.sticky-summary-bar {
+    background: rgba(10, 10, 10, 0.96);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.light-mode .sticky-summary-bar {
+    background: rgba(255, 255, 255, 0.96);
+    border-bottom-color: #E0E0E0;
+}
+
+.lead-overview-sticky [data-testid="lead-overview-toggle"] svg {
+    color: var(--text-muted);
+}
 
 /* Light mode inputs */
 .light-mode input, .light-mode textarea, .light-mode select {
@@ -164,6 +353,48 @@
 .light-mode table th { color: #71717A !important; }
 .light-mode table td { color: #1A1A2E; }
 .light-mode tr.border-b { border-color: #EBEBEB !important; }
+
+/* Lead tasks drawer (next follow-up / active tasks panel) */
+.light-mode .lead-tasks-drawer {
+    background-color: #FFFFFF !important;
+    border-color: #E0E0E0 !important;
+    color: #1A1A2E !important;
+}
+
+.light-mode .lead-task-row {
+    background-color: #FAFAF8 !important;
+    border-color: #E8E8E8 !important;
+}
+
+.light-mode .lead-task-row.border-red-500\/30 { border-color: rgba(239, 68, 68, 0.35) !important; }
+.light-mode .lead-task-row.border-orange-500\/30 { border-color: rgba(249, 115, 22, 0.35) !important; }
+.light-mode .lead-task-row.border-white\/5 { border-color: #E8E8E8 !important; }
+
+.light-mode .lead-tasks-drawer .lead-task-title,
+.light-mode .lead-tasks-drawer .text-white {
+    color: #1A1A2E !important;
+}
+
+.light-mode .lead-active-tasks-badge {
+    /* legacy — migrated to crm-badge; kept for safety during rollout */
+    color: var(--badge-warning-text) !important;
+    background-color: var(--badge-warning-bg) !important;
+}
+
+.light-mode .bg-black\/80 {
+    background-color: rgba(15, 23, 42, 0.35) !important;
+}
+
+/* Light mode tooltips */
+.light-mode [data-radix-popper-content-wrapper] .bg-\[\#1A1A1A\] {
+    background-color: #FFFFFF !important;
+    border-color: #E0E0E0 !important;
+    color: #1A1A2E !important;
+}
+
+.light-mode [data-radix-popper-content-wrapper] .text-\[\#EDEDED\] {
+    color: #1A1A2E !important;
+}
 
 /* Light mode popover/dropdown */
 .light-mode [data-radix-popper-content-wrapper] > div {
@@ -344,6 +575,152 @@ body {
 }
 .nurture-row-tint-warm.nurture-row-tint-static:hover {
     background-color: var(--nurture-row-warm-bg);
+}
+
+/* CRM badges & chips — theme-aware via CSS variables */
+.crm-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    user-select: none;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.crm-badge--xs {
+    padding: 0.0625rem 0.375rem;
+    font-size: 0.625rem;
+    line-height: 0.875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.crm-badge--uppercase {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.crm-badge--pulse {
+    animation: pulse-gold 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.crm-badge--gold {
+    background: var(--badge-gold-bg);
+    border-color: var(--badge-gold-border);
+    color: var(--badge-gold-text);
+}
+.crm-badge--danger {
+    background: var(--badge-danger-bg);
+    border-color: var(--badge-danger-border);
+    color: var(--badge-danger-text);
+}
+.crm-badge--warning {
+    background: var(--badge-warning-bg);
+    border-color: var(--badge-warning-border);
+    color: var(--badge-warning-text);
+}
+.crm-badge--success {
+    background: var(--badge-success-bg);
+    border-color: var(--badge-success-border);
+    color: var(--badge-success-text);
+}
+.crm-badge--info {
+    background: var(--badge-info-bg);
+    border-color: var(--badge-info-border);
+    color: var(--badge-info-text);
+}
+.crm-badge--neutral {
+    background: var(--badge-neutral-bg);
+    border-color: var(--badge-neutral-border);
+    color: var(--badge-neutral-text);
+}
+.crm-badge--purple {
+    background: var(--badge-purple-bg);
+    border-color: var(--badge-purple-border);
+    color: var(--badge-purple-text);
+}
+.crm-badge--teal {
+    background: var(--badge-teal-bg);
+    border-color: var(--badge-teal-border);
+    color: var(--badge-teal-text);
+}
+.crm-badge--cyan {
+    background: var(--badge-cyan-bg);
+    border-color: var(--badge-cyan-border);
+    color: var(--badge-cyan-text);
+}
+.crm-badge--sky {
+    background: var(--badge-sky-bg);
+    border-color: var(--badge-sky-border);
+    color: var(--badge-sky-text);
+}
+.crm-badge--orange {
+    background: var(--badge-orange-bg);
+    border-color: var(--badge-orange-border);
+    color: var(--badge-orange-text);
+}
+.crm-badge--emerald {
+    background: var(--badge-emerald-bg);
+    border-color: var(--badge-emerald-border);
+    color: var(--badge-emerald-text);
+}
+.crm-badge--amber {
+    background: var(--badge-amber-bg);
+    border-color: var(--badge-amber-border);
+    color: var(--badge-amber-text);
+}
+.crm-badge--new {
+    background: var(--badge-new-bg);
+    border-color: var(--badge-new-border);
+    color: var(--badge-new-text);
+    font-weight: 600;
+    box-shadow: 0 0 0 1px var(--badge-new-ring);
+}
+
+.crm-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.crm-chip--gold {
+    background: var(--badge-gold-bg);
+    border-color: var(--badge-gold-border);
+    color: var(--badge-gold-text);
+}
+.crm-chip--warning {
+    background: var(--badge-warning-bg);
+    border-color: var(--badge-warning-border);
+    color: var(--badge-warning-text);
+}
+
+.crm-urgency-icon--danger {
+    background-color: var(--badge-danger-bg);
+    color: var(--badge-danger-text);
+}
+.crm-urgency-icon--warning {
+    background-color: var(--badge-warning-bg);
+    color: var(--badge-warning-text);
+}
+.crm-urgency-icon--neutral {
+    background-color: var(--badge-neutral-bg);
+    color: var(--badge-neutral-text);
 }
 
 .badge-hot {

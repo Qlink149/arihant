@@ -8,9 +8,19 @@ from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from crm.constants.lead_kpi import RNR_STATUS_REGEX, SITE_VISIT_STATUS_REGEX
-from crm.constants.lead_status import CLOSED_LEAD_STATUS_REGEX
+from crm.constants.lead_status import (
+    CLOSED_LEAD_STATUS_REGEX,
+    SV_FOLLOWUP_1_STATUS_QUERY,
+    SV_FOLLOWUP_2_STATUS_QUERY,
+    SV_FOLLOWUP_STATUS_QUERY,
+)
 from crm.core.state import db
-from crm.services.lead_analytics_queries import qualified_leads_filter
+from crm.services.lead_analytics_queries import active_pipeline_filter
+from crm.services.lead_follow_up import (
+    follow_up_today_clause,
+    missed_follow_up_clause,
+    pending_task_due_lead_ids,
+)
 from crm.services.lead_search import merge_query
 from crm.services.transfer_queries import incoming_transfer_filter, outgoing_transfer_filter
 
@@ -19,13 +29,28 @@ IST = ZoneInfo("Asia/Kolkata")
 _RE_JUNK = {"$regex": r"junk", "$options": "i"}
 _RE_GONE_COLD = {"$regex": r"gone\s*cold", "$options": "i"}
 _RE_RE_ENGAGED_STATUS = {"$regex": r"re[\s\-]*engag", "$options": "i"}
-_RE_SV_CONDUCTED = {"$regex": r"(site\s*visit\s*completed|visit\s*completed|office\s*visit\s*completed)", "$options": "i"}
+_RE_SV_VISIT_COMPLETED = {
+    "$regex": r"(site\s*visit\s*completed|visit\s*completed|office\s*visit\s*completed)",
+    "$options": "i",
+}
 _RE_NEGOTIATION = {"$regex": r"negotiat", "$options": "i"}
 _RE_ACTIVE_RE_ENGAGE_STATUS = {
     "$regex": r"(contacted|nurtur|follow\s*up)",
     "$options": "i",
 }
 _RE_WAS_COLD = {"$regex": r"gone\s*cold", "$options": "i"}
+
+
+def sv_conducted_status_clause() -> dict:
+    """Visit completed plus SV follow-up pipeline stages."""
+    return {
+        "$or": [
+            {"lead_status": _RE_SV_VISIT_COMPLETED},
+            {"lead_status": SV_FOLLOWUP_STATUS_QUERY},
+            {"lead_status": SV_FOLLOWUP_1_STATUS_QUERY},
+            {"lead_status": SV_FOLLOWUP_2_STATUS_QUERY},
+        ]
+    }
 
 
 def ist_day_window(now_dt: Optional[datetime] = None) -> Tuple[str, datetime, datetime]:
@@ -38,6 +63,24 @@ def ist_day_window(now_dt: Optional[datetime] = None) -> Tuple[str, datetime, da
     )
     day_end_ist = day_start_ist + timedelta(days=1)
     return today_str, day_start_ist.astimezone(timezone.utc), day_end_ist.astimezone(timezone.utc)
+
+
+def ist_tomorrow_window(now_dt: Optional[datetime] = None) -> Tuple[str, datetime, datetime]:
+    """Return (tomorrow_str YYYY-MM-DD in IST, tomorrow_start_utc, tomorrow_end_utc)."""
+    _, _, day_end_utc = ist_day_window(now_dt)
+    tomorrow_start_utc = day_end_utc
+    tomorrow_end_utc = tomorrow_start_utc + timedelta(days=1)
+    tomorrow_ist = tomorrow_start_utc.astimezone(IST)
+    tomorrow_str = tomorrow_ist.strftime("%Y-%m-%d")
+    return tomorrow_str, tomorrow_start_utc, tomorrow_end_utc
+
+
+def ist_recent_cutoff_utc(days: int = 14, now_dt: Optional[datetime] = None) -> datetime:
+    """Rolling window cutoff aligned to IST calendar start of today minus N days."""
+    today_str, day_start_utc, _ = ist_day_window(now_dt)
+    start_ist = datetime.fromisoformat(today_str).replace(tzinfo=IST)
+    cutoff_ist = start_ist - timedelta(days=days)
+    return cutoff_ist.astimezone(timezone.utc)
 
 
 def _active_pipeline_clause() -> dict:
@@ -101,16 +144,38 @@ def _re_engaged_clause(recent_cutoff_utc: datetime) -> dict:
     }
 
 
+def _build_follow_up_today_filter(ctx: dict) -> dict:
+    return merge_query(
+        ctx["base_filter"],
+        follow_up_today_clause(ctx, ctx.get("follow_up_today_task_lead_ids")),
+    )
+
+
+def _build_missed_follow_up_filter(ctx: dict) -> dict:
+    return merge_query(
+        ctx["base_filter"],
+        missed_follow_up_clause(ctx, ctx.get("missed_follow_up_task_lead_ids")),
+    )
+
+
+METRIC_KEY_ALIASES = {
+    "qualified_leads": "active_pipeline",
+}
+
+
+def resolve_metric_key(metric_key: str) -> str:
+    return METRIC_KEY_ALIASES.get(metric_key, metric_key)
+
+
 METRIC_SPECS: List[Dict[str, Any]] = [
     {
-        "key": "qualified_leads",
-        "label": "Qualified leads",
-        "subtitle": "Status contains qualified",
+        "key": "active_pipeline",
+        "label": "Active pipeline",
+        "subtitle": "Contacted, Nurturing, Negotiation",
         "accent": "green",
-        "drill_down": {"type": "virtual_customer", "params": {"metric": "qualified_leads"}},
-        "build_filter": lambda ctx: qualified_leads_filter(),
+        "drill_down": {"type": "virtual_customer", "params": {"metric": "active_pipeline"}},
+        "build_filter": lambda ctx: merge_query(ctx["base_filter"], active_pipeline_filter()),
         "collection": "leads",
-        "org_wide": True,
     },
     {
         "key": "all_leads",
@@ -136,29 +201,19 @@ METRIC_SPECS: List[Dict[str, Any]] = [
     {
         "key": "follow_up_today",
         "label": "Follow up today",
-        "subtitle": "Due today",
+        "subtitle": "Due today (IST)",
         "accent": "amber",
         "drill_down": {"type": "virtual_customer", "params": {"metric": "follow_up_today"}},
-        "build_filter": lambda ctx: merge_query(
-            ctx["base_filter"],
-            _active_pipeline_clause(),
-            {"next_action_date": ctx["today_str"]},
-        ),
+        "build_filter": _build_follow_up_today_filter,
         "collection": "leads",
     },
     {
         "key": "missed_follow_up",
         "label": "Missed follow up",
-        "subtitle": "Overdue follow-ups",
+        "subtitle": "Overdue follow-ups (IST)",
         "accent": "red",
         "drill_down": {"type": "virtual_customer", "params": {"metric": "missed_follow_up"}},
-        "build_filter": lambda ctx: merge_query(
-            ctx["base_filter"],
-            _active_pipeline_clause(),
-            {
-                "next_action_date": {"$exists": True, "$ne": None, "$lt": ctx["today_str"]},
-            },
-        ),
+        "build_filter": _build_missed_follow_up_filter,
         "collection": "leads",
     },
     {
@@ -173,7 +228,7 @@ METRIC_SPECS: List[Dict[str, Any]] = [
     {
         "key": "todays_site_visits",
         "label": "Today's site visits",
-        "subtitle": "Scheduled today",
+        "subtitle": "Scheduled today (IST)",
         "accent": "purple",
         "drill_down": {"type": "virtual_customer", "params": {"metric": "todays_site_visits"}},
         "build_filter": lambda ctx: merge_query(
@@ -185,12 +240,12 @@ METRIC_SPECS: List[Dict[str, Any]] = [
     {
         "key": "sv_conducted",
         "label": "SV conducted",
-        "subtitle": "Visits completed",
+        "subtitle": "Visits completed + SV follow-up",
         "accent": "green",
         "drill_down": {"type": "virtual_customer", "params": {"metric": "sv_conducted"}},
         "build_filter": lambda ctx: merge_query(
             ctx["base_filter"],
-            {"lead_status": _RE_SV_CONDUCTED},
+            sv_conducted_status_clause(),
         ),
         "collection": "leads",
     },
@@ -199,7 +254,6 @@ METRIC_SPECS: List[Dict[str, Any]] = [
         "label": "In negotiation",
         "subtitle": "Active deal discussions",
         "accent": "green",
-        "org_wide": True,
         "drill_down": {"type": "virtual_customer", "params": {"metric": "negotiation"}},
         "build_filter": lambda ctx: merge_query(
             ctx["base_filter"],
@@ -279,6 +333,9 @@ METRIC_SPECS: List[Dict[str, Any]] = [
 ]
 
 _METRIC_BY_KEY = {spec["key"]: spec for spec in METRIC_SPECS}
+for _alias, _canonical in METRIC_KEY_ALIASES.items():
+    if _canonical in _METRIC_BY_KEY:
+        _METRIC_BY_KEY[_alias] = _METRIC_BY_KEY[_canonical]
 
 
 def build_metric_context(
@@ -290,8 +347,7 @@ def build_metric_context(
     now_dt: Optional[datetime] = None,
 ) -> dict:
     today_str, day_start_utc, day_end_utc = ist_day_window(now_dt)
-    now = now_dt or datetime.now(timezone.utc)
-    recent_cutoff_utc = now - timedelta(days=14)
+    recent_cutoff_utc = ist_recent_cutoff_utc(14, now_dt)
     return {
         "base_filter": base_filter or {},
         "uid": uid,
@@ -301,11 +357,36 @@ def build_metric_context(
         "day_start_utc": day_start_utc,
         "day_end_utc": day_end_utc,
         "recent_cutoff_utc": recent_cutoff_utc,
+        "follow_up_today_task_lead_ids": [],
+        "missed_follow_up_task_lead_ids": [],
     }
 
 
+async def enrich_follow_up_task_ids(ctx: dict, *, base_filter: Optional[dict] = None) -> dict:
+    """Populate task-backed lead ids for follow-up metrics, scoped to base_filter when provided."""
+    today_str = ctx["today_str"]
+    scope_lead_ids: Optional[List[str]] = None
+    if base_filter:
+        scope_lead_ids = []
+        async for doc in db.leads.find(base_filter or {}, {"_id": 0, "id": 1}):
+            lid = (doc.get("id") or "").strip()
+            if lid:
+                scope_lead_ids.append(lid)
+        if not scope_lead_ids:
+            ctx["follow_up_today_task_lead_ids"] = []
+            ctx["missed_follow_up_task_lead_ids"] = []
+            return ctx
+    today_ids, missed_ids = await asyncio.gather(
+        pending_task_due_lead_ids(today_str, due_today=True, scope_lead_ids=scope_lead_ids),
+        pending_task_due_lead_ids(today_str, overdue=True, scope_lead_ids=scope_lead_ids),
+    )
+    ctx["follow_up_today_task_lead_ids"] = today_ids
+    ctx["missed_follow_up_task_lead_ids"] = missed_ids
+    return ctx
+
+
 def metric_filter_for_key(metric_key: str, ctx: dict) -> dict:
-    spec = _METRIC_BY_KEY.get(metric_key)
+    spec = _METRIC_BY_KEY.get(resolve_metric_key(metric_key))
     if not spec:
         return {}
     return spec["build_filter"](ctx)
@@ -330,7 +411,7 @@ async def count_org_wide_metrics(
     )
 
 
-def build_dashboard_operational_facet_pipeline(
+async def build_dashboard_operational_facet_pipeline(
     snapshot_base: dict,
     metric_keys: tuple[str, ...],
     *,
@@ -343,13 +424,15 @@ def build_dashboard_operational_facet_pipeline(
         is_manager=False,
         now_dt=now_dt,
     )
+    await enrich_follow_up_task_ids(ctx, base_filter=snapshot_base or {})
     facet: Dict[str, List[dict]] = {}
     for key in metric_keys:
         spec = _METRIC_BY_KEY.get(key)
         if not spec or spec.get("collection") != "leads":
             facet[key] = [{"$limit": 0}, {"$count": "n"}]
         else:
-            facet[key] = [{"$match": spec["build_filter"](ctx)}, {"$count": "n"}]
+            filt = merge_query(snapshot_base or {}, spec["build_filter"](ctx))
+            facet[key] = [{"$match": filt}, {"$count": "n"}]
     return [{"$facet": facet}]
 
 
@@ -369,7 +452,7 @@ async def count_dashboard_operational_metrics(
     """One aggregation for dashboard operational tiles (same filters as count_org_wide_metrics)."""
     if not metric_keys:
         return {}
-    pipeline = build_dashboard_operational_facet_pipeline(
+    pipeline = await build_dashboard_operational_facet_pipeline(
         snapshot_base, metric_keys, now_dt=now_dt
     )
     rows = await db.leads.aggregate(pipeline).to_list(1)
@@ -377,6 +460,35 @@ async def count_dashboard_operational_metrics(
         return {key: 0 for key in metric_keys}
     doc = rows[0]
     return {key: _operational_facet_count(doc, key) for key in metric_keys}
+
+
+async def build_lead_overview_facet_pipeline(ctx: dict) -> List[Dict[str, Any]]:
+    """Single $facet for all lead-collection overview metrics."""
+    facet: Dict[str, List[dict]] = {}
+    for spec in METRIC_SPECS:
+        if spec.get("collection") != "leads":
+            continue
+        filt = spec["build_filter"](ctx)
+        facet[spec["key"]] = [{"$match": filt}, {"$count": "n"}]
+    return [{"$facet": facet}] if facet else []
+
+
+async def build_transfer_overview_facet_pipeline(ctx: dict) -> List[Dict[str, Any]]:
+    """Single $facet for transfer-collection overview metrics."""
+    facet: Dict[str, List[dict]] = {}
+    for spec in METRIC_SPECS:
+        if spec.get("collection") != "transfers":
+            continue
+        filt = spec["build_filter"](ctx)
+        facet[spec["key"]] = [{"$match": filt}, {"$count": "n"}]
+    return [{"$facet": facet}] if facet else []
+
+
+def _facet_count(facet_doc: dict, key: str) -> int:
+    branch = facet_doc.get(key) or []
+    if not branch:
+        return 0
+    return int(branch[0].get("n", 0))
 
 
 async def build_lead_overview_metrics(
@@ -390,15 +502,38 @@ async def build_lead_overview_metrics(
     ctx = build_metric_context(
         base_filter, uid=uid, name=name, is_manager=is_manager, now_dt=now_dt
     )
-    counts = await asyncio.gather(*[_count_for_spec(spec, ctx) for spec in METRIC_SPECS])
+    await enrich_follow_up_task_ids(ctx, base_filter=base_filter)
+
+    lead_pipeline = await build_lead_overview_facet_pipeline(ctx)
+    transfer_pipeline = await build_transfer_overview_facet_pipeline(ctx)
+
+    async def _empty_rows():
+        return []
+
+    lead_rows, transfer_rows = await asyncio.gather(
+        db.leads.aggregate(lead_pipeline).to_list(1) if lead_pipeline else _empty_rows(),
+        db.lead_transfers.aggregate(transfer_pipeline).to_list(1) if transfer_pipeline else _empty_rows(),
+    )
+
+    counts_by_key: Dict[str, int] = {}
+    if lead_rows:
+        doc = lead_rows[0]
+        for spec in METRIC_SPECS:
+            if spec.get("collection") == "leads":
+                counts_by_key[spec["key"]] = _facet_count(doc, spec["key"])
+    if transfer_rows:
+        doc = transfer_rows[0]
+        for spec in METRIC_SPECS:
+            if spec.get("collection") == "transfers":
+                counts_by_key[spec["key"]] = _facet_count(doc, spec["key"])
 
     metrics = []
-    for spec, count in zip(METRIC_SPECS, counts):
+    for spec in METRIC_SPECS:
         metrics.append(
             {
                 "key": spec["key"],
                 "label": spec["label"],
-                "count": count,
+                "count": counts_by_key.get(spec["key"], 0),
                 "subtitle": spec["subtitle"],
                 "accent": spec["accent"],
                 "drill_down": spec["drill_down"],

@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState, useRef, useLayoutEffect } from 'react';
+import React, { memo, useMemo, useState, useRef, useLayoutEffect, useCallback } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { Crown, ListChecks } from 'lucide-react';
 import {
@@ -19,15 +19,16 @@ import {
   getOwnerDisplay,
   getRecentNote,
 } from '../../utils/leadTable';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { CrmBadge } from '../ui/CrmBadge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import {
   shouldUseVirtualList,
-  VIRTUAL_ROW_ESTIMATE_PX,
+  getVirtualRowEstimate,
 } from '../../constants/performanceFlags';
 
 const COLUMN_COUNT = 9;
 
-const LEAD_TABLE_COLUMNS = [200, 120, 140, 100, 160, 140, 120, 280, 88];
+const LEAD_TABLE_COLUMNS = [200, 160, 148, 100, 160, 140, 120, 280, 88];
 
 function LeadTableColGroup() {
   return (
@@ -39,7 +40,7 @@ function LeadTableColGroup() {
   );
 }
 
-const TABLE_LAYOUT_CLASS = 'table-fixed min-w-[1348px] w-full caption-bottom text-sm';
+const TABLE_LAYOUT_CLASS = 'table-fixed min-w-[1388px] w-full caption-bottom text-sm';
 
 const RecentNoteCell = memo(function RecentNoteCell({ note, leadId, onResize }) {
   const [expanded, setExpanded] = useState(false);
@@ -101,11 +102,15 @@ const LeadTableRow = memo(function LeadTableRow({
   onNote,
   onOpenLeadTasks,
   onRowResize,
+  density = 'comfortable',
   'data-index': dataIndex,
 }) {
   const rowRef = useRef(null);
   const owner = getOwnerDisplay(lead);
   const fullName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim();
+  const cellPy = density === 'compact' ? 'py-1.5' : 'py-2.5';
+  const textSize = density === 'compact' ? 'text-xs' : 'text-sm';
+  const avatarSize = density === 'compact' ? 'sm' : 'md';
 
   const handleNoteResize = () => {
     requestAnimationFrame(() => onRowResize?.(rowRef.current));
@@ -119,15 +124,15 @@ const LeadTableRow = memo(function LeadTableRow({
       onClick={() => onRowClick(lead.id)}
       data-testid={`lead-row-${lead.id}`}
     >
-      <TableCell className="py-2.5 w-[200px] max-w-[200px] overflow-hidden">
-        <div className="flex items-center gap-3 min-w-0 w-full overflow-hidden">
+      <TableCell className={`${cellPy} w-[200px] max-w-[200px] overflow-hidden`}>
+        <div className={`flex items-center ${density === 'compact' ? 'gap-2' : 'gap-3'} min-w-0 w-full overflow-hidden`}>
           <div className="flex-shrink-0">
-            <LeadAvatar lead={lead} size="md" />
+            <LeadAvatar lead={lead} size={avatarSize} />
           </div>
           <div className="min-w-0 flex-1 overflow-hidden">
             <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
               <span
-                className="text-white font-medium text-sm truncate"
+                className={`text-white font-medium ${textSize} truncate`}
                 title={fullName || undefined}
               >
                 {lead.first_name} {lead.last_name}
@@ -139,32 +144,34 @@ const LeadTableRow = memo(function LeadTableRow({
           </div>
         </div>
       </TableCell>
-      <TableCell className="py-2.5">
-        <LeadStatusBadge status={lead.lead_status} temperature={lead.temperature} />
+      <TableCell className={`${cellPy} w-[160px] max-w-[160px] min-w-0 overflow-hidden`}>
+        <div className="min-w-0 max-w-full">
+          <LeadStatusBadge status={lead.lead_status} temperature={lead.temperature} />
+        </div>
       </TableCell>
-      <TableCell className="py-2.5">
+      <TableCell className={`${cellPy} w-[148px] max-w-[148px] min-w-0 overflow-hidden`}>
         {followUp ? (
           <button
             type="button"
-            className="text-white text-sm font-medium hover:text-[#C5A059] underline-offset-2 hover:underline"
+            className={`text-white ${textSize} font-medium hover:text-[#C5A059] underline-offset-2 hover:underline truncate block max-w-full text-left`}
             onClick={(e) => {
               e.stopPropagation();
               onOpenLeadTasks?.(lead, { highlightTaskId: earliestTaskId || null });
             }}
-            title="Click to view tasks for this lead"
+            title={followUp}
             data-testid={`lead-followup-${lead.id}`}
           >
             {followUp}
           </button>
         ) : (
-          <span className="text-[#52525B] text-sm">—</span>
+          <span className={`text-[#52525B] ${textSize}`}>—</span>
         )}
       </TableCell>
-      <TableCell className="py-2.5">
+      <TableCell className={cellPy}>
         {taskCount > 0 ? (
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 text-amber-400 text-sm hover:text-[#C5A059]"
+            className={`inline-flex items-center gap-1.5 text-amber-400 ${textSize} hover:text-[#C5A059]`}
             onClick={(e) => {
               e.stopPropagation();
               onOpenLeadTasks?.(lead, { highlightTaskId: null });
@@ -173,38 +180,38 @@ const LeadTableRow = memo(function LeadTableRow({
             data-testid={`lead-active-tasks-${lead.id}`}
           >
             <ListChecks size={14} />
-            <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full text-xs font-medium">
+            <CrmBadge variant="warning" size="xs">
               {taskCount} pending
-            </span>
+            </CrmBadge>
           </button>
         ) : (
-          <span className="text-[#52525B] text-sm">—</span>
+          <span className={`text-[#52525B] ${textSize}`}>—</span>
         )}
       </TableCell>
-      <TableCell className="py-2.5 max-w-[200px]">
-        <span className="text-[#A1A1AA] text-sm truncate block" title={lead.project || ''}>
+      <TableCell className={`${cellPy} max-w-[200px]`}>
+        <span className={`text-[#A1A1AA] ${textSize} truncate block`} title={lead.project || ''}>
           {lead.project || '—'}
         </span>
       </TableCell>
-      <TableCell className="py-2.5">
+      <TableCell className={cellPy}>
         <div className="flex items-center gap-2 min-w-0">
           {owner !== '—' && (
             <LeadAvatar lead={{ first_name: owner, last_name: '', id: owner }} size="sm" />
           )}
-          <span className="text-[#A1A1AA] text-sm truncate" title={owner}>
+          <span className={`text-[#A1A1AA] ${textSize} truncate`} title={owner}>
             {owner}
           </span>
         </div>
       </TableCell>
-      <TableCell className="py-2.5 max-w-[140px]">
-        <span className="text-[#52525B] text-sm truncate block" title={lead.lead_source || ''}>
+      <TableCell className={`${cellPy} max-w-[140px]`}>
+        <span className={`text-[#52525B] ${textSize} truncate block`} title={lead.lead_source || ''}>
           {lead.lead_source || '—'}
         </span>
       </TableCell>
-      <TableCell className="py-2.5 overflow-hidden">
+      <TableCell className={`${cellPy} overflow-hidden`}>
         <RecentNoteCell note={recentNote} leadId={lead.id} onResize={handleNoteResize} />
       </TableCell>
-      <TableCell className="py-2.5">
+      <TableCell className={cellPy}>
         <LeadRowActions leadId={lead.id} onNote={onNote} />
       </TableCell>
     </TableRow>
@@ -218,15 +225,15 @@ function LeadTableHeader() {
         <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[200px]">
           Name
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[120px]">
+        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[160px] w-[160px]">
           Status
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[140px]">
+        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[148px] w-[148px]">
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="cursor-help">Next follow-up</span>
             </TooltipTrigger>
-            <TooltipContent>
+            <TooltipContent className="bg-[#1A1A1A] border border-white/10 text-[#EDEDED]">
               Earliest of next_action_date or earliest pending task due time.
             </TooltipContent>
           </Tooltip>
@@ -236,7 +243,7 @@ function LeadTableHeader() {
             <TooltipTrigger asChild>
               <span className="cursor-help">Active tasks</span>
             </TooltipTrigger>
-            <TooltipContent>Pending tasks linked to this lead.</TooltipContent>
+            <TooltipContent className="bg-[#1A1A1A] border border-white/10 text-[#EDEDED]">Pending tasks linked to this lead.</TooltipContent>
           </Tooltip>
         </TableHead>
         <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[160px]">
@@ -259,7 +266,7 @@ function LeadTableHeader() {
   );
 }
 
-function renderLeadRows(rows, handlers) {
+function renderLeadRows(rows, handlers, density) {
   return rows.map((row) => (
     <LeadTableRow
       key={row.lead.id}
@@ -269,6 +276,7 @@ function renderLeadRows(rows, handlers) {
       earliestTaskId={row.earliestTaskId}
       recentNote={row.recentNote}
       tint={row.tint}
+      density={density}
       onRowClick={handlers.onRowClick}
       onNote={handlers.onNote}
       onOpenLeadTasks={handlers.onOpenLeadTasks}
@@ -276,7 +284,7 @@ function renderLeadRows(rows, handlers) {
   ));
 }
 
-export function LeadDataTable({
+export const LeadDataTable = memo(function LeadDataTable({
   leads,
   loading,
   pendingTaskMap,
@@ -286,8 +294,8 @@ export function LeadDataTable({
   onView,
   onNote,
   onOpenLeadTasks,
+  density = 'comfortable',
 }) {
-  const resolvedEarliestMap = earliestTaskMap;
   const tableAnchorRef = useRef(null);
   const [scrollMargin, setScrollMargin] = useState(0);
 
@@ -299,15 +307,15 @@ export function LeadDataTable({
       return {
         lead,
         taskCount,
-        followUp: formatFollowUp(lead, pendingTasksList, pendingTaskMap, resolvedEarliestMap),
-        earliestTaskId: resolvedEarliestMap?.get(lead.id)?.id || null,
+        followUp: formatFollowUp(lead, [], pendingTaskMap, earliestTaskMap),
+        earliestTaskId: earliestTaskMap?.get(lead.id)?.id || null,
         recentNote: getRecentNote(lead),
         tint: isNurtureTemp
           ? getNurtureTemperatureTintClass(lead.lead_status, t, { includeHover: true })
           : '',
       };
     });
-  }, [leads, pendingTaskMap, pendingTasksList, resolvedEarliestMap]);
+  }, [leads, pendingTaskMap, earliestTaskMap]);
 
   const useVirtualTable = shouldUseVirtualList(rows.length);
 
@@ -328,7 +336,7 @@ export function LeadDataTable({
 
   const rowVirtualizer = useWindowVirtualizer({
     count: rows.length,
-    estimateSize: () => VIRTUAL_ROW_ESTIMATE_PX,
+    estimateSize: () => getVirtualRowEstimate(density),
     overscan: 10,
     scrollMargin,
     enabled: useVirtualTable,
@@ -340,11 +348,17 @@ export function LeadDataTable({
     ? rowVirtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
     : 0;
 
-  const rowHandlers = {
-    onRowClick,
-    onNote,
-    onOpenLeadTasks,
-  };
+  const measureElementRef = useRef(null);
+  measureElementRef.current = rowVirtualizer.measureElement;
+
+  const handleRowResize = useCallback((rowEl) => {
+    if (rowEl) measureElementRef.current?.(rowEl);
+  }, []);
+
+  const rowHandlers = useMemo(
+    () => ({ onRowClick, onNote, onOpenLeadTasks }),
+    [onRowClick, onNote, onOpenLeadTasks],
+  );
 
   if (loading) {
     return (
@@ -373,57 +387,54 @@ export function LeadDataTable({
       className="rounded-lg border border-white/5 bg-[#1A1A1A] overflow-x-auto"
       data-testid="lead-data-table"
     >
-      <TooltipProvider>
-        {useVirtualTable ? (
-          <table className={TABLE_LAYOUT_CLASS}>
-            <LeadTableColGroup />
-            <LeadTableHeader />
-            <TableBody>
-              {paddingTop > 0 && (
-                <TableRow aria-hidden className="border-0 hover:bg-transparent">
-                  <TableCell colSpan={COLUMN_COUNT} style={{ height: paddingTop, padding: 0, border: 0 }} />
-                </TableRow>
-              )}
-              {virtualItems.map((vi) => {
-                const row = rows[vi.index];
-                return (
-                  <LeadTableRow
-                    key={row.lead.id}
-                    data-index={vi.index}
-                    lead={row.lead}
-                    taskCount={row.taskCount}
-                    followUp={row.followUp}
-                    earliestTaskId={row.earliestTaskId}
-                    recentNote={row.recentNote}
-                    tint={row.tint}
-                    onRowClick={onRowClick}
-                    onNote={onNote}
-                    onOpenLeadTasks={onOpenLeadTasks}
-                    onRowResize={(rowEl) => {
-                      if (rowEl) rowVirtualizer.measureElement(rowEl);
-                    }}
-                  />
-                );
-              })}
-              {paddingBottom > 0 && (
-                <TableRow aria-hidden className="border-0 hover:bg-transparent">
-                  <TableCell colSpan={COLUMN_COUNT} style={{ height: paddingBottom, padding: 0, border: 0 }} />
-                </TableRow>
-              )}
-            </TableBody>
-          </table>
-        ) : (
-          <Table className={TABLE_LAYOUT_CLASS}>
-            <LeadTableColGroup />
-            <LeadTableHeader />
-            <TableBody>
-              {renderLeadRows(rows, rowHandlers)}
-            </TableBody>
-          </Table>
-        )}
-      </TooltipProvider>
+      {useVirtualTable ? (
+        <table className={TABLE_LAYOUT_CLASS}>
+          <LeadTableColGroup />
+          <LeadTableHeader />
+          <TableBody>
+            {paddingTop > 0 && (
+              <TableRow aria-hidden className="border-0 hover:bg-transparent">
+                <TableCell colSpan={COLUMN_COUNT} style={{ height: paddingTop, padding: 0, border: 0 }} />
+              </TableRow>
+            )}
+            {virtualItems.map((vi) => {
+              const row = rows[vi.index];
+              return (
+                <LeadTableRow
+                  key={row.lead.id}
+                  data-index={vi.index}
+                  lead={row.lead}
+                  taskCount={row.taskCount}
+                  followUp={row.followUp}
+                  earliestTaskId={row.earliestTaskId}
+                  recentNote={row.recentNote}
+                  tint={row.tint}
+                  onRowClick={onRowClick}
+                  onNote={onNote}
+                  onOpenLeadTasks={onOpenLeadTasks}
+                  density={density}
+                  onRowResize={handleRowResize}
+                />
+              );
+            })}
+            {paddingBottom > 0 && (
+              <TableRow aria-hidden className="border-0 hover:bg-transparent">
+                <TableCell colSpan={COLUMN_COUNT} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+              </TableRow>
+            )}
+          </TableBody>
+        </table>
+      ) : (
+        <Table className={TABLE_LAYOUT_CLASS}>
+          <LeadTableColGroup />
+          <LeadTableHeader />
+          <TableBody>
+            {renderLeadRows(rows, rowHandlers, density)}
+          </TableBody>
+        </Table>
+      )}
     </div>
   );
-}
+});
 
 export default LeadDataTable;

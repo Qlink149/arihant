@@ -50,7 +50,15 @@ export const METRIC_LABELS = {
 
   re_engaged: 'Re-engaged',
 
-  qualified_leads: 'Qualified leads',
+  active_pipeline: 'Active pipeline',
+
+  qualified_leads: 'Active pipeline',
+
+  negotiation: 'In negotiation',
+
+  leads_received: 'Leads received',
+
+  leads_transferred: 'Leads transferred',
 
   dormant: 'Dormant leads',
 
@@ -101,6 +109,10 @@ const KEY_ICON_FALLBACK = {
   gone_cold: Snowflake,
 
   re_engaged: RefreshCw,
+
+  active_pipeline: Target,
+
+  qualified_leads: Target,
 
   leads_received: ArrowDownLeft,
 

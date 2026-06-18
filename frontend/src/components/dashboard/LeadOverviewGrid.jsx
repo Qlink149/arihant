@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { myDashboardAPI } from '../../services/api';
+import React, { memo, useCallback } from 'react';
 import { LeadOverviewCard } from './LeadOverviewCard';
 import { resolveDrillDown } from '../../utils/leadOverview';
 import { Button } from '../ui/button';
 
-const SKELETON_COUNT = 12;
+const SKELETON_COUNT = 14;
 
 const GRID_CLASS =
   'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3';
@@ -23,38 +22,25 @@ function MetricSkeleton() {
   );
 }
 
-export function LeadOverviewGrid({ onDrillDown, refreshToken = 0 }) {
-  const [metrics, setMetrics] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const fetchOverview = useCallback(async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      const { data } = await myDashboardAPI.getLeadOverview();
-      setMetrics(Array.isArray(data?.metrics) ? data.metrics : []);
-    } catch {
-      setError('Could not load lead overview');
-      setMetrics([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchOverview();
-  }, [fetchOverview, refreshToken]);
-
-  const handleCardClick = (metric) => {
-    if (metric?.drill_down) {
-      if (onDrillDown) {
-        onDrillDown(metric.drill_down, metric);
-      } else {
-        resolveDrillDown(metric.drill_down, {});
+export const LeadOverviewGrid = memo(function LeadOverviewGrid({
+  onDrillDown,
+  metrics = [],
+  loading = false,
+  error = null,
+  onRetry,
+}) {
+  const handleCardClick = useCallback(
+    (metric) => {
+      if (metric?.drill_down) {
+        if (onDrillDown) {
+          onDrillDown(metric.drill_down, metric);
+        } else {
+          resolveDrillDown(metric.drill_down, {});
+        }
       }
-    }
-  };
+    },
+    [onDrillDown],
+  );
 
   if (loading) {
     return (
@@ -78,7 +64,7 @@ export function LeadOverviewGrid({ onDrillDown, refreshToken = 0 }) {
           variant="outline"
           size="sm"
           className="border-white/10 text-[#EDEDED]"
-          onClick={fetchOverview}
+          onClick={onRetry}
         >
           Retry
         </Button>
@@ -100,6 +86,6 @@ export function LeadOverviewGrid({ onDrillDown, refreshToken = 0 }) {
       </div>
     </section>
   );
-}
+});
 
 export default LeadOverviewGrid;

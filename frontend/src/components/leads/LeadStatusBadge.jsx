@@ -1,37 +1,37 @@
 import React from 'react';
-import { getStatusBadgeClass } from '../../utils/leadTable';
+import { getStatusBadgeVariant } from '../../constants/badgeVariants';
 import { formatStatusDisplay, isNurturingStatus } from '../../utils/nurtureLabel';
+import { CrmBadge } from '../ui/CrmBadge';
 import { TemperatureBadge } from './TemperatureBadge';
 
 export function LeadStatusBadge({ status, temperature, className = '' }) {
   const t = (temperature || '').trim();
   const isNurtureTemp = isNurturingStatus(status) && (t === 'Hot' || t === 'Warm');
+  const variant = getStatusBadgeVariant(status);
+  const isNew = variant === 'new';
 
   if (isNurtureTemp) {
     return (
-      <span className={`inline-flex items-center gap-1.5 ${className}`}>
-        <span
-          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${getStatusBadgeClass(
-            status
-          )}`}
-          data-testid="status-badge-nurturing"
-        >
+      <span className={`inline-flex flex-wrap items-center gap-1 max-w-full ${className}`}>
+        <CrmBadge variant="orange" data-testid="status-badge-nurturing">
           Nurturing
-        </span>
+        </CrmBadge>
         <TemperatureBadge temperature={t} />
       </span>
     );
   }
 
   const display = formatStatusDisplay(status, temperature);
-  const isNew = (status || '') === 'New' || /^new$/i.test(status || '');
+
   return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${getStatusBadgeClass(status)} ${isNew ? 'animate-pulse' : ''} ${className}`}
+    <CrmBadge
+      variant={variant}
+      pulse={isNew}
+      className={className}
       data-testid={`status-badge-${String(display).replace(/\s+/g, '-').toLowerCase()}`}
     >
       {display}
-    </span>
+    </CrmBadge>
   );
 }
 

@@ -24,11 +24,12 @@ SLA_REASON_BY_KEY: Dict[tuple, str] = {
     ("visit_scheduled", "missing_date"): "Site visit scheduled but visit date is missing.",
     ("visit_scheduled", "pre_24h"): "Site visit is within 24 hours — send client reminder.",
     ("visit_scheduled", "post_24h"): "Site visit was 24+ hours ago — post-visit follow-up needed.",
-    ("visit_completed", "48h"): "Site visit completed 48+ hours ago — push for booking.",
-    ("visit_completed", "72h"): "Site visit completed 72+ hours ago — admin review required.",
-    ("negotiation", "48h"): "Negotiation stage with no update for 48+ hours.",
+    ("visit_completed", "3d"): "Site visit completed 3+ days ago — follow up today.",
+    ("sv_followup_1", "7d"): "SV Follow-up 1 — 7-day follow-up due.",
+    ("sv_followup_2", "20d"): "SV Follow-up 2 — 20-day follow-up due; admin notified.",
     ("sv_followup", "72h"): "SV Follow Up — confirm booking intent (72h overdue).",
     ("sv_followup", "7d"): "SV Follow Up — 7-day follow-up cap reached.",
+    ("negotiation", "48h"): "Negotiation stage with no update for 48+ hours.",
     ("negotiation", "stalled_7d"): "Negotiation stalled — no activity for 7 days.",
     ("negotiation", "admin_15d"): "Negotiation overdue — Admin review required (15 days).",
     ("gone_cold", "30d"): "Gone cold lead inactive for 30+ days — re-engage or close.",
@@ -78,11 +79,14 @@ def compute_task_reason(task: dict, latest_note: Optional[str]) -> Optional[str]
         reason = sla_task_reason(task)
         if reason:
             return reason
-    if latest_note:
-        return _truncate(latest_note)
     desc = (task.get("description") or "").strip()
     if desc and task.get("lead_id"):
+        # For normal (non-SLA) tasks, showing the lead's latest note can be misleading because
+        # it's the same across all tasks on that lead (e.g., "Task: ... Assigned to: X").
+        # Prefer the task's own description to keep the list accurate.
         return desc
+    if latest_note:
+        return _truncate(latest_note)
     return None
 
 

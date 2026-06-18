@@ -1,9 +1,14 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { notificationsAPI, activityAPI } from '../../services/api';
-import { connectNotificationsStream, playNotificationBeep } from '../../utils/notificationsSSE';
+import { connectNotificationsStream } from '../../utils/notificationsSSE';
+import {
+  alertNotification,
+  alertNewNotificationsFromPoll,
+  unlockNotificationAudio,
+} from '../../utils/notificationAlerts';
 import { useMarkAllNotificationsRead } from '../../hooks/useMarkAllNotificationsRead';
 import {
   LayoutDashboard,
@@ -14,6 +19,7 @@ import {
   X,
   Bell,
   ChevronRight,
+  ChevronLeft,
   Sun,
   Moon,
   Clock,
@@ -24,17 +30,40 @@ import {
   UserCircle,
   TrendingUp,
   Shield,
+  RefreshCw,
 } from 'lucide-react';
+import {
+  getNotificationUrgencyLabel,
+  getNotificationUrgencyVariant,
+} from '../../constants/badgeVariants';
+import { CrmBadge } from '../ui/CrmBadge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../ui/tooltip';
+
+const SIDEBAR_COLLAPSED_KEY = 'sidebar-collapsed';
 
 const DashboardLayout = () => {
   const { user, logout, isImpersonating, exitImpersonation } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const soundEnabledRef = useRef(true);
+  const knownNotificationIds = useRef(new Set());
+  const notificationsInitialized = useRef(false);
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? JSON.parse(saved) : true;
@@ -60,20 +89,43 @@ const DashboardLayout = () => {
     return items;
   }, [isAdmin, user?.is_platform_operator, isImpersonating]);
 
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const response = await notificationsAPI.getAll();
+      const incoming = response.data || [];
+      const isInitial = !notificationsInitialized.current;
+      const { nextIds } = alertNewNotificationsFromPoll(
+        knownNotificationIds.current,
+        incoming,
+        {
+          onView: (leadId) => {
+            if (leadId) navigateRef.current(`/lead/${leadId}`);
+          },
+          isInitialLoad: isInitial,
+        }
+      );
+      knownNotificationIds.current = nextIds;
+      notificationsInitialized.current = true;
+      setNotifications(incoming);
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+    }
+  }, []);
+
   useEffect(() => {
-    soundEnabledRef.current = soundEnabled;
-  }, [soundEnabled]);
+    const unlock = () => unlockNotificationAudio();
+    document.addEventListener('click', unlock, { once: true });
+    document.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      document.removeEventListener('click', unlock);
+      document.removeEventListener('keydown', unlock);
+    };
+  }, []);
 
   useEffect(() => {
     fetchNotifications();
     // Poll for notifications every 30 seconds (fallback)
     const interval = setInterval(fetchNotifications, 30000);
-
-    // Load user notification preferences
-    notificationsAPI
-      .getPreferences()
-      .then(({ data }) => setSoundEnabled(Boolean(data?.notification_sound_enabled)))
-      .catch(() => {});
 
     // SSE notifications stream (authenticated via fetch headers)
     const stop = connectNotificationsStream({
@@ -82,9 +134,15 @@ const DashboardLayout = () => {
         setNotifications((prev) => {
           const id = n?.id;
           if (id && prev.some((x) => x.id === id)) return prev;
+          if (id) knownNotificationIds.current.add(id);
           return [n, ...prev].slice(0, 100);
         });
-        if (soundEnabledRef.current) playNotificationBeep();
+        alertNotification(n, {
+          onView: (leadId) => {
+            if (leadId) navigateRef.current(`/lead/${leadId}`);
+          },
+          source: 'sse',
+        });
       },
       onError: () => {
         /* keep polling fallback */
@@ -95,7 +153,7 @@ const DashboardLayout = () => {
       clearInterval(interval);
       stop?.();
     };
-  }, []);
+  }, [fetchNotifications]);
 
   // Send heartbeat every 2 minutes
   useEffect(() => {
@@ -119,15 +177,6 @@ const DashboardLayout = () => {
     }
   }, [darkMode]);
 
-  const fetchNotifications = async () => {
-    try {
-      const response = await notificationsAPI.getAll();
-      setNotifications(response.data || []);
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error);
-    }
-  };
-
   const { markAllRead: handleMarkAllRead, busy: markAllBusy } = useMarkAllNotificationsRead({
     getItems: () => notifications,
     setItems: setNotifications,
@@ -137,7 +186,7 @@ const DashboardLayout = () => {
   const handleMarkRead = async (id) => {
     try {
       await notificationsAPI.markRead(id);
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
     } catch (error) {
       console.error('Failed to mark notification read:', error);
     }
@@ -152,12 +201,58 @@ const DashboardLayout = () => {
     setDarkMode(!darkMode);
   };
 
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  const renderNavLink = (item, { onNavigate, collapsed = false } = {}) => {
+    const link = (
+      <NavLink
+        to={item.path}
+        onClick={onNavigate}
+        className={({ isActive }) =>
+          `flex items-center transition-all ${
+            collapsed ? 'justify-center px-3 py-2.5' : 'gap-3 px-6 py-3'
+          } text-sm ${
+            isActive
+              ? 'text-[#C5A059] bg-[#C5A059]/10 border-r-2 border-[#C5A059]'
+              : darkMode
+                ? 'text-[#A1A1AA] hover:text-white hover:bg-white/5'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`
+        }
+        data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+      >
+        <item.icon size={20} strokeWidth={1.5} className="shrink-0" />
+        {!collapsed && <span className="truncate">{item.label}</span>}
+      </NavLink>
+    );
+
+    if (!collapsed) return link;
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">{item.label}</TooltipContent>
+      </Tooltip>
+    );
+  };
+
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'rnr_followup': return Phone;
       case 'dormant_lead': case 'stale_lead': return Clock;
       case 'task_reminder': case 'task_overdue': return Calendar;
       case 'new_lead_assigned': return AlertTriangle;
+      case 'lead_status_changed': return RefreshCw;
       case 'site_visit_reminder': return Calendar;
       case 'campaign_alert': return AlertTriangle;
       default: return AlertTriangle;
@@ -165,9 +260,12 @@ const DashboardLayout = () => {
   };
 
   const getUrgencyColor = (n) => {
-    if (n.urgency === 'urgent' || n.severity === 'high') return { bg: 'bg-red-500/20', text: 'text-red-500', label: 'Urgent' };
-    if (n.urgency === 'action_needed' || n.severity === 'medium') return { bg: 'bg-amber-500/20', text: 'text-amber-500', label: 'Action Needed' };
-    return { bg: 'bg-gray-500/20', text: 'text-gray-400', label: 'Info' };
+    const variant = getNotificationUrgencyVariant(n);
+    return {
+      variant,
+      iconClass: `crm-urgency-icon--${variant}`,
+      label: getNotificationUrgencyLabel(n),
+    };
   };
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
@@ -176,59 +274,79 @@ const DashboardLayout = () => {
   return (
     <div className={`min-h-screen flex ${darkMode ? 'bg-[#0A0A0A]' : 'bg-gray-100'}`}>
       {/* Sidebar - Desktop */}
-      <aside className={`hidden lg:flex flex-col w-64 ${darkMode ? 'bg-[#0A0A0A] border-white/10' : 'bg-white border-gray-200'} border-r fixed h-full`}>
-        {/* Logo */}
-        <div className={`p-6 border-b ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
-          <img
-            src="https://cdn.prod.website-files.com/677bb760b33b5fd3ff036767/677bbae243140d29ba5e1fc0_Arihant%20W%20Logo.svg"
-            alt="Arihant"
-            className={`h-8 ${!darkMode ? 'filter invert' : ''}`}
-            data-testid="sidebar-logo"
-          />
+      <aside
+        className={`hidden lg:flex flex-col fixed h-full border-r transition-[width] duration-200 overflow-hidden ${
+          sidebarCollapsed ? 'w-16' : 'w-64'
+        } ${darkMode ? 'bg-[#0A0A0A] border-white/10' : 'bg-white border-gray-200'}`}
+      >
+        <div className={`flex items-center border-b ${sidebarCollapsed ? 'p-3 justify-center' : 'p-4 justify-between'} ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
+          {!sidebarCollapsed && (
+            <img
+              src="https://cdn.prod.website-files.com/677bb760b33b5fd3ff036767/677bbae243140d29ba5e1fc0_Arihant%20W%20Logo.svg"
+              alt="Arihant"
+              className={`h-7 ${!darkMode ? 'filter invert' : ''}`}
+              data-testid="sidebar-logo"
+            />
+          )}
+          <button
+            type="button"
+            onClick={toggleSidebarCollapsed}
+            className={`p-1.5 rounded-md transition-colors ${darkMode ? 'text-[#A1A1AA] hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+            data-testid="sidebar-collapse-toggle"
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          </button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 py-6">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-6 py-3 text-sm transition-all ${
-                  isActive
-                    ? 'text-[#C5A059] bg-[#C5A059]/10 border-r-2 border-[#C5A059]'
-                    : darkMode 
-                      ? 'text-[#A1A1AA] hover:text-white hover:bg-white/5'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`
-              }
-              data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-            >
-              <item.icon size={20} strokeWidth={1.5} />
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
+        <TooltipProvider delayDuration={200}>
+          <nav className="flex-1 py-4 overflow-y-auto overflow-x-hidden">
+            {navItems.map((item) => (
+              <React.Fragment key={item.path}>
+                {renderNavLink(item, { collapsed: sidebarCollapsed })}
+              </React.Fragment>
+            ))}
+          </nav>
+        </TooltipProvider>
 
-        {/* User Section */}
-        <div className={`p-4 border-t ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
-          <div className="flex items-center gap-3 px-2 py-3">
-            <div className="w-10 h-10 rounded-full bg-[#C5A059] flex items-center justify-center text-black font-medium">
-              {user?.full_name?.charAt(0) || 'R'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className={`text-sm truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{user?.full_name || 'Roshini'}</p>
-              <p className={`text-xs truncate ${darkMode ? 'text-[#52525B]' : 'text-gray-500'}`}>{user?.email}</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className={`w-full flex items-center gap-3 px-4 py-2 text-sm ${darkMode ? 'text-[#A1A1AA]' : 'text-gray-600'} hover:text-red-500 transition-colors mt-2`}
-            data-testid="logout-btn"
-          >
-            <LogOut size={18} strokeWidth={1.5} />
-            Sign Out
-          </button>
+        <div className={`border-t ${sidebarCollapsed ? 'p-2' : 'p-3'} ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
+          {!sidebarCollapsed ? (
+            <>
+              <div className="flex items-center gap-2 px-1 py-2">
+                <div className="w-8 h-8 rounded-full bg-[#C5A059] flex items-center justify-center text-black text-sm font-medium shrink-0">
+                  {user?.full_name?.charAt(0) || 'R'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{user?.full_name || 'User'}</p>
+                  <p className={`text-[10px] truncate ${darkMode ? 'text-[#52525B]' : 'text-gray-500'}`}>{user?.email}</p>
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className={`w-full flex items-center gap-2 px-2 py-2 text-sm ${darkMode ? 'text-[#A1A1AA]' : 'text-gray-600'} hover:text-red-500 transition-colors`}
+                data-testid="logout-btn"
+              >
+                <LogOut size={16} strokeWidth={1.5} />
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleLogout}
+                    className={`w-full flex items-center justify-center p-2 rounded-md ${darkMode ? 'text-[#A1A1AA]' : 'text-gray-600'} hover:text-red-500 transition-colors`}
+                    data-testid="logout-btn"
+                    aria-label="Sign out"
+                  >
+                    <LogOut size={18} strokeWidth={1.5} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Sign Out</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </aside>
 
@@ -303,7 +421,7 @@ const DashboardLayout = () => {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-64 min-w-0">
+      <main className={`flex-1 min-w-0 transition-[margin] duration-200 ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
         {isImpersonating && (
           <div
             className="sticky top-0 z-40 flex items-center justify-between gap-4 px-4 lg:px-8 py-2 bg-amber-500/15 border-b border-amber-500/30"
@@ -324,7 +442,7 @@ const DashboardLayout = () => {
         )}
         {/* Top Bar */}
         <header className={`sticky top-0 z-30 ${darkMode ? 'bg-[#0A0A0A]/80' : 'bg-white/80'} backdrop-blur-xl border-b ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
-          <div className="flex items-center justify-between px-4 lg:px-8 py-4">
+          <div className="flex items-center justify-between px-3 lg:px-4 py-3">
             {/* Mobile Menu Button */}
             <button
               onClick={() => setSidebarOpen(true)}
@@ -430,7 +548,7 @@ const DashboardLayout = () => {
                                 data-testid={`notification-${idx}`}
                               >
                                 <div className="flex items-start gap-3">
-                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${urgency.bg} ${urgency.text}`}>
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${urgency.iconClass}`}>
                                     <IconComponent size={14} />
                                   </div>
                                   <div className="flex-1 min-w-0">
@@ -443,9 +561,9 @@ const DashboardLayout = () => {
                                     <p className={`text-xs ${darkMode ? 'text-[#A1A1AA]' : 'text-gray-600'} mt-0.5 line-clamp-2`}>
                                       {notification.message}
                                     </p>
-                                    <span className={`text-[10px] ${urgency.text} mt-1 block uppercase tracking-wider`}>
+                                    <CrmBadge variant={urgency.variant} size="xs" uppercase className="mt-1">
                                       {urgency.label}
-                                    </span>
+                                    </CrmBadge>
                                   </div>
                                 </div>
                               </div>
@@ -479,8 +597,10 @@ const DashboardLayout = () => {
         </header>
 
         {/* Page Content */}
-        <div className="p-4 lg:p-8 min-w-0">
-          <Outlet />
+        <div className="p-3 lg:p-4 min-w-0">
+          <TooltipProvider delayDuration={200}>
+            <Outlet />
+          </TooltipProvider>
         </div>
       </main>
 

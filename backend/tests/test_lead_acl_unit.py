@@ -1,6 +1,18 @@
 """Lead ACL helpers — ownership and role scope."""
 
-from crm.services.dashboard_scope import rep_lead_filter, role_scope_filter, user_owns_lead
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi import HTTPException
+
+from crm.services.dashboard_scope import (
+    rep_lead_filter,
+    resolve_lead_or_403,
+    role_scope_filter,
+    task_assignee_clause,
+    user_owns_lead,
+)
 
 
 def test_rep_lead_filter_includes_user_id():
@@ -27,3 +39,58 @@ def test_user_owns_lead_denied():
     lead = {"assigned_user_id": "other", "assigned_to": "Bob"}
     user = {"id": "uid-1", "full_name": "Alice"}
     assert user_owns_lead(lead, user) is False
+
+
+def test_task_assignee_clause_matches_id_and_name():
+    clause = task_assignee_clause("uid-2", "Suresh")
+    assert {"assigned_user_id": "uid-2"} in clause["$or"]
+
+
+def test_resolve_lead_or_403_allows_task_assignee():
+    asyncio.run(_resolve_lead_or_403_allows_task_assignee())
+
+
+async def _resolve_lead_or_403_allows_task_assignee():
+    lead = {"id": "lead-1", "assigned_user_id": "owner-id", "assigned_to": "Ravi"}
+    user = {"id": "uid-2", "full_name": "Suresh", "role": "rep"}
+
+    mock_leads = MagicMock()
+    mock_leads.find_one = AsyncMock(return_value=lead)
+
+    mock_tasks = MagicMock()
+    mock_tasks.find_one = AsyncMock(return_value={"_id": "task-doc"})
+
+    mock_db = MagicMock()
+    mock_db.leads = mock_leads
+    mock_db.tasks = mock_tasks
+
+    with patch("crm.services.dashboard_scope.db", mock_db):
+        result = await resolve_lead_or_403("lead-1", user)
+
+    assert result["id"] == "lead-1"
+    mock_tasks.find_one.assert_awaited_once()
+
+
+def test_resolve_lead_or_403_denies_without_ownership_or_task():
+    asyncio.run(_resolve_lead_or_403_denies_without_ownership_or_task())
+
+
+async def _resolve_lead_or_403_denies_without_ownership_or_task():
+    lead = {"id": "lead-1", "assigned_user_id": "owner-id", "assigned_to": "Ravi"}
+    user = {"id": "uid-3", "full_name": "Stranger", "role": "rep"}
+
+    mock_leads = MagicMock()
+    mock_leads.find_one = AsyncMock(return_value=lead)
+
+    mock_tasks = MagicMock()
+    mock_tasks.find_one = AsyncMock(return_value=None)
+
+    mock_db = MagicMock()
+    mock_db.leads = mock_leads
+    mock_db.tasks = mock_tasks
+
+    with patch("crm.services.dashboard_scope.db", mock_db):
+        with pytest.raises(HTTPException) as exc:
+            await resolve_lead_or_403("lead-1", user)
+
+    assert exc.value.status_code == 403

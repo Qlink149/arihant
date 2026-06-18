@@ -16,13 +16,19 @@ export function formatStatusDisplay(status, temperature) {
   return label;
 }
 
-export function getNurtureLabelColor(temp) {
+export function getNurtureLabelVariant(temp) {
   switch (temp) {
     case 'Hot':
-      return 'text-red-500 bg-red-500/20';
+      return 'danger';
     case 'Warm':
-      return 'text-orange-500 bg-orange-500/20';
+      return 'warning';
     default:
-      return 'text-gray-500 bg-gray-500/20';
+      return 'neutral';
   }
+}
+
+/** @deprecated Use getNurtureLabelVariant + CrmBadge */
+export function getNurtureLabelColor(temp) {
+  const variant = getNurtureLabelVariant(temp);
+  return `crm-badge crm-badge--${variant}`;
 }

@@ -2,7 +2,9 @@ import React, { useMemo } from 'react';
 import { Calendar, ExternalLink, Flag } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { CrmBadge } from '../ui/CrmBadge';
 import { formatDueDateTime } from '../../utils/datetime';
+import { getPriorityBadge } from '../../utils/taskDisplay';
 
 const isOverdueYmd = (ymd) => {
   if (!ymd) return false;
@@ -21,6 +23,7 @@ export function TaskDetailModal({
   const overdue = isOverdueYmd(task?.due_date);
   const due = task?.due_date ? formatDueDateTime(task.due_date, task.due_time) : null;
   const isSla = useMemo(() => (task?.source || '').toLowerCase() === 'sla', [task?.source]);
+  const priorityBadge = getPriorityBadge(task?.priority);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -47,15 +50,15 @@ export function TaskDetailModal({
                 <span className="text-[#52525B]">No due date</span>
               )}
               {task?.priority ? (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider bg-white/5 border border-white/10">
-                  {task.priority}
-                </span>
+                <CrmBadge variant={priorityBadge.variant} size="xs" uppercase>
+                  {priorityBadge.label}
+                </CrmBadge>
               ) : null}
               {isSla && (task?.sla_rule || task?.sla_threshold) ? (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/20">
+                <CrmBadge variant="gold" size="xs" uppercase>
                   {String(task?.sla_rule || 'sla').toUpperCase()}
                   {task?.sla_threshold ? ` · ${task.sla_threshold}` : ''}
-                </span>
+                </CrmBadge>
               ) : null}
             </div>
           </div>
