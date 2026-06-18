@@ -723,6 +723,22 @@ body {
     color: var(--badge-neutral-text);
 }
 
+/* Export CSV modal — theme-aware column picker */
+.crm-export-summary {
+    border-color: rgba(197, 160, 89, 0.28);
+    background-color: rgba(197, 160, 89, 0.1);
+}
+
+.light-mode .crm-export-summary {
+    border-color: rgba(197, 160, 89, 0.42);
+    background-color: rgba(197, 160, 89, 0.14);
+}
+
+.crm-export-field:focus-visible {
+    outline: 2px solid rgba(197, 160, 89, 0.55);
+    outline-offset: 1px;
+}
+
 .badge-hot {
     background: linear-gradient(135deg, #DC2626 0%, #EF4444 100%);
     color: white;

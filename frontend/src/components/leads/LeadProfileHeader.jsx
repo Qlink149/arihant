@@ -9,6 +9,7 @@ import {
   NURTURING_STATUS,
 } from '../../utils/nurtureLabel';
 import { TemperatureBadge } from './TemperatureBadge';
+import { CrmBadge } from '../ui/CrmBadge';
 import { Button } from '../ui/button';
 import { useAuth } from '../../context/AuthContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -314,16 +315,13 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
         )}
         {contactSlot}
         {lead.sla_paused && (
-          <span
-            className={
-              compact
-                ? 'text-[10px] px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-200'
-                : 'text-xs px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-200'
-            }
+          <CrmBadge
+            variant="warning"
+            size={compact ? 'xs' : 'sm'}
             title="SLA timers start after the next status change"
           >
             {lead.import_provenance === 'freshworks' ? 'Freshworks import' : 'Imported'} — SLA paused
-          </span>
+          </CrmBadge>
         )}
         {isNurturingStatus(lead.lead_status) && lead.temperature && (
           <TemperatureBadge

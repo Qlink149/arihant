@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from crm.core.state import db
 from crm.services.context_updates import dedupe_context_updates
 from crm.utils.helpers import coerce_datetime
 
@@ -65,6 +66,7 @@ LIST_LEAD_PROJECTION: Dict[str, int] = {
     "presales_agent": 1,
     "assigned_user_id": 1,
     "presales_description": 1,
+    "recent_note": 1,
     "created_at": 1,
     "updated_at": 1,
     "created_at_dt": 1,
@@ -129,15 +131,64 @@ EXPORT_LEAD_PROJECTION: Dict[str, int] = {
 
 
 def list_recent_note_from_lead(lead: dict) -> Optional[str]:
-    """Recent note snippet for list views without loading full context_updates."""
+    """Latest timeline note for list views (matches frontend getRecentNote)."""
+    trimmed = trim_context_updates_for_list(lead.get("context_updates") or [])
+    if trimmed:
+        desc = (trimmed[0].get("description") or "").strip()
+        if desc:
+            return desc
+    stored = (lead.get("recent_note") or "").strip()
+    if stored:
+        return stored
     presales = (lead.get("presales_description") or "").strip()
     return presales or None
 
 
 def apply_list_recent_note(lead: dict) -> None:
-    """Attach a single synthetic context_updates entry for list API responses."""
+    """Attach recent_note and a single timeline snippet for list API responses."""
     note = list_recent_note_from_lead(lead)
-    lead["context_updates"] = [{"description": note}] if note else []
+    lead["recent_note"] = note
+    trimmed = trim_context_updates_for_list(lead.get("context_updates") or [])
+    if trimmed:
+        lead["context_updates"] = trimmed
+    elif note:
+        lead["context_updates"] = [{"description": note}]
+    else:
+        lead["context_updates"] = []
+
+
+async def hydrate_list_recent_notes(leads: List[dict]) -> None:
+    """Load recent timeline snippets for list rows without full lead documents."""
+    if not leads:
+        return
+    lead_ids = [lead["id"] for lead in leads if lead.get("id")]
+    if not lead_ids:
+        return
+    rows = await db.leads.find(
+        {"id": {"$in": lead_ids}},
+        {
+            "_id": 0,
+            "id": 1,
+            "context_updates": {"$slice": -40},
+            "presales_description": 1,
+            "recent_note": 1,
+        },
+    ).to_list(len(lead_ids))
+    by_id = {row["id"]: row for row in rows}
+    for lead in leads:
+        extra = by_id.get(lead["id"])
+        if not extra:
+            apply_list_recent_note(lead)
+            continue
+        merged = {
+            **lead,
+            "context_updates": extra.get("context_updates") or [],
+            "presales_description": lead.get("presales_description") or extra.get("presales_description"),
+            "recent_note": extra.get("recent_note") or lead.get("recent_note"),
+        }
+        apply_list_recent_note(merged)
+        lead["recent_note"] = merged.get("recent_note")
+        lead["context_updates"] = merged.get("context_updates") or []
 
 
 def trim_context_updates_for_list(updates: List[dict]) -> List[dict]:

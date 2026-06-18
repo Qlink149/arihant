@@ -5,7 +5,31 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from crm.models.schemas.lead_schemas import LeadResponse
 from crm.services import lead_service
-from crm.services.lead_projections import LIST_LEAD_PROJECTION, trim_context_updates_for_list
+from crm.services.lead_projections import LIST_LEAD_PROJECTION, apply_list_recent_note, trim_context_updates_for_list
+
+
+def test_list_recent_note_from_lead_prefers_newest_timeline_over_presales():
+    lead = {
+        "presales_description": "Imported note",
+        "context_updates": [
+            {"type": "note", "description": "Older", "timestamp": "2024-01-01T00:00:00Z"},
+            {
+                "type": "note",
+                "description": "Latest from rep",
+                "timestamp_dt": datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc),
+            },
+        ],
+    }
+    from crm.services.lead_projections import list_recent_note_from_lead
+
+    assert list_recent_note_from_lead(lead) == "Latest from rep"
+
+
+def test_apply_list_recent_note_sets_recent_note_field():
+    lead = {"presales_description": "Hello", "context_updates": []}
+    apply_list_recent_note(lead)
+    assert lead["recent_note"] == "Hello"
+    assert lead["context_updates"] == [{"description": "Hello"}]
 
 
 def test_trim_context_updates_for_list_picks_newest_note():
@@ -67,8 +91,11 @@ def test_list_leads_uses_projection_and_list_view():
         mock_db.leads.find = MagicMock(return_value=mock_cursor)
 
         with patch.object(lead_service, "db", mock_db):
-            with patch.object(lead_service, "build_leads_list_query", return_value={}):
-                leads, total = await lead_service.list_leads(limit=10)
+            with patch.object(lead_service, "compose_leads_list_query", return_value={}):
+                with patch.object(lead_service, "hydrate_list_recent_notes", AsyncMock()) as hydrate:
+                    leads, total = await lead_service.list_leads(limit=10)
+
+        hydrate.assert_awaited_once()
 
         mock_db.leads.find.assert_called_once()
         assert mock_db.leads.find.call_args[0][1] == LIST_LEAD_PROJECTION

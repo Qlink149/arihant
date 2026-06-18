@@ -88,6 +88,7 @@ class LeadResponse(LeadBase):
     id: str
     normalized_phone: Optional[str] = None
     normalized_work_phone: Optional[str] = None
+    recent_note: Optional[str] = None
     temperature: Optional[str] = None
     intent: str = "Unknown"
     vip: bool = False

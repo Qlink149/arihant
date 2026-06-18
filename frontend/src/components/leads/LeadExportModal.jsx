@@ -154,52 +154,55 @@ export function LeadExportModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent
+        className="crm-export-modal border-border bg-background text-foreground max-w-lg max-h-[85vh] overflow-hidden flex flex-col"
+        data-testid="lead-export-modal"
+      >
         <DialogHeader>
-          <DialogTitle className="font-serif text-xl flex items-center gap-2">
+          <DialogTitle className="font-serif text-xl flex items-center gap-2 text-foreground">
             <Download className="text-[#C5A059]" size={20} />
             Export Leads to CSV
           </DialogTitle>
         </DialogHeader>
 
-        <div className="rounded-lg border border-[#C5A059]/20 bg-[#C5A059]/10 px-4 py-3 text-sm">
-          <p className="text-white font-medium">
+        <div className="crm-export-summary rounded-lg border px-4 py-3 text-sm">
+          <p className="text-foreground font-medium">
             Export {totalLeads.toLocaleString()} lead{totalLeads === 1 ? '' : 's'}
           </p>
           {activeFiltersCount > 0 && (
-            <p className="text-[#A1A1AA] text-xs mt-1">Matching your current filters</p>
+            <p className="text-muted-foreground text-xs mt-1">Matching your current filters</p>
           )}
         </div>
 
         {exporting ? (
           <div className="py-8 space-y-4" data-testid="export-progress">
-            <div className="flex items-center justify-center gap-2 text-[#A1A1AA]">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
               <Loader2 className="animate-spin text-[#C5A059]" size={20} />
               <span>
                 Processing {job?.processed_count?.toLocaleString() ?? 0} of{' '}
                 {job?.total_count?.toLocaleString() ?? totalLeads.toLocaleString()} leads…
               </span>
             </div>
-            <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
               <div
                 className="h-full bg-[#C5A059] transition-all duration-300"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
-            <p className="text-center text-[#52525B] text-xs">
+            <p className="text-center text-muted-foreground text-xs">
               Your download will start automatically when ready.
             </p>
           </div>
         ) : (
           <>
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[#A1A1AA] text-sm">Select columns to export</p>
+              <p className="text-muted-foreground text-sm">Select columns to export</p>
               <div className="flex gap-2">
                 <Button
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="text-[#A1A1AA] hover:text-white h-7 text-xs"
+                  className="text-muted-foreground hover:text-foreground h-7 text-xs"
                   onClick={selectAll}
                 >
                   Select all
@@ -208,7 +211,7 @@ export function LeadExportModal({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="text-[#A1A1AA] hover:text-white h-7 text-xs"
+                  className="text-muted-foreground hover:text-foreground h-7 text-xs"
                   onClick={clearAll}
                 >
                   Clear all
@@ -218,11 +221,11 @@ export function LeadExportModal({
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-1 min-h-[200px] max-h-[340px]">
               {loadingFields ? (
-                <p className="text-[#52525B] text-sm py-4">Loading fields…</p>
+                <p className="text-muted-foreground text-sm py-4">Loading fields…</p>
               ) : (
                 Object.entries(groupedFields).map(([group, items]) => (
                   <div key={group}>
-                    <p className="text-[#52525B] text-xs uppercase tracking-wider mb-2">{group}</p>
+                    <p className="text-muted-foreground text-xs uppercase tracking-wider mb-2">{group}</p>
                     <div className="space-y-1">
                       {items.map((field) => {
                         const checked = selectedFields.has(field.key);
@@ -231,15 +234,15 @@ export function LeadExportModal({
                             key={field.key}
                             type="button"
                             onClick={() => toggleField(field.key)}
-                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/5 text-left text-sm"
+                            className="crm-export-field w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/80 text-left text-sm text-foreground"
                             data-testid={`export-field-${field.key}`}
                           >
                             {checked ? (
                               <CheckSquare size={16} className="text-[#C5A059] shrink-0" />
                             ) : (
-                              <Square size={16} className="text-[#52525B] shrink-0" />
+                              <Square size={16} className="text-muted-foreground shrink-0" />
                             )}
-                            <span className="text-white/90">{field.label}</span>
+                            <span className="text-foreground">{field.label}</span>
                           </button>
                         );
                       })}
@@ -253,7 +256,7 @@ export function LeadExportModal({
               <Button
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                className="flex-1 border-white/10 text-white hover:bg-white/5"
+                className="flex-1 border-border text-foreground hover:bg-muted"
               >
                 Cancel
               </Button>

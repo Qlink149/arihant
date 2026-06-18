@@ -30,7 +30,7 @@ class BrevoSettingsPatch(BaseModel):
 
 
 class RoutingSettingsPatch(BaseModel):
-    capacity_cap: Optional[int] = None
+    """Reserved for future routing settings."""
 
 
 @router.get("/settings/brevo")

@@ -48,7 +48,6 @@ const SettingsPage = () => {
     sender_email: '',
     dashboard_url: '',
   });
-  const [routingCap, setRoutingCap] = useState(10);
   const [savingBrevo, setSavingBrevo] = useState(false);
 
   // New alert form
@@ -65,20 +64,18 @@ const SettingsPage = () => {
 
   const fetchData = async () => {
     try {
-      const [alertsRes, pendingRes, remRulesRes, remHistRes, brevoRes, routingRes] = await Promise.all([
+      const [alertsRes, pendingRes, remRulesRes, remHistRes, brevoRes] = await Promise.all([
         alertsAPI.getConfig(),
         alertsAPI.getPending(),
         remindersAPI.getRules(),
         remindersAPI.getHistory(20),
         settingsAPI.getBrevo().catch(() => ({ data: {} })),
-        settingsAPI.getRouting().catch(() => ({ data: {} })),
       ]);
       setAlerts(alertsRes.data);
       setPendingAlerts(pendingRes.data);
       setReminderRules(remRulesRes.data || []);
       setReminderHistory(remHistRes.data || []);
       if (brevoRes?.data) setBrevo((p) => ({ ...p, ...brevoRes.data }));
-      if (routingRes?.data?.capacity_cap) setRoutingCap(routingRes.data.capacity_cap);
     } catch (error) {
       console.error('Failed to fetch settings:', error);
     } finally {
@@ -503,7 +500,6 @@ const SettingsPage = () => {
               setSavingBrevo(true);
               try {
                 await settingsAPI.updateBrevo(brevo);
-                await settingsAPI.updateRouting({ capacity_cap: Number(routingCap) || 10 });
                 toast.success('Settings saved');
               } catch {
                 toast.error('Save failed (admin only)');
@@ -529,16 +525,6 @@ const SettingsPage = () => {
           >
             Test send
           </Button>
-        </div>
-        <div>
-          <label className="text-[#A1A1AA] text-xs">Routing capacity cap (open New leads per rep)</label>
-          <Input
-            type="number"
-            min={1}
-            value={routingCap}
-            onChange={(e) => setRoutingCap(e.target.value)}
-            className="mt-1 bg-[#0F0F0F] border-white/10 text-white max-w-[120px]"
-          />
         </div>
       </motion.div>
     </div>

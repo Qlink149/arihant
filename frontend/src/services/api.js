@@ -191,6 +191,7 @@ export const activityAPI = {
 
 export const platformOpsAPI = {
   listUsers: () => api.get('/ops/users'),
+  getRepActivity: () => api.get('/ops/rep-activity'),
   impersonate: (userId) => api.post('/ops/impersonate', { user_id: userId }),
 };
 

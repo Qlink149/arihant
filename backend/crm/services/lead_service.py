@@ -22,6 +22,7 @@ from crm.services.lead_projections import (
     LEAD_LIST_SORT,
     LIST_LEAD_PROJECTION,
     apply_list_recent_note,
+    hydrate_list_recent_notes,
     trim_context_updates_for_list,
 )
 from crm.services.lead_events import log_lead_event
@@ -258,6 +259,8 @@ async def list_leads(
         .limit(limit)
     )
     leads = await cursor.to_list(limit)
+
+    await hydrate_list_recent_notes(leads)
 
     for lead in leads:
         lead["created_at"] = coerce_datetime(lead.get("created_at")) or utc_now()

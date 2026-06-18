@@ -106,7 +106,14 @@ async def add_context_update(lead_id: str, update: ContextUpdateCreate, current_
 
     await db.leads.update_one(
         {"id": lead_id},
-        {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
+        {
+            "$push": {"context_updates": context_entry},
+            "$set": {
+                "updated_at": now_iso,
+                "updated_at_dt": now_dt,
+                "recent_note": update.note.strip(),
+            },
+        },
     )
 
     await log_lead_event(

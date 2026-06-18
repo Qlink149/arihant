@@ -11,6 +11,7 @@ from crm.core.state import (
     iso_utc_now,
     utc_now,
 )
+from crm.services.rep_presence import list_rep_presence_for_ops
 
 
 router = APIRouter()
@@ -47,6 +48,11 @@ async def list_ops_users(operator: dict = Depends(require_platform_operator)):
             }
         )
     return result
+
+
+@router.get("/ops/rep-activity")
+async def list_rep_activity(operator: dict = Depends(require_platform_operator)):
+    return await list_rep_presence_for_ops()
 
 
 @router.post("/ops/impersonate")

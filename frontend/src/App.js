@@ -22,6 +22,7 @@ const MyDashboardPage = lazy(() => import('./pages/MyDashboardPage'));
 const MarketingDashboardPage = lazy(() => import('./pages/MarketingDashboardPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const PlatformOpsPage = lazy(() => import('./pages/PlatformOpsPage'));
+const OpsActiveStatusPage = lazy(() => import('./pages/OpsActiveStatusPage'));
 
 const LazyPage = ({ children }) => (
   <Suspense fallback={<PageLoading />}>{children}</Suspense>
@@ -124,7 +125,10 @@ function AppRoutes() {
         <Route path="marketing-dashboard" element={<AdminRoute><LazyPage><MarketingDashboardPage /></LazyPage></AdminRoute>} />
         <Route path="notifications" element={<LazyPage><NotificationsPage /></LazyPage>} />
         {user?.is_platform_operator && (
-          <Route path="ops" element={<LazyPage><PlatformOpsPage /></LazyPage>} />
+          <>
+            <Route path="ops" element={<LazyPage><PlatformOpsPage /></LazyPage>} />
+            <Route path="ops/active-status" element={<LazyPage><OpsActiveStatusPage /></LazyPage>} />
+          </>
         )}
       </Route>
 

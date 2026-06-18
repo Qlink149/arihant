@@ -31,6 +31,7 @@ import {
   TrendingUp,
   Shield,
   RefreshCw,
+  Activity,
 } from 'lucide-react';
 import {
   getNotificationUrgencyLabel,
@@ -84,7 +85,11 @@ const DashboardLayout = () => {
     ];
     let items = isAdmin ? all : all.filter((item) => !adminOnlyPaths.includes(item.path));
     if (user?.is_platform_operator && !isImpersonating) {
-      items = [...items, { path: '/ops', icon: Shield, label: 'Ops' }];
+      items = [
+        ...items,
+        { path: '/ops', icon: Shield, label: 'Ops' },
+        { path: '/ops/active-status', icon: Activity, label: 'Active Status' },
+      ];
     }
     return items;
   }, [isAdmin, user?.is_platform_operator, isImpersonating]);

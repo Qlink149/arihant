@@ -720,7 +720,7 @@ const VirtualCustomerPage = () => {
       toast.success('Note added');
       setNoteLeadId(null);
       setQuickNote('');
-      await fetchPendingTasks();
+      await Promise.all([fetchLeads(), fetchPendingTasks()]);
     } catch {
       toast.error('Failed to save note');
     } finally {

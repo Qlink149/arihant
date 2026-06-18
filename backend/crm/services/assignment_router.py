@@ -7,26 +7,18 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from crm.core.state import db, iso_utc_now, utc_now
+from crm.constants.lead_status import sla_paused_exclusion_clause
 from crm.services.lead_events import log_lead_event
 from crm.services.notification_service import create_notification
 from crm.utils.business_time import is_business_hours_ist
 from crm.utils.helpers import coerce_datetime
 
-DEFAULT_CAPACITY_CAP = 10
 ROUTING_SETTINGS_KEY = "routing"
 
 
 async def get_routing_settings() -> dict:
     doc = await db.app_settings.find_one({"key": ROUTING_SETTINGS_KEY}, {"_id": 0}) or {}
     return doc.get("value") or {}
-
-
-async def get_capacity_cap() -> int:
-    settings = await get_routing_settings()
-    try:
-        return int(settings.get("capacity_cap") or DEFAULT_CAPACITY_CAP)
-    except (TypeError, ValueError):
-        return DEFAULT_CAPACITY_CAP
 
 
 def _new_lead_status_filter() -> dict:
@@ -44,8 +36,10 @@ def _new_lead_status_filter() -> dict:
 
 
 async def count_open_new_leads(user_id: str, full_name: str) -> int:
+    """Active New leads for round-robin load (excludes SLA-paused imports)."""
     q = {
         **_new_lead_status_filter(),
+        "sla_paused": sla_paused_exclusion_clause(),
         "$or": [
             {"assigned_user_id": user_id},
             {"assigned_to": full_name},
@@ -56,6 +50,7 @@ async def count_open_new_leads(user_id: str, full_name: str) -> int:
 
 
 async def is_active_for_routing(user: dict, now_dt: Optional[datetime] = None) -> bool:
+    """Eligible for auto-assignment: active account, business hours, online heartbeat, not away."""
     now_dt = now_dt or utc_now()
     if not user.get("is_active", True):
         return False
@@ -75,13 +70,11 @@ async def is_active_for_routing(user: dict, now_dt: Optional[datetime] = None) -
     if (now_dt - last).total_seconds() > 60 * 60:
         return False
 
-    cap = await get_capacity_cap()
-    name = user.get("full_name") or ""
-    open_new = await count_open_new_leads(user["id"], name)
-    return open_new < cap
+    return True
 
 
 async def list_routing_eligible_agents(now_dt: Optional[datetime] = None) -> List[dict]:
+    """Active reps sorted by fewest open New leads (round-robin pick = index 0)."""
     now_dt = now_dt or utc_now()
     users = await db.users.find(
         {
@@ -247,16 +240,12 @@ async def process_waiting_queue(user_id: Optional[str] = None) -> int:
         .to_list(50)
     )
     assigned = 0
-    agent_idx = 0
     for lead in waiting:
-        if agent_idx >= len(eligible):
+        if not eligible:
             break
-        agent = eligible[agent_idx % len(eligible)]
+        agent = eligible[0]
         await _assign_lead(lead["id"], agent["id"], agent.get("full_name") or "", reason="waiting_queue")
         assigned += 1
         agent["open_new_leads"] = agent.get("open_new_leads", 0) + 1
-        cap = await get_capacity_cap()
-        if agent["open_new_leads"] >= cap:
-            agent_idx += 1
         eligible.sort(key=lambda x: x.get("open_new_leads", 0))
     return assigned
