@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Run tests
         working-directory: backend
@@ -40,7 +40,7 @@ jobs:
           CRON_SECRET: ci-cron-secret-16ch
           ENVIRONMENT: test
         run: |
-          pytest tests/ -v --tb=short --no-header -q --ignore=tests/test_gupshup_whatsapp.py
+          python -m pytest tests/ -v --tb=short --no-header -q --ignore=tests/test_gupshup_whatsapp.py
 
       - name: Upload test results
         if: failure()
