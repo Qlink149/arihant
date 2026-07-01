@@ -938,8 +938,8 @@ const VirtualCustomerPage = () => {
         transition={{ delay: 0.1 }}
         className="glass-card rounded-lg p-4"
       >
-        <div className="flex flex-col lg:flex-row gap-4">
-          {/* Search */}
+        <div className="flex flex-col gap-4">
+          {/* Search — full-width row so phone numbers stay visible */}
           <LeadListSearchInput
             value={searchInputValue}
             onDebouncedChange={handleDebouncedSearchChange}

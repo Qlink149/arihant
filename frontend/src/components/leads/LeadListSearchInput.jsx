@@ -28,14 +28,14 @@ export const LeadListSearchInput = memo(function LeadListSearchInput({
   );
 
   return (
-    <form onSubmit={handleSubmit} className="flex-1">
-      <div className="relative">
+    <form onSubmit={handleSubmit} className="w-full min-w-0">
+      <div className="relative w-full">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525B]" size={18} />
         <Input
           value={local}
           onChange={(e) => setLocal(e.target.value)}
           placeholder="Search by name, phone, work phone, source, email..."
-          className="pl-10 bg-black/50 border-white/10 text-white placeholder:text-[#52525B] h-11"
+          className="w-full pl-10 bg-black/50 border-white/10 text-white placeholder:text-[#52525B] h-11"
           data-testid="search-input"
         />
       </div>
