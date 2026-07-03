@@ -2,6 +2,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends
 
+from crm.constants.lead_status import sla_paused_exclusion_clause
 from crm.core.state import AlertConfig, db, get_current_user, iso_utc_now, utc_now
 
 
@@ -44,9 +45,10 @@ async def get_pending_alerts(current_user: dict = Depends(get_current_user)):
     cutoff_dt = utc_now() - timedelta(hours=24)
     cutoff_iso = cutoff_dt.isoformat()
     stale = _stale_lead_filter(cutoff_dt, cutoff_iso)
+    not_paused = {"sla_paused": sla_paused_exclusion_clause()}
 
     rnr_leads = await db.leads.find(
-        {"$and": [{"lead_status": {"$regex": "rnr", "$options": "i"}}, stale]},
+        {"$and": [{"lead_status": {"$regex": "rnr", "$options": "i"}}, stale, not_paused]},
         {"_id": 0},
     ).to_list(100)
 
@@ -64,7 +66,7 @@ async def get_pending_alerts(current_user: dict = Depends(get_current_user)):
             }
         )
 
-    stale_leads = await db.leads.find(stale, {"_id": 0}).limit(50).to_list(50)
+    stale_leads = await db.leads.find({"$and": [stale, not_paused]}, {"_id": 0}).limit(50).to_list(50)
 
     for lead in stale_leads:
         lid = lead["id"]
