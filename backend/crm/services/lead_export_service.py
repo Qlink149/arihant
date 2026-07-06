@@ -14,7 +14,11 @@ from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
 from crm.core.state import db
 from crm.services.context_updates import dedupe_context_updates
-from crm.services.lead_list_query import compose_leads_list_query, resolve_leads_list_query_base
+from crm.services.lead_list_query import (
+    build_metric_snapshot_filter,
+    compose_leads_list_query,
+    resolve_leads_list_query_base,
+)
 from crm.services.lead_projections import EXPORT_LEAD_PROJECTION, LEAD_LIST_SORT
 from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now
 
@@ -208,10 +212,21 @@ async def create_export_job(
             detail="An export is already in progress. Please wait for it to finish.",
         )
 
+    snapshot_filter = None
+    use_rep_pipeline = bool(filters.get("mine"))
+    if filters.get("metric"):
+        snapshot_filter = build_metric_snapshot_filter(
+            current_user,
+            project=filters.get("project"),
+            projects=filters.get("projects"),
+            use_rep_pipeline=use_rep_pipeline,
+        )
     query_base = await resolve_leads_list_query_base(
         current_user,
         metric=filters.get("metric"),
         dormant=filters.get("dormant"),
+        snapshot_filter=snapshot_filter,
+        use_rep_pipeline=use_rep_pipeline,
     )
     query = compose_leads_list_query(
         query_base,

@@ -38,6 +38,7 @@ export const emptyLeadFilters = () => ({
   meta_qualified: null,
   metric: '',
   dormant: false,
+  mine: false,
 });
 
 /** Migrate legacy single-value URL params to array fields. */
@@ -71,6 +72,7 @@ export const filtersFromSearchParams = (searchParams) => {
     meta_qualified: parseMetaQualified(searchParams.get('meta_qualified')),
     metric: searchParams.get('metric') || '',
     dormant: searchParams.get('dormant') === '1' || searchParams.get('dormant') === 'true',
+    mine: searchParams.get('mine') === '1' || searchParams.get('mine') === 'true',
   };
 };
 
@@ -100,6 +102,7 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   if (filters.meta_qualified === false) params.set('meta_qualified', '0');
   if (filters.metric) params.set('metric', filters.metric);
   if (filters.dormant) params.set('dormant', '1');
+  if (filters.mine) params.set('mine', '1');
 
   const agent = (agentQuery || '').trim();
   if (agent) params.set('agent', agent);
@@ -139,6 +142,7 @@ export const buildLeadListParams = (filters, search = '') => {
   }
 
   if (filters.metric) params.metric = filters.metric;
+  if (filters.mine) params.mine = true;
   if (search) params.search = search;
 
   return params;
@@ -156,6 +160,7 @@ export const countActiveFilters = (filters, { includeDuplicates = false } = {}) 
   if (filters.meta_qualified === true || filters.meta_qualified === false) count += 1;
   if (filters.metric) count += 1;
   if (filters.dormant) count += 1;
+  if (filters.mine) count += 1;
   if (includeDuplicates) count += 1;
   return count;
 };

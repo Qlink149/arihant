@@ -338,6 +338,13 @@ for _alias, _canonical in METRIC_KEY_ALIASES.items():
         _METRIC_BY_KEY[_alias] = _METRIC_BY_KEY[_canonical]
 
 
+def is_overview_drill_metric(metric_key: str) -> bool:
+    """True when metric maps to a lead-collection overview spec (My Dashboard tiles)."""
+    key = resolve_metric_key(metric_key)
+    spec = _METRIC_BY_KEY.get(key)
+    return bool(spec and spec.get("collection") == "leads")
+
+
 def build_metric_context(
     base_filter: dict,
     *,

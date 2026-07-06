@@ -27,7 +27,11 @@ from crm.services.lead_filter_views_service import (
     list_filter_views,
     update_filter_view,
 )
-from crm.services.lead_list_query import parse_multi_filter, resolve_leads_list_query_base
+from crm.services.lead_list_query import (
+    build_metric_snapshot_filter,
+    parse_multi_filter,
+    resolve_leads_list_query_base,
+)
 from crm.services.ai_lead_regen import (
     ai_insights_stale,
     ai_refresh_in_progress,
@@ -69,6 +73,7 @@ def _list_filter_params(
     site_visit_max: Optional[int] = None,
     metric: Optional[str] = None,
     dormant: Optional[bool] = None,
+    mine: Optional[bool] = None,
 ) -> dict:
     params = {
         "project": project,
@@ -96,6 +101,7 @@ def _list_filter_params(
         "site_visit_max": site_visit_max,
         "metric": metric,
         "dormant": dormant,
+        "mine": mine,
     }
     return {k: v for k, v in params.items() if v is not None and v != []}
 
@@ -202,13 +208,11 @@ async def get_leads(
     site_visit_max: Optional[int] = None,
     metric: Optional[str] = None,
     dormant: Optional[bool] = None,
+    mine: Optional[bool] = Query(None, description="Scope to the user's assigned pipeline (My Dashboard drill-down)"),
     skip: int = 0,
     limit: int = 100,
     include_total: bool = Query(True),
 ):
-    query_base = await resolve_leads_list_query_base(
-        current_user, metric=metric, dormant=dormant
-    )
     multi = _normalize_list_filters(
         project=project,
         projects=projects,
@@ -220,6 +224,22 @@ async def get_leads(
         statuses=statuses,
         sources=sources,
         source=source,
+    )
+    snapshot_filter = None
+    use_rep_pipeline = bool(mine)
+    if metric:
+        snapshot_filter = build_metric_snapshot_filter(
+            current_user,
+            project=project,
+            projects=multi["projects"] or None,
+            use_rep_pipeline=use_rep_pipeline,
+        )
+    query_base = await resolve_leads_list_query_base(
+        current_user,
+        metric=metric,
+        dormant=dormant,
+        snapshot_filter=snapshot_filter,
+        use_rep_pipeline=use_rep_pipeline,
     )
 
     leads, total = await lead_service.list_leads(
@@ -292,6 +312,7 @@ async def start_leads_export(
     site_visit_max: Optional[int] = None,
     metric: Optional[str] = None,
     dormant: Optional[bool] = None,
+    mine: Optional[bool] = None,
 ):
     multi = _normalize_list_filters(
         project=project,
@@ -331,6 +352,7 @@ async def start_leads_export(
         site_visit_max=site_visit_max,
         metric=metric,
         dormant=dormant,
+        mine=mine,
     )
     job = await create_export_job(current_user, body.fields, filters)
     background_tasks.add_task(run_export_job, job["id"])

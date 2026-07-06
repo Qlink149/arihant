@@ -897,7 +897,7 @@ const VirtualCustomerPage = () => {
         </div>
       </motion.div>
 
-      {(filters.metric || filters.dormant) ? (
+      {(filters.metric || filters.dormant || filters.mine) ? (
         <div
           className="flex items-center gap-2 flex-wrap"
           data-testid="lead-overview-filter-chip"
@@ -910,6 +910,19 @@ const VirtualCustomerPage = () => {
                 onClick={() => setFilters((prev) => ({ ...prev, metric: '' }))}
                 className="ml-1 opacity-80 hover:opacity-100 underline-offset-2 hover:underline"
                 aria-label="Clear lead overview filter"
+              >
+                Clear
+              </button>
+            </CrmBadge>
+          ) : null}
+          {filters.mine ? (
+            <CrmBadge chip variant="teal" className="gap-2">
+              My pipeline
+              <button
+                type="button"
+                onClick={() => setFilters((prev) => ({ ...prev, mine: false }))}
+                className="ml-1 opacity-80 hover:opacity-100 underline-offset-2 hover:underline"
+                aria-label="Clear my pipeline scope"
               >
                 Clear
               </button>

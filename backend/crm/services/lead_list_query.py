@@ -1,14 +1,20 @@
 """Shared query-base resolution and filter composition for lead list and export."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Union
 
-from crm.services.dashboard_scope import resolve_leads_base_filter, role_scope_filter
-from crm.services.lead_analytics_queries import ORG_WIDE_DASHBOARD_METRICS, dormant_leads_query
+from crm.services.dashboard_scope import rep_lead_filter, resolve_leads_base_filter, role_scope_filter
+from crm.services.lead_analytics_queries import (
+    ORG_WIDE_DASHBOARD_METRICS,
+    build_created_cohort_filter,
+    build_dashboard_snapshot_query,
+    dormant_leads_query,
+)
 from crm.services.lead_overview_service import (
     build_metric_context,
     enrich_follow_up_task_ids,
+    is_overview_drill_metric,
     metric_filter_for_key,
     resolve_metric_key,
 )
@@ -52,37 +58,69 @@ def parse_updated_date_boundary(value: Optional[str], *, end_of_day: bool = Fals
     return parse_created_date_boundary(value, end_of_day=end_of_day)
 
 
+def build_metric_snapshot_filter(
+    current_user: dict,
+    *,
+    project: Optional[str] = None,
+    projects: Optional[Sequence[str]] = None,
+    use_rep_pipeline: bool = False,
+) -> dict:
+    """Role scope + optional single project (matches dashboard operational snapshot)."""
+    if use_rep_pipeline:
+        scope = rep_lead_filter(current_user["id"], current_user.get("full_name") or "")
+    else:
+        scope = role_scope_filter(current_user)
+    project_value: Optional[str] = None
+    if project and str(project).strip().lower() != "all":
+        project_value = project
+    elif projects and len(projects) == 1:
+        project_value = projects[0]
+    snapshot_q = build_dashboard_snapshot_query(project=project_value)
+    return merge_query(scope or {}, snapshot_q or {})
+
+
+def _list_role_scope(current_user: dict, *, use_rep_pipeline: bool) -> dict:
+    if use_rep_pipeline:
+        return rep_lead_filter(current_user["id"], current_user.get("full_name") or "")
+    return role_scope_filter(current_user)
+
+
 async def resolve_leads_list_query_base(
     current_user: dict,
     *,
     metric: Optional[str] = None,
     dormant: Optional[bool] = None,
+    snapshot_filter: Optional[Dict[str, Any]] = None,
+    use_rep_pipeline: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Role scope, metric drill-down, and dormant filters shared by list and export."""
     query_base: Optional[Dict[str, Any]] = None
 
     if metric:
         metric = resolve_metric_key(metric)
-        if metric in SALES_DASHBOARD_METRICS:
-            scope = role_scope_filter(current_user)
+        if metric in SALES_DASHBOARD_METRICS and not is_overview_drill_metric(metric):
+            scope = _list_role_scope(current_user, use_rep_pipeline=use_rep_pipeline)
             sales_filt = build_sales_metric_filter(metric)
             query_base = merge_query(scope or {}, sales_filt)
         else:
             uid = current_user["id"]
             name = current_user["full_name"]
             is_admin_or_manager = current_user.get("role") in ("admin", "manager")
-            if metric in ORG_WIDE_DASHBOARD_METRICS and is_admin_or_manager:
-                ctx = build_metric_context({}, uid=uid, name=name, is_manager=False)
+            if metric in ORG_WIDE_DASHBOARD_METRICS and is_admin_or_manager and not use_rep_pipeline:
+                ctx = build_metric_context(snapshot_filter or {}, uid=uid, name=name, is_manager=False)
+            elif snapshot_filter:
+                ctx = build_metric_context(snapshot_filter, uid=uid, name=name, is_manager=False)
             else:
                 base_filter, is_manager = await resolve_leads_base_filter(uid, name, current_user)
                 ctx = build_metric_context(base_filter, uid=uid, name=name, is_manager=is_manager)
             if metric in ("follow_up_today", "missed_follow_up"):
-                await enrich_follow_up_task_ids(ctx, base_filter=ctx.get("base_filter"))
+                enrich_base = snapshot_filter if snapshot_filter is not None else ctx.get("base_filter")
+                await enrich_follow_up_task_ids(ctx, base_filter=enrich_base)
             query_base = metric_filter_for_key(metric, ctx)
             if not query_base and metric not in ORG_WIDE_DASHBOARD_METRICS:
                 query_base = ctx.get("base_filter")
     else:
-        scope = role_scope_filter(current_user)
+        scope = _list_role_scope(current_user, use_rep_pipeline=use_rep_pipeline)
         if scope:
             query_base = scope
 
@@ -121,16 +159,10 @@ def compose_leads_list_query(
     site_visit_max: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build the full MongoDB query for lead list/export endpoints."""
-    created_at_from_iso = parse_created_date_boundary(created_from, end_of_day=False)
-    created_at_to_iso = parse_created_date_boundary(created_to, end_of_day=True)
     updated_at_from_iso = parse_updated_date_boundary(updated_from, end_of_day=False)
     updated_at_to_iso = parse_updated_date_boundary(updated_to, end_of_day=True)
 
-    days_cutoff_iso = None
-    if days and not (created_at_from_iso or created_at_to_iso):
-        days_cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-
-    return build_leads_list_query(
+    query = build_leads_list_query(
         query_base,
         temperature=temperature,
         search=search,
@@ -145,9 +177,6 @@ def compose_leads_list_query(
         vip=vip,
         status=status,
         statuses=statuses,
-        days_cutoff_iso=days_cutoff_iso,
-        created_at_from_iso=created_at_from_iso,
-        created_at_to_iso=created_at_to_iso,
         updated_at_from_iso=updated_at_from_iso,
         updated_at_to_iso=updated_at_to_iso,
         sources=sources,
@@ -156,3 +185,12 @@ def compose_leads_list_query(
         site_visit_min=site_visit_min,
         site_visit_max=site_visit_max,
     )
+
+    created_cohort = build_created_cohort_filter(
+        days=days,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    if created_cohort:
+        query = merge_query(query, created_cohort)
+    return query

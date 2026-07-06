@@ -1,21 +1,18 @@
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
 from crm.constants.lead_status import CLOSED_LEAD_STATUS_REGEX, NURTURING_STATUS
 from crm.core.state import coerce_datetime, db, get_current_user, utc_now
 from crm.services.dashboard_scope import resolve_leads_base_filter
-from crm.services.lead_overview_service import (
-    build_lead_overview_metrics,
-    build_metric_context,
-    enrich_follow_up_task_ids,
-    ist_day_window,
-    metric_filter_for_key,
-    resolve_metric_key,
+from crm.services.lead_list_query import (
+    build_metric_snapshot_filter,
+    compose_leads_list_query,
+    resolve_leads_list_query_base,
 )
-from crm.services.lead_search import build_leads_list_query, merge_query
+from crm.services.lead_overview_service import build_lead_overview_metrics, ist_day_window
 from crm.services.transfer_queries import (
     incoming_transfer_filter,
     outgoing_transfer_filter,
@@ -161,17 +158,20 @@ async def get_my_dashboard_leads(
     uid = current_user["id"]
     name = current_user["full_name"]
 
-    base_filter, is_manager = await resolve_leads_base_filter(uid, name, current_user)
-    metric_clause = {}
+    base_filter, _is_manager = await resolve_leads_base_filter(uid, name, current_user)
     if metric:
-        metric = resolve_metric_key(metric)
-        ctx = build_metric_context(base_filter, uid=uid, name=name, is_manager=is_manager)
-        if metric in ("follow_up_today", "missed_follow_up"):
-            await enrich_follow_up_task_ids(ctx, base_filter=base_filter)
-        metric_clause = metric_filter_for_key(metric, ctx)
+        snapshot = build_metric_snapshot_filter(current_user, use_rep_pipeline=True)
+        query_base = await resolve_leads_list_query_base(
+            current_user,
+            metric=metric,
+            snapshot_filter=snapshot,
+            use_rep_pipeline=True,
+        )
+    else:
+        query_base = base_filter
 
-    query = build_leads_list_query(
-        merge_query(base_filter, metric_clause) if metric_clause else base_filter,
+    query = compose_leads_list_query(
+        query_base,
         temperature=temperature,
         search=search,
     )

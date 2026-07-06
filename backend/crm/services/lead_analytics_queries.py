@@ -207,6 +207,20 @@ def build_dashboard_snapshot_query(*, project: Optional[str] = None) -> dict:
     return {}
 
 
+def build_created_cohort_filter(
+    *,
+    days: Optional[int] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
+) -> dict:
+    """Cohort created-date window (aligned with dashboard analytics intake filters)."""
+    if days and days > 0 and not (created_from or created_to):
+        return created_since_filter(days)
+    if created_from or created_to:
+        return created_range_filter(created_from, created_to)
+    return {}
+
+
 def _stale_activity_clause(cutoff: datetime, cutoff_iso: str) -> dict:
     no_updated_dt = {"$or": [{"updated_at_dt": {"$exists": False}}, {"updated_at_dt": None}]}
     no_updated_at = {"$or": [{"updated_at": {"$exists": False}}, {"updated_at": None}]}

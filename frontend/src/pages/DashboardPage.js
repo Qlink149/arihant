@@ -505,7 +505,7 @@ const DashboardPage = () => {
         className="space-y-2"
       >
         <p className="text-[#52525B] text-xs uppercase tracking-wider">Action today</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <StatTile
             tile="missed_follow_up"
             testId="missed-follow-up-tile"
@@ -516,6 +516,28 @@ const DashboardPage = () => {
             iconClass="text-red-500"
             iconBg="bg-red-500/20"
             tooltipType="missed_follow_up"
+          />
+          <StatTile
+            tile="follow_up_today"
+            testId="follow-up-today-tile"
+            title="Follow Up Today"
+            subtitle="Due today (IST)"
+            value={operational.follow_up_today}
+            icon={Calendar}
+            iconClass="text-amber-500"
+            iconBg="bg-amber-500/20"
+            tooltipType="follow_up_today"
+          />
+          <StatTile
+            tile="todays_leads"
+            testId="todays-leads-tile"
+            title="Today's New Leads"
+            subtitle="Created today (IST)"
+            value={operational.todays_leads}
+            icon={UserPlus}
+            iconClass="text-teal-500"
+            iconBg="bg-teal-500/20"
+            tooltipType="todays_leads"
           />
           <StatTile
             tile="todays_site_visits"
@@ -561,7 +583,7 @@ const DashboardPage = () => {
         className="space-y-2"
       >
         <p className="text-[#52525B] text-xs uppercase tracking-wider">Pipeline context</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <StatTile
             tile="total"
             testId="total-leads-tile"
@@ -583,28 +605,6 @@ const DashboardPage = () => {
             iconClass="text-red-500"
             iconBg="bg-red-500/20"
             tooltipType="hot"
-          />
-          <StatTile
-            tile="follow_up_today"
-            testId="follow-up-today-tile"
-            title="Follow Up Today"
-            subtitle="Due today (IST)"
-            value={operational.follow_up_today}
-            icon={Calendar}
-            iconClass="text-amber-500"
-            iconBg="bg-amber-500/20"
-            tooltipType="follow_up_today"
-          />
-          <StatTile
-            tile="todays_leads"
-            testId="todays-leads-tile"
-            title="Today's New Leads"
-            subtitle="Created today (IST)"
-            value={operational.todays_leads}
-            icon={UserPlus}
-            iconClass="text-teal-500"
-            iconBg="bg-teal-500/20"
-            tooltipType="todays_leads"
           />
         </div>
       </motion.div>

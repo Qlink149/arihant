@@ -52,6 +52,14 @@ def test_build_leads_list_query_status_case_insensitive_exact():
     assert status_part["lead_status"]["$options"] == "i"
 
 
+def test_build_leads_list_query_temperature_case_insensitive_exact():
+    q = build_leads_list_query(temperature="Hot")
+    parts = q["$and"] if "$and" in q else [q]
+    temp_part = next(p for p in parts if "temperature" in p)
+    assert temp_part["temperature"]["$regex"] == "^Hot$"
+    assert temp_part["temperature"]["$options"] == "i"
+
+
 def test_build_leads_list_query_created_at_range():
     q = build_leads_list_query(
         created_at_from_iso="2026-05-01T00:00:00.000Z",

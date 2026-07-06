@@ -145,13 +145,9 @@ export function getAccentStyle(metric) {
 
 
 export function buildVirtualCustomerPath(params = {}) {
-
   const metric = params.metric;
-
   if (!metric) return '/virtual-customer';
-
-  return `/virtual-customer?metric=${encodeURIComponent(metric)}`;
-
+  return `/virtual-customer?metric=${encodeURIComponent(metric)}&mine=1`;
 }
 
 

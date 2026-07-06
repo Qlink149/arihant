@@ -162,7 +162,7 @@ def build_leads_list_query(
     if project_values:
         extra.append(case_insensitive_regex_or_filter("project", project_values))
     if temperature and temperature.lower() != "all":
-        extra.append({"temperature": temperature})
+        extra.append(case_insensitive_regex_filter("temperature", temperature, exact=True))
     if budget_values:
         extra.append(case_insensitive_regex_or_filter("budget", budget_values))
     if location_values:
