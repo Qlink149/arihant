@@ -39,6 +39,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from crm.constants.lead_kpi import fw_status_indicates_rnr
+from crm.constants.import_status_map import fw_status_to_canonical
+from crm.constants.lead_status import UI_LEAD_STATUSES as CANONICAL_LEAD_STATUSES
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -87,7 +89,7 @@ UI_PROJECTS = [
 
 UI_LOCATIONS = ["ECR", "Abhiramapuram", "OMR", "Saligramam", "Kilpauk"]
 UI_BUDGETS = ["Under 1Cr", "1-2 Cr", "2-5 Cr", "Above 2Cr", "5 Cr+"]
-UI_LEAD_STATUSES = ["Open", "Contacted", "Follow Up", "Site Visit", "Lost", "Won"]
+UI_LEAD_STATUSES = list(CANONICAL_LEAD_STATUSES)
 UI_LEAD_SOURCES = [
     "Facebook Lead Form",
     "facebook_ad",
@@ -128,32 +130,33 @@ PROJECT_TO_LOCATION = {
 # ─── Normalization maps (source/status/project) ──────────────────────────────
 
 STATUS_MAP = {
-    "New": "Open",
+    "New": "New",
     "Contacted": "Contacted",
-    "Follow Up 1": "Follow Up",
-    "Follow Up 2": "Follow Up",
-    "Interested": "Follow Up",
-    "Negotiation": "Follow Up",
-    "Site Visit Scheduled": "Site Visit",
-    "Site Visit Completed": "Site Visit",
-    "Office Visit Completed": "Site Visit",
-    "Advance Paid": "Won",
-    "Awaiting Completion": "Won",
-    "Unqualified": "Lost",
-    "Junk": "Lost",
-    "Gone Cold": "Lost",
-    "Dropped": "Lost",
-    "Churned": "Lost",
-    "Rental": "Lost",
-    "Occupied": "Lost",
-    "RNR 1": "Open",
-    "RNR 2": "Open",
-    "RNR - 1": "Open",
-    "RNR - 2": "Open",
-    "Ring No Response": "Open",
-    "No Response": "Open",
-    "Project Unavailability - Future prospect": "Lost",
-    "Future Prospect - Bangalore": "Lost",
+    "Follow Up 1": "Nurturing",
+    "Follow Up 2": "Nurturing",
+    "Interested": "Nurturing",
+    "Negotiation": "Negotiation",
+    "Site Visit Scheduled": "Site Visit Scheduled",
+    "Site Visit Completed": "Visit Completed",
+    "Office Visit Completed": "Visit Completed",
+    "Advance Paid": "Closed Won",
+    "Awaiting Completion": "Closed Won",
+    "Handed over": "Closed Won",
+    "Occupied": "Closed Won",
+    "Unqualified": "Closed Lost",
+    "Junk": "Closed Lost",
+    "Gone Cold": "Gone Cold",
+    "Dropped": "Closed Lost",
+    "Churned": "Closed Lost",
+    "Rental": "Closed Lost",
+    "RNR 1": "RNR",
+    "RNR 2": "RNR",
+    "RNR - 1": "RNR",
+    "RNR - 2": "RNR",
+    "Ring No Response": "RNR",
+    "No Response": "RNR",
+    "Project Unavailability - Future prospect": "Future Prospect",
+    "Future Prospect - Bangalore": "Future Prospect",
 }
 
 SOURCE_MAP = {
@@ -517,20 +520,32 @@ def classify_pipeline_category(budget_label: Optional[str], status: str) -> str:
     s = (status or "").lower()
     very_high = "5" in b and "cr" in b
     high = "2-5" in b or "above 2" in b or very_high
-    if high and s in ("site visit", "won", "follow up"):
+    if high and s in (
+        "site visit scheduled",
+        "visit completed",
+        "closed won",
+        "nurturing",
+        "negotiation",
+    ):
         return "Qualified"
     if very_high:
         return "VIP"
-    if s in ("lost",):
+    if s in ("closed lost", "gone cold", "future prospect"):
         return "Nurture"
     return "Standard"
 
 
 def temperature_from_status(status: str) -> str:
-    # Preserve a useful distribution for dashboards.
-    if status in ("Site Visit", "Follow Up", "Won"):
+    s = (status or "").lower()
+    if s in (
+        "site visit scheduled",
+        "visit completed",
+        "closed won",
+        "nurturing",
+        "negotiation",
+    ):
         return "Hot"
-    if status in ("Contacted", "Open"):
+    if s in ("contacted", "new", "rnr"):
         return "Warm"
     return "Cold"
 
@@ -940,10 +955,10 @@ def transform_to_lead(
 
     # Status & source
     fw_status = (row.get("Status") or "").strip()
-    lead_status = STATUS_MAP.get(fw_status, "Open")
+    lead_status, is_rnr_mapped = fw_status_to_canonical(fw_status)
     if lead_status not in UI_LEAD_STATUSES:
-        lead_status = "Open"
-    is_rnr = fw_status_indicates_rnr(fw_status)
+        lead_status = "New"
+    is_rnr = is_rnr_mapped or fw_status_indicates_rnr(fw_status)
 
     lead_source = clean_source(
         row.get("Source") or "",

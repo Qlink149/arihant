@@ -9,6 +9,13 @@ from crm.services.dashboard_scope import role_scope_filter
 from crm.services.lead_search import merge_query
 from crm.constants.lead_kpi import RNR_STATUS_REGEX, SITE_VISIT_STATUS_REGEX
 from crm.constants.lead_status import CLOSED_LEAD_STATUS_REGEX
+from crm.services.sales_dashboard_filters import (
+    CONTACTED_STATUS_REGEX,
+    DEALS_LOST_STATUS_REGEX,
+    DEALS_WON_STATUS_REGEX,
+    NEGOTIATION_STATUS_REGEX,
+    build_sales_metric_filter,
+)
 from crm.services.lead_analytics_queries import (
     DORMANT_INACTIVITY_DAYS,
     build_dashboard_base_query,
@@ -118,6 +125,7 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                                 {"$eq": ["$is_rnr", True]},
                                 {"$regexMatch": {"input": "$ls", "regex": RNR_STATUS_REGEX}},
                                 {"$regexMatch": {"input": "$ofs", "regex": RNR_STATUS_REGEX}},
+                                {"$eq": ["$ls", "rnr"]},
                             ]
                         },
                         1,
@@ -132,7 +140,7 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                         {
                             "$regexMatch": {
                                 "input": "$ls",
-                                "regex": r"closed\s*won|booked|advance\s*paid",
+                                "regex": DEALS_WON_STATUS_REGEX,
                             }
                         },
                         1,
@@ -144,7 +152,7 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                         {
                             "$regexMatch": {
                                 "input": "$ls",
-                                "regex": r"closed\s*lost|dropped|junk|unqualified",
+                                "regex": DEALS_LOST_STATUS_REGEX,
                             }
                         },
                         1,
@@ -165,13 +173,17 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                 },
                 "contacted": {
                     "$cond": [
-                        {"$regexMatch": {"input": "$ls", "regex": r"^contacted$"}},
+                        {"$regexMatch": {"input": "$ls", "regex": CONTACTED_STATUS_REGEX}},
                         1,
                         0,
                     ]
                 },
                 "negotiation": {
-                    "$cond": [{"$regexMatch": {"input": "$ls", "regex": r"negotiat"}}, 1, 0]
+                    "$cond": [
+                        {"$regexMatch": {"input": "$ls", "regex": NEGOTIATION_STATUS_REGEX}},
+                        1,
+                        0,
+                    ]
                 },
                 "activity_dt": {
                     "$ifNull": [
@@ -496,6 +508,10 @@ async def get_sales_rep_leads(
     name: str = Query(..., min_length=1, description="Representative display name (must match dashboard row)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(150, ge=1, le=500),
+    metric: Optional[str] = Query(
+        None,
+        description="Pipeline filter: contacted, rnr, site_visits, negotiation, deals_won, deals_lost",
+    ),
     quarter: Optional[str] = Query(None, description="current, all, or YYYY-Qn (e.g. 2026-Q1)"),
     days: Optional[int] = Query(None, ge=1),
     created_from: Optional[str] = None,
@@ -516,12 +532,17 @@ async def get_sales_rep_leads(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        metric_filter = build_sales_metric_filter(metric)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     scope = role_scope_filter(current_user)
     rep_expr = _rep_name_expression()
     match_expr = merge_query(
         scope,
         period_filter if period_filter else {},
         {"$expr": {"$eq": [rep_expr, name]}},
+        metric_filter if metric_filter else {},
     )
     total = await db.leads.count_documents(match_expr)
 
@@ -560,4 +581,11 @@ async def get_sales_rep_leads(
             }
         )
 
-    return {"name": name, "total": total, "skip": skip, "limit": limit, "leads": leads_out}
+    return {
+        "name": name,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "metric": metric,
+        "leads": leads_out,
+    }

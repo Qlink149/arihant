@@ -55,6 +55,25 @@ const NURTURE_COLORS = { Hot: '#EF4444', Warm: '#F59E0B' };
 
 const REP_LEADS_PAGE = 150;
 
+const REP_PIPELINE_BOXES = [
+  { label: 'Total Assigned', metric: null, field: 'total', color: 'text-[#C5A059]', bg: 'bg-[#C5A059]/10' },
+  { label: 'RNR', metric: 'rnr', field: 'rnr', color: 'text-yellow-500', bg: 'bg-yellow-500/10' },
+  { label: 'Contacted', metric: 'contacted', field: 'contacted', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+  { label: 'Site Visit Stage', metric: 'site_visits', field: 'site_visits', color: 'text-teal-400', bg: 'bg-teal-500/10' },
+  { label: 'Negotiation', metric: 'negotiation', field: 'negotiation', color: 'text-purple-400', bg: 'bg-purple-500/10' },
+  { label: 'Deals Won', metric: 'deals_won', field: 'deals_won', color: 'text-green-400', bg: 'bg-green-500/10' },
+  { label: 'Deals Lost', metric: 'deals_lost', field: 'deals_lost', color: 'text-red-400', bg: 'bg-red-500/10' },
+];
+
+const REP_METRIC_LIST_LABELS = {
+  rnr: 'RNR leads',
+  contacted: 'Contacted leads',
+  site_visits: 'Site visit stage leads',
+  negotiation: 'Negotiation leads',
+  deals_won: 'Deals won',
+  deals_lost: 'Deals lost',
+};
+
 const emptyTotals = () => ({
   total: 0, hot: 0, warm: 0, negotiation: 0, rnr: 0, site_visits: 0, deals_won: 0, deals_lost: 0, deals_closed: 0
 });
@@ -70,6 +89,7 @@ const SalesDashboardPage = () => {
   const [repLeads, setRepLeads] = useState([]);
   const [repLeadsTotal, setRepLeadsTotal] = useState(0);
   const [repLeadsLoading, setRepLeadsLoading] = useState(false);
+  const [repMetricFilter, setRepMetricFilter] = useState(null);
   const [overviewQuarter, setOverviewQuarter] = useState('all');
   const [overviewDatePeriod, setOverviewDatePeriod] = useState(emptyDatePeriod);
   const [periodLabel, setPeriodLabel] = useState('All Time');
@@ -127,12 +147,14 @@ const SalesDashboardPage = () => {
 
   const salesData = useMemo(() => dashboard?.managers ?? [], [dashboard]);
 
-  const loadRepLeadsPage = useCallback(async (name, skip, { append } = { append: false }) => {
+  const loadRepLeadsPage = useCallback(async (name, skip, { append, metric } = { append: false, metric: null }) => {
     if (repFetchBusy.current) return;
     repFetchBusy.current = true;
     setRepLeadsLoading(true);
     try {
-      const { data } = await analyticsAPI.getSalesRepLeads(name, { skip, limit: REP_LEADS_PAGE, ...periodParams });
+      const params = { skip, limit: REP_LEADS_PAGE, ...periodParams };
+      if (metric) params.metric = metric;
+      const { data } = await analyticsAPI.getSalesRepLeads(name, params);
       setRepLeadsTotal(data.total ?? 0);
       const batch = data.leads || [];
       setRepLeads((prev) => {
@@ -155,11 +177,13 @@ const SalesDashboardPage = () => {
     }
   }, [periodParams]);
 
-  const prefetchNextRepPage = useCallback((name, nextSkip) => {
-    const key = `${name}:${nextSkip}`;
+  const prefetchNextRepPage = useCallback((name, nextSkip, metric) => {
+    const key = `${name}:${metric || 'all'}:${nextSkip}`;
     if (prefetchedRef.current.has(key) || nextSkip >= repLeadsTotal) return;
     prefetchedRef.current.add(key);
-    analyticsAPI.getSalesRepLeads(name, { skip: nextSkip, limit: REP_LEADS_PAGE, ...periodParams }).then(({ data }) => {
+    const params = { skip: nextSkip, limit: REP_LEADS_PAGE, ...periodParams };
+    if (metric) params.metric = metric;
+    analyticsAPI.getSalesRepLeads(name, params).then(({ data }) => {
       const batch = data.leads || [];
       if (!batch.length) return;
       setRepLeads((prev) => {
@@ -176,17 +200,19 @@ const SalesDashboardPage = () => {
   const openRepModal = useCallback((person) => {
     repFetchBusy.current = false;
     prefetchedRef.current = new Set();
+    setRepMetricFilter(null);
     setSelectedPerson(person);
     setRepLeads([]);
     setRepLeadsTotal(person.total ?? 0);
     if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
-    loadRepLeadsPage(person.name, 0, { append: false });
+    loadRepLeadsPage(person.name, 0, { append: false, metric: null });
   }, [loadRepLeadsPage]);
 
   const closeRepModal = useCallback(() => {
     setSelectedPerson(null);
     setRepLeads([]);
     setRepLeadsTotal(0);
+    setRepMetricFilter(null);
     prefetchedRef.current = new Set();
     if (searchParams.get('agent')) {
       const next = new URLSearchParams(searchParams);
@@ -212,9 +238,9 @@ const SalesDashboardPage = () => {
   useEffect(() => {
     if (!selectedPerson?.name) return;
     if (repLeads.length >= REP_LEADS_PAGE && repLeadsTotal > repLeads.length) {
-      prefetchNextRepPage(selectedPerson.name, REP_LEADS_PAGE);
+      prefetchNextRepPage(selectedPerson.name, repLeads.length, repMetricFilter);
     }
-  }, [selectedPerson, repLeads.length, repLeadsTotal, prefetchNextRepPage]);
+  }, [selectedPerson, repLeads.length, repLeadsTotal, repMetricFilter, prefetchNextRepPage]);
 
   const sortedData = useMemo(() => {
     return [...salesData].sort((a, b) => {
@@ -259,8 +285,22 @@ const SalesDashboardPage = () => {
   const handleRepListNearBottom = useCallback(() => {
     if (!selectedPerson || repLeadsLoading) return;
     if (repLeads.length >= repLeadsTotal) return;
-    loadRepLeadsPage(selectedPerson.name, repLeads.length, { append: true });
-  }, [selectedPerson, repLeadsLoading, repLeads.length, repLeadsTotal, loadRepLeadsPage]);
+    loadRepLeadsPage(selectedPerson.name, repLeads.length, { append: true, metric: repMetricFilter });
+  }, [selectedPerson, repLeadsLoading, repLeads.length, repLeadsTotal, repMetricFilter, loadRepLeadsPage]);
+
+  const handleRepMetricClick = useCallback((metric) => {
+    if (!selectedPerson) return;
+    const nextMetric = repMetricFilter === metric ? null : metric;
+    setRepMetricFilter(nextMetric);
+    prefetchedRef.current = new Set();
+    setRepLeads([]);
+    const previewTotal = nextMetric
+      ? (selectedPerson[nextMetric] ?? 0)
+      : (selectedPerson.total ?? 0);
+    setRepLeadsTotal(previewTotal);
+    if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+    loadRepLeadsPage(selectedPerson.name, 0, { append: false, metric: nextMetric });
+  }, [selectedPerson, repMetricFilter, loadRepLeadsPage]);
 
   const onLeadListScroll = useInfiniteScrollNearBottom(listScrollRef, handleRepListNearBottom);
 
@@ -517,24 +557,32 @@ const SalesDashboardPage = () => {
                 <Button variant="ghost" onClick={closeRepModal} className="text-[#A1A1AA] hover:text-white"><X size={20} /></Button>
               </div>
 
-              <div className="grid grid-cols-6 gap-3 mb-6">
-                {[
-                  { label: 'Total Assigned', value: selectedPerson.total, color: 'text-[#C5A059]', bg: 'bg-[#C5A059]/10' },
-                  { label: 'Contacted', value: selectedPerson.contacted ?? 0, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-                  { label: 'Site Visit Stage', value: selectedPerson.site_visits, color: 'text-teal-400', bg: 'bg-teal-500/10' },
-                  { label: 'Negotiation', value: selectedPerson.negotiation ?? 0, color: 'text-purple-400', bg: 'bg-purple-500/10' },
-                  { label: 'Deals Won', value: selectedPerson.deals_won ?? 0, color: 'text-green-400', bg: 'bg-green-500/10' },
-                  { label: 'Deals Lost', value: selectedPerson.deals_lost ?? 0, color: 'text-red-400', bg: 'bg-red-500/10' },
-                ].map((f, i) => (
-                  <div key={f.label} className={`p-3 rounded-lg ${f.bg} text-center relative`}>
-                    <p className="text-[#52525B] text-[10px] uppercase">{f.label}</p>
-                    <p className={`font-serif text-2xl ${f.color}`}>{f.value}</p>
-                    {i < 5 && <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 text-[#52525B] z-10">&#8594;</div>}
-                  </div>
-                ))}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+                {REP_PIPELINE_BOXES.map((f) => {
+                  const isActive = repMetricFilter === f.metric;
+                  const value = f.metric ? (selectedPerson[f.field] ?? 0) : selectedPerson.total;
+                  return (
+                    <button
+                      key={f.label}
+                      type="button"
+                      onClick={() => handleRepMetricClick(f.metric)}
+                      className={`p-3 rounded-lg ${f.bg} text-center transition-all border ${
+                        isActive
+                          ? 'border-white/40 ring-1 ring-white/20'
+                          : 'border-transparent hover:border-white/15 cursor-pointer'
+                      }`}
+                      data-testid={f.metric ? `rep-metric-${f.metric}` : 'rep-metric-total'}
+                    >
+                      <p className="text-[#52525B] text-[10px] uppercase">{f.label}</p>
+                      <p className={`font-serif text-2xl ${f.color}`}>{value}</p>
+                    </button>
+                  );
+                })}
               </div>
 
-              <h3 className="font-serif text-lg text-white mb-3">All Assigned Leads</h3>
+              <h3 className="font-serif text-lg text-white mb-3">
+                {repMetricFilter ? REP_METRIC_LIST_LABELS[repMetricFilter] : 'All Assigned Leads'}
+              </h3>
               <p className="text-[#52525B] text-xs mb-2">Showing {repLeads.length} of {repLeadsTotal}{repLeadsLoading ? ' · Loading…' : ''}</p>
               <div
                 ref={listScrollRef}

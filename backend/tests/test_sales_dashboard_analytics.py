@@ -5,6 +5,38 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from crm.api.v1.endpoints import analytics as analytics_module
+from crm.constants.import_status_map import fw_status_to_canonical, resolve_imported_lead_status
+from crm.services.sales_dashboard_filters import (
+    DEALS_WON_STATUS_REGEX,
+    build_sales_metric_filter,
+)
+
+
+def test_fw_status_to_canonical_migrated_labels():
+    assert fw_status_to_canonical("RNR 1") == ("RNR", True)
+    assert fw_status_to_canonical("RNR 2") == ("RNR", True)
+    assert fw_status_to_canonical("Follow Up 1") == ("Nurturing", False)
+    assert fw_status_to_canonical("Interested") == ("Nurturing", False)
+    assert fw_status_to_canonical("Site Visit Completed") == ("Visit Completed", False)
+    assert fw_status_to_canonical("Advance Paid") == ("Closed Won", False)
+    assert fw_status_to_canonical("Junk") == ("Closed Lost", False)
+
+
+def test_resolve_imported_lead_status_prefers_original_fw():
+    status, is_rnr = resolve_imported_lead_status("Follow Up", "Negotiation")
+    assert status == "Negotiation"
+    assert is_rnr is False
+
+    status, is_rnr = resolve_imported_lead_status("Open", "RNR 1")
+    assert status == "RNR"
+    assert is_rnr is True
+
+
+def test_sales_metric_filter_rnr_and_contacted():
+    rnr = build_sales_metric_filter("rnr")
+    assert "$or" in rnr
+    contacted = build_sales_metric_filter("contacted")
+    assert contacted["lead_status"]["$regex"] == r"^contacted$"
 
 
 def test_contacted_regex_in_sales_metrics_stages():
@@ -22,7 +54,8 @@ def test_deals_won_and_lost_in_sales_metrics_stages():
     assert "deals_lost" in add_fields
     won = add_fields["deals_won"]["$cond"][0]["$regexMatch"]["regex"]
     lost = add_fields["deals_lost"]["$cond"][0]["$regexMatch"]["regex"]
-    assert "closed" in won
+    assert won == DEALS_WON_STATUS_REGEX
+    assert "handed" in won
     assert "lost" in lost
 
 
@@ -221,3 +254,70 @@ async def _sales_dashboard_ranking_sorts_and_filters_unassigned():
     first_pipeline = mock_db.leads.aggregate.call_args_list[0][0][0]
     match_stage = first_pipeline[0]["$match"]
     assert "created_at_dt" in str(match_stage)
+
+
+def test_sales_rep_leads_applies_metric_filter():
+    asyncio.run(_sales_rep_leads_applies_metric_filter())
+
+
+async def _sales_rep_leads_applies_metric_filter():
+    mock_db = MagicMock()
+    mock_db.leads.count_documents = AsyncMock(return_value=3)
+    mock_cursor = MagicMock()
+    mock_cursor.sort.return_value = mock_cursor
+    mock_cursor.skip.return_value = mock_cursor
+    mock_cursor.limit.return_value = mock_cursor
+
+    async def _iter():
+        return
+        yield  # pragma: no cover
+
+    mock_cursor.__aiter__ = lambda self: self
+    mock_cursor.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+    mock_db.leads.find.return_value = mock_cursor
+
+    mock_user = {"role": "admin", "full_name": "Admin"}
+
+    with patch.object(analytics_module, "db", mock_db):
+        result = await analytics_module.get_sales_rep_leads(
+            name="Gowtham j",
+            skip=0,
+            limit=50,
+            metric="rnr",
+            quarter="all",
+            days=None,
+            created_from=None,
+            created_to=None,
+            current_user=mock_user,
+        )
+
+    assert result["metric"] == "rnr"
+    assert result["total"] == 3
+    count_filter = mock_db.leads.count_documents.await_args.args[0]
+    assert "$or" in str(count_filter)
+    assert "is_rnr" in str(count_filter)
+
+
+def test_sales_rep_leads_rejects_invalid_metric():
+    asyncio.run(_sales_rep_leads_rejects_invalid_metric())
+
+
+async def _sales_rep_leads_rejects_invalid_metric():
+    from fastapi import HTTPException
+
+    mock_user = {"role": "admin", "full_name": "Admin"}
+    try:
+        await analytics_module.get_sales_rep_leads(
+            name="Alice",
+            skip=0,
+            limit=50,
+            metric="invalid",
+            quarter="all",
+            days=None,
+            created_from=None,
+            created_to=None,
+            current_user=mock_user,
+        )
+        assert False, "expected HTTPException"
+    except HTTPException as exc:
+        assert exc.status_code == 400
