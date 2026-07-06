@@ -13,6 +13,7 @@ from crm.services.lead_overview_service import (
     resolve_metric_key,
 )
 from crm.services.lead_search import build_leads_list_query, merge_query
+from crm.services.sales_dashboard_filters import SALES_DASHBOARD_METRICS, build_sales_metric_filter
 
 
 def parse_multi_filter(value: Union[str, List[str], None]) -> List[str]:
@@ -62,19 +63,24 @@ async def resolve_leads_list_query_base(
 
     if metric:
         metric = resolve_metric_key(metric)
-        uid = current_user["id"]
-        name = current_user["full_name"]
-        is_admin_or_manager = current_user.get("role") in ("admin", "manager")
-        if metric in ORG_WIDE_DASHBOARD_METRICS and is_admin_or_manager:
-            ctx = build_metric_context({}, uid=uid, name=name, is_manager=False)
+        if metric in SALES_DASHBOARD_METRICS:
+            scope = role_scope_filter(current_user)
+            sales_filt = build_sales_metric_filter(metric)
+            query_base = merge_query(scope or {}, sales_filt)
         else:
-            base_filter, is_manager = await resolve_leads_base_filter(uid, name, current_user)
-            ctx = build_metric_context(base_filter, uid=uid, name=name, is_manager=is_manager)
-        if metric in ("follow_up_today", "missed_follow_up"):
-            await enrich_follow_up_task_ids(ctx, base_filter=ctx.get("base_filter"))
-        query_base = metric_filter_for_key(metric, ctx)
-        if not query_base and metric not in ORG_WIDE_DASHBOARD_METRICS:
-            query_base = ctx.get("base_filter")
+            uid = current_user["id"]
+            name = current_user["full_name"]
+            is_admin_or_manager = current_user.get("role") in ("admin", "manager")
+            if metric in ORG_WIDE_DASHBOARD_METRICS and is_admin_or_manager:
+                ctx = build_metric_context({}, uid=uid, name=name, is_manager=False)
+            else:
+                base_filter, is_manager = await resolve_leads_base_filter(uid, name, current_user)
+                ctx = build_metric_context(base_filter, uid=uid, name=name, is_manager=is_manager)
+            if metric in ("follow_up_today", "missed_follow_up"):
+                await enrich_follow_up_task_ids(ctx, base_filter=ctx.get("base_filter"))
+            query_base = metric_filter_for_key(metric, ctx)
+            if not query_base and metric not in ORG_WIDE_DASHBOARD_METRICS:
+                query_base = ctx.get("base_filter")
     else:
         scope = role_scope_filter(current_user)
         if scope:

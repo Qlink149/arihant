@@ -30,6 +30,7 @@ import {
   getSalesPeriodLabel,
 } from '../utils/salesPeriodFilter';
 import { useStatsAutoRefresh } from '../hooks/useStatsAutoRefresh';
+import { buildSalesVirtualCustomerPath } from '../utils/salesDashboardDrillDown';
 
 const STATS_REFRESH_MS = 60_000;
 
@@ -65,14 +66,27 @@ const REP_PIPELINE_BOXES = [
   { label: 'Deals Lost', metric: 'deals_lost', field: 'deals_lost', color: 'text-red-400', bg: 'bg-red-500/10' },
 ];
 
-const REP_METRIC_LIST_LABELS = {
-  rnr: 'RNR leads',
-  contacted: 'Contacted leads',
-  site_visits: 'Site visit stage leads',
-  negotiation: 'Negotiation leads',
-  deals_won: 'Deals won',
-  deals_lost: 'Deals lost',
-};
+const TEAM_SUMMARY_STATS = [
+  { key: 'total', label: 'Total Leads', field: 'total', icon: Users, color: 'text-[#C5A059]' },
+  { key: 'hot', label: 'Nurturing Hot', field: 'hot', icon: Flame, color: 'text-red-500' },
+  { key: 'warm', label: 'Nurturing Warm', field: 'warm', icon: Sun, color: 'text-orange-500' },
+  { key: 'negotiation', label: 'In Negotiation', field: 'negotiation', icon: Briefcase, color: 'text-purple-400', testId: 'stat-in-negotiation' },
+  { key: 'rnr', label: 'RNR', field: 'rnr', icon: PhoneOff, color: 'text-yellow-500', testId: 'stat-rnr' },
+  { key: 'site_visits', label: 'In Site Visit Stage', field: 'site_visits', icon: MapPin, color: 'text-teal-500', testId: 'stat-site-visits' },
+  { key: 'deals_won', label: 'Deals Won', field: 'deals_won', icon: CheckCircle, color: 'text-green-500', testId: 'stat-deals-won' },
+  { key: 'deals_lost', label: 'Deals Lost', field: 'deals_lost', icon: TrendingDown, color: 'text-red-400', testId: 'stat-deals-lost' },
+];
+
+const AGENT_TABLE_DRILL_COLUMNS = [
+  { key: 'total', field: 'total', className: 'text-white font-medium' },
+  { key: 'hot', field: 'hot', className: 'text-red-500' },
+  { key: 'warm', field: 'warm', className: 'text-orange-500' },
+  { key: 'negotiation', field: 'negotiation', className: 'text-purple-400' },
+  { key: 'rnr', field: 'rnr', className: 'text-yellow-500' },
+  { key: 'site_visits', field: 'site_visits', className: 'text-teal-400' },
+  { key: 'deals_won', field: 'deals_won', badge: 'success' },
+  { key: 'deals_lost', field: 'deals_lost', badge: 'danger' },
+];
 
 const emptyTotals = () => ({
   total: 0, hot: 0, warm: 0, negotiation: 0, rnr: 0, site_visits: 0, deals_won: 0, deals_lost: 0, deals_closed: 0
@@ -89,7 +103,6 @@ const SalesDashboardPage = () => {
   const [repLeads, setRepLeads] = useState([]);
   const [repLeadsTotal, setRepLeadsTotal] = useState(0);
   const [repLeadsLoading, setRepLeadsLoading] = useState(false);
-  const [repMetricFilter, setRepMetricFilter] = useState(null);
   const [overviewQuarter, setOverviewQuarter] = useState('all');
   const [overviewDatePeriod, setOverviewDatePeriod] = useState(emptyDatePeriod);
   const [periodLabel, setPeriodLabel] = useState('All Time');
@@ -103,6 +116,14 @@ const SalesDashboardPage = () => {
     () => buildSalesDashboardParams({ quarter: overviewQuarter, datePeriod: overviewDatePeriod }),
     [overviewQuarter, overviewDatePeriod]
   );
+
+  const drillToVirtualCustomer = useCallback((statKey, agentName = null) => {
+    navigate(buildSalesVirtualCustomerPath(statKey, {
+      quarter: overviewQuarter,
+      datePeriod: overviewDatePeriod,
+      agentName,
+    }));
+  }, [navigate, overviewQuarter, overviewDatePeriod]);
 
   const fetchData = useCallback(async ({ silent = false } = {}) => {
     try {
@@ -147,14 +168,12 @@ const SalesDashboardPage = () => {
 
   const salesData = useMemo(() => dashboard?.managers ?? [], [dashboard]);
 
-  const loadRepLeadsPage = useCallback(async (name, skip, { append, metric } = { append: false, metric: null }) => {
+  const loadRepLeadsPage = useCallback(async (name, skip, { append } = { append: false }) => {
     if (repFetchBusy.current) return;
     repFetchBusy.current = true;
     setRepLeadsLoading(true);
     try {
-      const params = { skip, limit: REP_LEADS_PAGE, ...periodParams };
-      if (metric) params.metric = metric;
-      const { data } = await analyticsAPI.getSalesRepLeads(name, params);
+      const { data } = await analyticsAPI.getSalesRepLeads(name, { skip, limit: REP_LEADS_PAGE, ...periodParams });
       setRepLeadsTotal(data.total ?? 0);
       const batch = data.leads || [];
       setRepLeads((prev) => {
@@ -177,13 +196,11 @@ const SalesDashboardPage = () => {
     }
   }, [periodParams]);
 
-  const prefetchNextRepPage = useCallback((name, nextSkip, metric) => {
-    const key = `${name}:${metric || 'all'}:${nextSkip}`;
+  const prefetchNextRepPage = useCallback((name, nextSkip) => {
+    const key = `${name}:${nextSkip}`;
     if (prefetchedRef.current.has(key) || nextSkip >= repLeadsTotal) return;
     prefetchedRef.current.add(key);
-    const params = { skip: nextSkip, limit: REP_LEADS_PAGE, ...periodParams };
-    if (metric) params.metric = metric;
-    analyticsAPI.getSalesRepLeads(name, params).then(({ data }) => {
+    analyticsAPI.getSalesRepLeads(name, { skip: nextSkip, limit: REP_LEADS_PAGE, ...periodParams }).then(({ data }) => {
       const batch = data.leads || [];
       if (!batch.length) return;
       setRepLeads((prev) => {
@@ -200,19 +217,17 @@ const SalesDashboardPage = () => {
   const openRepModal = useCallback((person) => {
     repFetchBusy.current = false;
     prefetchedRef.current = new Set();
-    setRepMetricFilter(null);
     setSelectedPerson(person);
     setRepLeads([]);
     setRepLeadsTotal(person.total ?? 0);
     if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
-    loadRepLeadsPage(person.name, 0, { append: false, metric: null });
+    loadRepLeadsPage(person.name, 0, { append: false });
   }, [loadRepLeadsPage]);
 
   const closeRepModal = useCallback(() => {
     setSelectedPerson(null);
     setRepLeads([]);
     setRepLeadsTotal(0);
-    setRepMetricFilter(null);
     prefetchedRef.current = new Set();
     if (searchParams.get('agent')) {
       const next = new URLSearchParams(searchParams);
@@ -238,9 +253,9 @@ const SalesDashboardPage = () => {
   useEffect(() => {
     if (!selectedPerson?.name) return;
     if (repLeads.length >= REP_LEADS_PAGE && repLeadsTotal > repLeads.length) {
-      prefetchNextRepPage(selectedPerson.name, repLeads.length, repMetricFilter);
+      prefetchNextRepPage(selectedPerson.name, repLeads.length);
     }
-  }, [selectedPerson, repLeads.length, repLeadsTotal, repMetricFilter, prefetchNextRepPage]);
+  }, [selectedPerson, repLeads.length, repLeadsTotal, prefetchNextRepPage]);
 
   const sortedData = useMemo(() => {
     return [...salesData].sort((a, b) => {
@@ -285,22 +300,8 @@ const SalesDashboardPage = () => {
   const handleRepListNearBottom = useCallback(() => {
     if (!selectedPerson || repLeadsLoading) return;
     if (repLeads.length >= repLeadsTotal) return;
-    loadRepLeadsPage(selectedPerson.name, repLeads.length, { append: true, metric: repMetricFilter });
-  }, [selectedPerson, repLeadsLoading, repLeads.length, repLeadsTotal, repMetricFilter, loadRepLeadsPage]);
-
-  const handleRepMetricClick = useCallback((metric) => {
-    if (!selectedPerson) return;
-    const nextMetric = repMetricFilter === metric ? null : metric;
-    setRepMetricFilter(nextMetric);
-    prefetchedRef.current = new Set();
-    setRepLeads([]);
-    const previewTotal = nextMetric
-      ? (selectedPerson[nextMetric] ?? 0)
-      : (selectedPerson.total ?? 0);
-    setRepLeadsTotal(previewTotal);
-    if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
-    loadRepLeadsPage(selectedPerson.name, 0, { append: false, metric: nextMetric });
-  }, [selectedPerson, repMetricFilter, loadRepLeadsPage]);
+    loadRepLeadsPage(selectedPerson.name, repLeads.length, { append: true });
+  }, [selectedPerson, repLeadsLoading, repLeads.length, repLeadsTotal, loadRepLeadsPage]);
 
   const onLeadListScroll = useInfiniteScrollNearBottom(listScrollRef, handleRepListNearBottom);
 
@@ -365,21 +366,19 @@ const SalesDashboardPage = () => {
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
         className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-        {[
-          { label: 'Total Leads', value: totalStats.total, icon: Users, color: 'text-[#C5A059]' },
-          { label: 'Nurturing Hot', value: totalStats.hot, icon: Flame, color: 'text-red-500' },
-          { label: 'Nurturing Warm', value: totalStats.warm, icon: Sun, color: 'text-orange-500' },
-          { label: 'In Negotiation', value: totalStats.negotiation, icon: Briefcase, color: 'text-purple-400', testId: 'stat-in-negotiation' },
-          { label: 'RNR', value: totalStats.rnr, icon: PhoneOff, color: 'text-yellow-500', testId: 'stat-rnr' },
-          { label: 'In Site Visit Stage', value: totalStats.site_visits, icon: MapPin, color: 'text-teal-500', testId: 'stat-site-visits' },
-          { label: 'Deals Won', value: totalStats.deals_won ?? 0, icon: CheckCircle, color: 'text-green-500', testId: 'stat-deals-won' },
-          { label: 'Deals Lost', value: totalStats.deals_lost ?? 0, icon: TrendingDown, color: 'text-red-400', testId: 'stat-deals-lost' },
-        ].map(s => (
-          <div key={s.label} className="glass-card rounded-lg p-3 text-center" data-testid={s.testId || `stat-${s.label.toLowerCase().replace(/\s/g, '-')}`}>
+        {TEAM_SUMMARY_STATS.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => drillToVirtualCustomer(s.key)}
+            className="glass-card rounded-lg p-3 text-center hover:border-[#C5A059]/40 border border-transparent transition-colors cursor-pointer"
+            data-testid={s.testId || `stat-${s.label.toLowerCase().replace(/\s/g, '-')}`}
+            title={`View ${s.label} in Virtual Customer`}
+          >
             <s.icon className={`mx-auto ${s.color}`} size={20} />
             <p className="text-[#52525B] text-[10px] uppercase mt-1">{s.label}</p>
-            <p className={`font-serif text-xl ${s.color}`}>{s.value}</p>
-          </div>
+            <p className={`font-serif text-xl ${s.color}`}>{totalStats[s.field] ?? 0}</p>
+          </button>
         ))}
       </motion.div>
 
@@ -432,18 +431,27 @@ const SalesDashboardPage = () => {
                       <span className={`text-sm font-medium ${idx === 0 && sortField === 'deals_won' ? 'text-[#C5A059]' : 'text-white'}`}>{s.name}</span>
                     </div>
                   </td>
-                  <td className="py-3 px-3 text-center text-white font-medium text-sm">{s.total}</td>
-                  <td className="py-3 px-3 text-center text-red-500 text-sm">{s.hot}</td>
-                  <td className="py-3 px-3 text-center text-orange-500 text-sm">{s.warm}</td>
-                  <td className="py-3 px-3 text-center text-purple-400 text-sm">{s.negotiation ?? 0}</td>
-                  <td className="py-3 px-3 text-center text-yellow-500 text-sm">{s.rnr}</td>
-                  <td className="py-3 px-3 text-center text-teal-400 text-sm">{s.site_visits}</td>
-                  <td className="py-3 px-3 text-center">
-                    <CrmBadge variant="success">{s.deals_won ?? 0}</CrmBadge>
-                  </td>
-                  <td className="py-3 px-3 text-center">
-                    <CrmBadge variant="danger">{s.deals_lost ?? 0}</CrmBadge>
-                  </td>
+                  {AGENT_TABLE_DRILL_COLUMNS.map((col) => {
+                    const value = s[col.field] ?? 0;
+                    const content = col.badge ? (
+                      <CrmBadge variant={col.badge}>{value}</CrmBadge>
+                    ) : (
+                      <span className={`text-sm ${col.className}`}>{value}</span>
+                    );
+                    return (
+                      <td key={col.key} className="py-3 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => drillToVirtualCustomer(col.key, s.name)}
+                          className="w-full hover:opacity-80 transition-opacity cursor-pointer"
+                          title={`View ${s.name} — ${col.key.replace(/_/g, ' ')}`}
+                          data-testid={`drill-${s.name}-${col.key}`}
+                        >
+                          {content}
+                        </button>
+                      </td>
+                    );
+                  })}
                   <td className="py-3 px-3 text-center text-[#A1A1AA] text-sm">{s.conversion_rate ?? 0}%</td>
                   <td className="py-3 px-3 text-center">
                     <Button size="sm" variant="ghost" onClick={() => {
@@ -559,19 +567,16 @@ const SalesDashboardPage = () => {
 
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
                 {REP_PIPELINE_BOXES.map((f) => {
-                  const isActive = repMetricFilter === f.metric;
-                  const value = f.metric ? (selectedPerson[f.field] ?? 0) : selectedPerson.total;
+                  const statKey = f.metric || 'total';
+                  const value = statKey === 'total' ? selectedPerson.total : (selectedPerson[f.field] ?? 0);
                   return (
                     <button
                       key={f.label}
                       type="button"
-                      onClick={() => handleRepMetricClick(f.metric)}
-                      className={`p-3 rounded-lg ${f.bg} text-center transition-all border ${
-                        isActive
-                          ? 'border-white/40 ring-1 ring-white/20'
-                          : 'border-transparent hover:border-white/15 cursor-pointer'
-                      }`}
+                      onClick={() => drillToVirtualCustomer(statKey, selectedPerson.name)}
+                      className={`p-3 rounded-lg ${f.bg} text-center transition-all border border-transparent hover:border-white/20 cursor-pointer`}
                       data-testid={f.metric ? `rep-metric-${f.metric}` : 'rep-metric-total'}
+                      title={`View in Virtual Customer`}
                     >
                       <p className="text-[#52525B] text-[10px] uppercase">{f.label}</p>
                       <p className={`font-serif text-2xl ${f.color}`}>{value}</p>
@@ -580,9 +585,7 @@ const SalesDashboardPage = () => {
                 })}
               </div>
 
-              <h3 className="font-serif text-lg text-white mb-3">
-                {repMetricFilter ? REP_METRIC_LIST_LABELS[repMetricFilter] : 'All Assigned Leads'}
-              </h3>
+              <h3 className="font-serif text-lg text-white mb-3">All Assigned Leads</h3>
               <p className="text-[#52525B] text-xs mb-2">Showing {repLeads.length} of {repLeadsTotal}{repLeadsLoading ? ' · Loading…' : ''}</p>
               <div
                 ref={listScrollRef}

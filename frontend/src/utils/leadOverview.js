@@ -56,6 +56,14 @@ export const METRIC_LABELS = {
 
   negotiation: 'In negotiation',
 
+  site_visits: 'Site visit stage',
+
+  deals_won: 'Deals won',
+
+  deals_lost: 'Deals lost',
+
+  contacted: 'Contacted',
+
   leads_received: 'Leads received',
 
   leads_transferred: 'Leads transferred',

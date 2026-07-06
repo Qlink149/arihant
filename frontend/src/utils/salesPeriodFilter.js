@@ -96,3 +96,49 @@ export function isDatePeriodActive(datePeriod = {}) {
 export function emptyDatePeriod() {
   return { days: '', created_from: '', created_to: '' };
 }
+
+const QUARTER_END_MONTH = { 1: 3, 2: 6, 3: 9, 4: 12 };
+const QUARTER_END_DAY = { 1: 31, 2: 30, 3: 30, 4: 31 };
+
+function quarterDateBounds(year, quarter) {
+  const q = Number(quarter);
+  const y = Number(year);
+  if (!Number.isFinite(q) || q < 1 || q > 4 || !Number.isFinite(y)) return null;
+  const startMonth = (q - 1) * 3 + 1;
+  const endMonth = QUARTER_END_MONTH[q];
+  const endDay = QUARTER_END_DAY[q];
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    created_from: `${y}-${pad(startMonth)}-01`,
+    created_to: `${y}-${pad(endMonth)}-${pad(endDay)}`,
+  };
+}
+
+/** Map sales dashboard period to Virtual Customer created-date query params. */
+export function salesPeriodToLeadDateParams({ quarter = 'all', datePeriod = {} } = {}) {
+  const qRaw = (quarter || '').trim();
+  if (qRaw && qRaw.toLowerCase() !== 'all') {
+    let year;
+    let qNum;
+    if (qRaw === 'current') {
+      const parts = getIstCalendarParts();
+      year = parts.year;
+      qNum = parts.quarter;
+    } else {
+      const m = qRaw.match(/^(\d{4})-Q([1-4])$/i);
+      if (m) {
+        year = parseInt(m[1], 10);
+        qNum = parseInt(m[2], 10);
+      }
+    }
+    const bounds = quarterDateBounds(year, qNum);
+    if (bounds) return bounds;
+  }
+
+  const dash = buildSalesDashboardParams({ quarter, datePeriod });
+  if (dash.days) return { days: String(dash.days) };
+  const out = {};
+  if (dash.created_from) out.created_from = dash.created_from;
+  if (dash.created_to) out.created_to = dash.created_to;
+  return out;
+}
