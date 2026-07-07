@@ -14,6 +14,11 @@ from crm.constants.lead_status import (
     is_sv_followup_status,
     is_terminal_lead_status,
 )
+from crm.constants.lost_reason import (
+    is_free_text_lost_status,
+    is_lost_reason_status,
+    normalize_lost_reason,
+)
 from crm.core.platform_ops import assert_assignee_allowed
 from crm.core.state import db, resolve_project_id, resolve_user_id_by_full_name
 from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
@@ -408,11 +413,33 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     # Lost reason (client confirmed): mandatory when marking certain terminal/lost statuses.
     if "lead_status" in patch:
-        lost_statuses = {"closed lost", "junk", "dropped", "unqualified"}
-        if next_status.strip().lower() in lost_statuses:
+        next_lower = next_status.strip().lower()
+        if is_lost_reason_status(next_status) or is_free_text_lost_status(next_status):
             reason = (patch.get("lost_reason") or existing.get("lost_reason") or "").strip()
             if not reason:
                 raise HTTPException(status_code=400, detail="lost_reason is required when marking lead as lost/junk")
+            if is_lost_reason_status(next_status):
+                normalized = normalize_lost_reason(reason)
+                if not normalized:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid lost_reason. Select a value from the lost reason list.",
+                    )
+                patch["lost_reason"] = normalized
+
+    if "lost_reason" in patch and "lead_status" not in patch:
+        effective_status = (existing.get("lead_status") or "").strip()
+        if is_lost_reason_status(effective_status):
+            reason = (patch.get("lost_reason") or "").strip()
+            if not reason:
+                raise HTTPException(status_code=400, detail="lost_reason is required for this lead status")
+            normalized = normalize_lost_reason(reason)
+            if not normalized:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid lost_reason. Select a value from the lost reason list.",
+                )
+            patch["lost_reason"] = normalized
 
     # Global ghost-job cleanup policy (client confirmed):
     # On ANY stage transition, cancel all pending SLA tasks for this lead.

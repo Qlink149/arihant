@@ -4,6 +4,12 @@ import { toast } from 'sonner';
 import { leadsAPI, myDashboardAPI, usersAPI } from '../../services/api';
 import { UI_LEAD_STATUSES } from '../../constants/leadStatus';
 import {
+  LOST_REASON_OPTIONS,
+  isCanonicalLostReason,
+  isLostReasonEnumStatus,
+  isLostReasonStatus,
+} from '../../constants/lostReason';
+import {
   isNurturingStatus,
   NURTURE_LABELS,
   NURTURING_STATUS,
@@ -61,6 +67,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
   const [lostModalOpen, setLostModalOpen] = useState(false);
   const [pendingLostStatus, setPendingLostStatus] = useState('');
   const [pendingLostReason, setPendingLostReason] = useState(lead?.lost_reason || '');
+  const [savingLostReason, setSavingLostReason] = useState(false);
   const [visitDateDt, setVisitDateDt] = useState(() => toLocalDatetimeInput(lead?.visit_date_dt));
   const [savingVisitDate, setSavingVisitDate] = useState(false);
   const [extraFieldsOpen, setExtraFieldsOpen] = useState(false);
@@ -126,9 +133,17 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
   }, [lead?.visit_date_dt]);
 
   const showVisitDateField = VISIT_DATE_STATUSES.includes(lead?.lead_status || '');
+  const showLostReasonField = isLostReasonStatus(lead?.lead_status);
+
+  const legacyLostReason = useMemo(() => {
+    const v = (lead?.lost_reason || '').trim();
+    if (!v || isCanonicalLostReason(v)) return null;
+    return v;
+  }, [lead?.lost_reason]);
 
   const hasExtraFields =
     showVisitDateField ||
+    showLostReasonField ||
     String(lead?.lead_status || '').toLowerCase() === 'contacted' ||
     showNurturePicker ||
     (lead?.visit_date_dt && !showVisitDateField);
@@ -142,6 +157,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
     const lostLike = ['closed lost', 'junk', 'unqualified'];
     if (lostLike.includes(String(newStatus).toLowerCase())) {
       setPendingLostStatus(newStatus);
+      setPendingLostReason(isLostReasonEnumStatus(newStatus) ? '' : (lead?.lost_reason || ''));
       setLostModalOpen(true);
       return;
     }
@@ -178,6 +194,10 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
       toast.error(`Reason is required for ${pendingLostStatus || 'this status'}`);
       return;
     }
+    if (isLostReasonEnumStatus(pendingLostStatus) && !isCanonicalLostReason(reason)) {
+      toast.error('Select a valid lost reason from the list');
+      return;
+    }
     setSavingStatus(true);
     try {
       await leadsAPI.update(leadId, { lead_status: pendingLostStatus, temperature: null, lost_reason: reason });
@@ -189,6 +209,28 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
       toast.error(error.response?.data?.detail || 'Failed to update lead status');
     } finally {
       setSavingStatus(false);
+    }
+  };
+
+  const saveLostReason = async () => {
+    const reason = (pendingLostReason || '').trim();
+    if (!reason) {
+      toast.error('Select a lost reason');
+      return;
+    }
+    if (!isCanonicalLostReason(reason)) {
+      toast.error('Select a valid lost reason from the list');
+      return;
+    }
+    setSavingLostReason(true);
+    try {
+      await leadsAPI.update(leadId, { lost_reason: reason });
+      toast.success('Lost reason saved');
+      await onLeadUpdated?.();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save lost reason');
+    } finally {
+      setSavingLostReason(false);
     }
   };
 
@@ -349,6 +391,11 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             VIP
           </span>
         )}
+        {lead.lost_reason && showLostReasonField && (
+          <CrmBadge variant="neutral" size={compact ? 'xs' : 'sm'} data-testid="lost-reason-chip">
+            Lost: {lead.lost_reason}
+          </CrmBadge>
+        )}
       </div>
 
       <div className={inlineRow}>
@@ -487,6 +534,41 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
         </p>
       )}
 
+      {(!compact || extraFieldsOpen) && showLostReasonField && (
+        <div className={`flex flex-wrap items-center ${rowGap}`}>
+          <label className={labelClass}>Lost Reason</label>
+          <select
+            value={pendingLostReason}
+            onChange={(e) => setPendingLostReason(e.target.value)}
+            disabled={savingLostReason}
+            className={compact ? 'h-8 min-w-[180px] px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs disabled:opacity-50' : 'h-9 min-w-[220px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50'}
+            data-testid="lost-reason-select"
+          >
+            <option value="">Select lost reason</option>
+            {legacyLostReason ? (
+              <option value={legacyLostReason}>
+                (Legacy) {legacyLostReason}
+              </option>
+            ) : null}
+            {LOST_REASON_OPTIONS.map((reason) => (
+              <option key={reason} value={reason}>
+                {reason}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            size="sm"
+            onClick={saveLostReason}
+            disabled={savingLostReason || !pendingLostReason || !isCanonicalLostReason(pendingLostReason)}
+            className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90 h-7 text-xs"
+            data-testid="save-lost-reason"
+          >
+            {savingLostReason ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      )}
+
       {(!compact || extraFieldsOpen) && String(lead?.lead_status || '').toLowerCase() === 'contacted' && (
         <div className={`flex flex-wrap items-center ${rowGap}`}>
           <label className={labelClass}>Outcome</label>
@@ -600,15 +682,31 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             </div>
             <div>
               <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-1">
-                Reason (required)
+                {isLostReasonEnumStatus(pendingLostStatus) ? 'Lost reason (required)' : 'Reason (required)'}
               </label>
-              <Input
-                value={pendingLostReason}
-                onChange={(e) => setPendingLostReason(e.target.value)}
-                placeholder="Reason"
-                className="bg-black/50 border-white/10 text-white"
-                data-testid="lost-reason-input"
-              />
+              {isLostReasonEnumStatus(pendingLostStatus) ? (
+                <select
+                  value={pendingLostReason}
+                  onChange={(e) => setPendingLostReason(e.target.value)}
+                  className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                  data-testid="lost-reason-modal-select"
+                >
+                  <option value="">Select lost reason</option>
+                  {LOST_REASON_OPTIONS.map((reason) => (
+                    <option key={reason} value={reason}>
+                      {reason}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  value={pendingLostReason}
+                  onChange={(e) => setPendingLostReason(e.target.value)}
+                  placeholder="Reason"
+                  className="bg-black/50 border-white/10 text-white"
+                  data-testid="lost-reason-input"
+                />
+              )}
             </div>
             <div className="flex gap-2 justify-end pt-2">
               <Button
@@ -627,7 +725,11 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
                 type="button"
                 className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90"
                 onClick={confirmClosedLost}
-                disabled={savingStatus || !(pendingLostReason || '').trim()}
+                disabled={
+                  savingStatus
+                  || !(pendingLostReason || '').trim()
+                  || (isLostReasonEnumStatus(pendingLostStatus) && !isCanonicalLostReason(pendingLostReason))
+                }
                 data-testid="confirm-closed-lost"
               >
                 {savingStatus ? 'Saving…' : 'Confirm'}
