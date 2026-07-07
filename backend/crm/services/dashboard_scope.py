@@ -1,7 +1,10 @@
 """Rep/manager lead scope shared by My Dashboard, Virtual Customer, and lead ACL."""
 
+from typing import Any, Optional
+
 from fastapi import HTTPException
 
+from crm.core.platform_ops import get_blocked_assignee_values
 from crm.core.state import db
 from crm.services.lead_search import escape_regex_literal
 from crm.services.transfer_queries import is_manager_user
@@ -112,3 +115,85 @@ async def resolve_leads_base_filter(uid: str, name: str, current_user: dict) -> 
     rep_filter = rep_lead_filter(uid, name)
     is_manager = is_manager_user(current_user)
     return rep_filter, is_manager
+
+
+_VIEW_AS_ALLOWED_ROLES = frozenset({"admin", "manager"})
+_VIEW_AS_SUBJECT_ROLES = frozenset({"rep", "manager"})
+
+
+def subject_user_dict(subject_id: str, subject_name: str, subject_role: str) -> dict:
+    """Minimal user-shaped dict for lead_list_query scope helpers."""
+    return {"id": subject_id, "full_name": subject_name, "role": subject_role}
+
+
+async def resolve_dashboard_subject(
+    current_user: dict,
+    rep_user_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Resolve whose My Dashboard pipeline to load.
+
+    Returns subject_id/name/role, viewer metadata, and viewing_as flag.
+    """
+    viewer_id = current_user.get("id") or ""
+    viewer_name = (current_user.get("full_name") or "").strip()
+    viewer_role = (current_user.get("role") or "rep").strip().lower()
+    is_manager = is_manager_user(current_user)
+
+    if not rep_user_id or rep_user_id.strip() == viewer_id:
+        return {
+            "subject_id": viewer_id,
+            "subject_name": viewer_name,
+            "subject_role": viewer_role,
+            "viewer_id": viewer_id,
+            "viewer_name": viewer_name,
+            "viewing_as": False,
+            "is_manager": is_manager,
+        }
+
+    if viewer_role not in _VIEW_AS_ALLOWED_ROLES:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    target = await db.users.find_one(
+        {"id": rep_user_id.strip()},
+        {"_id": 0, "id": 1, "full_name": 1, "role": 1, "email": 1, "is_active": 1},
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Rep not found")
+    if target.get("is_active") is False:
+        raise HTTPException(status_code=400, detail="Rep is inactive")
+
+    target_role = (target.get("role") or "rep").strip().lower()
+    if target_role not in _VIEW_AS_SUBJECT_ROLES:
+        raise HTTPException(status_code=400, detail="Cannot view dashboard for this user role")
+
+    blocked = await get_blocked_assignee_values()
+    email = (target.get("email") or "").strip().lower()
+    name = (target.get("full_name") or "").strip().lower()
+    if email in blocked or name in blocked:
+        raise HTTPException(status_code=400, detail="Rep is not available")
+
+    subject_name = (target.get("full_name") or "").strip()
+    if not subject_name:
+        raise HTTPException(status_code=400, detail="Rep has no display name")
+
+    return {
+        "subject_id": target["id"],
+        "subject_name": subject_name,
+        "subject_role": target_role,
+        "viewer_id": viewer_id,
+        "viewer_name": viewer_name,
+        "viewing_as": True,
+        "is_manager": is_manager,
+    }
+
+
+def dashboard_subject_meta(subject: dict[str, Any]) -> dict[str, Any]:
+    """Response fragment for My Dashboard view-as metadata."""
+    return {
+        "rep_name": subject["subject_name"],
+        "subject_user_id": subject["subject_id"],
+        "viewer_name": subject["viewer_name"],
+        "viewing_as": bool(subject.get("viewing_as")),
+        "is_manager": bool(subject.get("is_manager")),
+    }

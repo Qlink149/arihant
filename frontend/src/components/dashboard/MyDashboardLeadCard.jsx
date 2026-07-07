@@ -17,6 +17,7 @@ export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
   isManager,
   onTransfer,
   onOpenTasks,
+  readOnly = false,
 }) {
   const navigate = useNavigate();
 
@@ -107,15 +108,17 @@ export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
           >
             <Eye size={16} />
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-[#A1A1AA] hover:text-amber-400 h-8 w-8 p-0"
-            onClick={() => onTransfer(lead)}
-            data-testid={`transfer-lead-${lead.id}`}
-          >
-            <ArrowRightLeft size={16} />
-          </Button>
+          {!readOnly && onTransfer ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-[#A1A1AA] hover:text-amber-400 h-8 w-8 p-0"
+              onClick={() => onTransfer(lead)}
+              data-testid={`transfer-lead-${lead.id}`}
+            >
+              <ArrowRightLeft size={16} />
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>

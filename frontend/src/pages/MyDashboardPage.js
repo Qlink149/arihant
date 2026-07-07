@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { myDashboardAPI, tasksAPI } from '../services/api';
+import { myDashboardAPI, tasksAPI, usersAPI } from '../services/api';
 import { toast } from 'sonner';
 import {
   CheckCircle,
@@ -81,10 +81,27 @@ const MyDashboardPage = () => {
   const [leadTasksDrawerLoading, setLeadTasksDrawerLoading] = useState(false);
   const [leadTasksDrawerHighlightId, setLeadTasksDrawerHighlightId] = useState(null);
 
+  const [selectedRepUserId, setSelectedRepUserId] = useState(null);
+  const [repAssignees, setRepAssignees] = useState([]);
+  const [leadsMetricFilter, setLeadsMetricFilter] = useState(null);
+
   const leadsFetchBusy = useRef(false);
   const leadsFetchGeneration = useRef(0);
   const leadsAbortRef = useRef(null);
   const listScrollRef = useRef(null);
+  const repChangeMounted = useRef(false);
+
+  const canSwitchRep = useMemo(() => {
+    const role = (user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'manager';
+  }, [user?.role]);
+
+  const repParams = useMemo(
+    () => (selectedRepUserId ? { rep_user_id: selectedRepUserId } : {}),
+    [selectedRepUserId]
+  );
+
+  const viewingAs = Boolean(selectedRepUserId) || Boolean(data?.viewing_as);
 
   const transferAckStorageKey = useMemo(() => {
     const uid = user?.id || user?.full_name || 'anon';
@@ -103,12 +120,14 @@ const MyDashboardPage = () => {
     }
   }, [transferAckStorageKey]);
 
-  const buildLeadsParams = useCallback((skip, search) => {
-    const params = { skip, limit: LEADS_PAGE };
+  const buildLeadsParams = useCallback((skip, search, extra = {}) => {
+    const params = { skip, limit: LEADS_PAGE, ...repParams };
     const q = (search || '').trim();
     if (q) params.search = q;
+    const metric = extra.metric !== undefined ? extra.metric : leadsMetricFilter;
+    if (metric) params.metric = metric;
     return params;
-  }, []);
+  }, [repParams, leadsMetricFilter]);
 
   const loadLeadsPage = useCallback(async (skip, { append } = { append: false }, overrides = {}) => {
     if (append && leadsFetchBusy.current) return;
@@ -126,7 +145,7 @@ const MyDashboardPage = () => {
     try {
       const search = overrides.search !== undefined ? overrides.search : searchQuery;
       const { data: res } = await myDashboardAPI.getLeads(
-        buildLeadsParams(skip, search),
+        buildLeadsParams(skip, search, { metric: overrides.metric }),
         abortController ? { signal: abortController.signal } : undefined
       );
       if (requestGen !== leadsFetchGeneration.current) return;
@@ -160,7 +179,7 @@ const MyDashboardPage = () => {
     if (!silent) setOverviewLoading(true);
     setOverviewError(null);
     try {
-      const { data } = await myDashboardAPI.getLeadOverview();
+      const { data } = await myDashboardAPI.getLeadOverview(repParams);
       const next = Array.isArray(data?.metrics) ? data.metrics : [];
       setOverviewMetrics((prev) => (metricsCountsChanged(prev, next) ? next : prev));
     } catch {
@@ -171,12 +190,12 @@ const MyDashboardPage = () => {
     } finally {
       if (!silent) setOverviewLoading(false);
     }
-  }, []);
+  }, [repParams]);
 
   const refreshAll = useCallback(async () => {
     try {
       const [dashRes, repsRes] = await Promise.all([
-        myDashboardAPI.getData(),
+        myDashboardAPI.getData(repParams),
         myDashboardAPI.getReps(),
       ]);
       setData(dashRes.data);
@@ -187,7 +206,23 @@ const MyDashboardPage = () => {
     } catch {
       toast.error('Failed to load dashboard');
     }
-  }, [loadLeadsPage, fetchOverview]);
+  }, [loadLeadsPage, fetchOverview, repParams]);
+
+  useEffect(() => {
+    if (!canSwitchRep) return;
+    usersAPI.listAssignees()
+      .then(({ data: rows }) => {
+        const list = (Array.isArray(rows) ? rows : [])
+          .filter((a) => {
+            if (a.is_active === false) return false;
+            const role = (a.role || '').toLowerCase();
+            return role === 'rep' || role === 'manager';
+          })
+          .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+        setRepAssignees(list);
+      })
+      .catch(() => setRepAssignees([]));
+  }, [canSwitchRep]);
 
   useEffect(() => {
     const init = async () => {
@@ -206,14 +241,37 @@ const MyDashboardPage = () => {
       }
     };
     init();
-  }, [fetchOverview]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!repChangeMounted.current) {
+      repChangeMounted.current = true;
+      return;
+    }
+    setLeads([]);
+    setLeadsMetricFilter(null);
+    leadsFetchGeneration.current += 1;
+    if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+    (async () => {
+      try {
+        const { data: dashRes } = await myDashboardAPI.getData(repParams);
+        setData(dashRes);
+        await fetchOverview({ silent: true });
+        await loadLeadsPage(0, { append: false });
+      } catch {
+        toast.error('Failed to load dashboard');
+      }
+    })();
+  }, [selectedRepUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useStatsAutoRefresh(async () => {
     if (loading || !data) return;
     try {
       const [{ data: dashRes }, { data: overviewRes }] = await Promise.all([
-        myDashboardAPI.getData(),
-        myDashboardAPI.getLeadOverview(),
+        myDashboardAPI.getData(repParams),
+        myDashboardAPI.getLeadOverview(repParams),
       ]);
       setData((prev) => (dashboardMetricsChanged(prev, dashRes) ? dashRes : prev));
       const nextMetrics = Array.isArray(overviewRes?.metrics) ? overviewRes.metrics : [];
@@ -246,11 +304,11 @@ const MyDashboardPage = () => {
   }, [location.state, location.pathname, navigate]);
 
   useEffect(() => {
-    if (!showAddTask) return;
-    myDashboardAPI.getLeads({ skip: 0, limit: 50 })
+    if (!showAddTask || viewingAs) return;
+    myDashboardAPI.getLeads({ skip: 0, limit: 50, ...repParams })
       .then(({ data: res }) => setTaskLeadOptions(res.leads || []))
       .catch(() => {});
-  }, [showAddTask]);
+  }, [showAddTask, viewingAs, repParams]);
 
   const handleLeadListNearBottom = useCallback(() => {
     if (leadsLoading) return;
@@ -454,7 +512,7 @@ const MyDashboardPage = () => {
     }
     return maxMs;
   }, [incomingTransfers]);
-  const showTransferBanner = incomingTransfers.length > 0 && latestIncomingTransferMs > transferBannerAckMs;
+  const showTransferBanner = !viewingAs && incomingTransfers.length > 0 && latestIncomingTransferMs > transferBannerAckMs;
   const tasks = data?.my_tasks || [];
   const tasksSorted = useMemo(() => {
     const rows = Array.isArray(tasks) ? [...tasks] : [];
@@ -506,12 +564,32 @@ const MyDashboardPage = () => {
   }, []);
 
   const handleLeadOverviewDrillDown = useCallback((drillDown) => {
+    const viewing = Boolean(selectedRepUserId) || Boolean(data?.viewing_as);
+    if (viewing && drillDown?.type === 'virtual_customer' && drillDown?.params?.metric) {
+      const metric = drillDown.params.metric;
+      setActiveTab('leads');
+      setLeadsMetricFilter(metric);
+      setSearchQuery('');
+      leadsFetchGeneration.current += 1;
+      setLeads([]);
+      if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+      loadLeadsPage(0, { append: false }, { metric, search: '' });
+      return;
+    }
     resolveDrillDown(drillDown, {
       navigate,
       setActiveTab,
       setTransferSubTab,
     });
-  }, [navigate]);
+  }, [navigate, selectedRepUserId, data?.viewing_as, loadLeadsPage]);
+
+  const clearLeadsMetricFilter = useCallback(() => {
+    setLeadsMetricFilter(null);
+    leadsFetchGeneration.current += 1;
+    setLeads([]);
+    if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+    loadLeadsPage(0, { append: false }, { metric: null });
+  }, [loadLeadsPage]);
 
   const handleOpenLeadTasks = useCallback(
     (lead, opts) => openLeadTasksDrawer(lead, opts),
@@ -552,9 +630,46 @@ const MyDashboardPage = () => {
           <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="my-dashboard-greeting">
             {getGreeting()}, <span className="text-[#C5A059]">{data?.rep_name || user?.full_name || 'Rep'}</span>
           </h1>
-          <p className="text-[#52525B] mt-1 text-sm">Your personalized sales workspace</p>
+          <p className="text-[#52525B] mt-1 text-sm">
+            {viewingAs ? 'Manager view of rep workspace' : 'Your personalized sales workspace'}
+          </p>
         </motion.div>
+        {canSwitchRep ? (
+          <motion.div
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.05 }}
+            className="sm:ml-auto w-full sm:w-auto"
+          >
+            <label htmlFor="rep-switcher-select" className="sr-only">View rep dashboard</label>
+            <select
+              id="rep-switcher-select"
+              value={selectedRepUserId || ''}
+              onChange={(e) => setSelectedRepUserId(e.target.value || null)}
+              className="w-full sm:min-w-[220px] bg-[#1A1A1A] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+              data-testid="rep-switcher-select"
+            >
+              <option value="">My dashboard</option>
+              {repAssignees.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.full_name}
+                </option>
+              ))}
+            </select>
+          </motion.div>
+        ) : null}
       </motion.div>
+
+      {viewingAs ? (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-[#C5A059]/10 border border-[#C5A059]/20 rounded-lg px-4 py-2 text-sm text-[#C5A059]"
+          data-testid="viewing-as-banner"
+        >
+          Viewing <span className="font-medium text-white">{data?.rep_name || 'rep'}</span>&apos;s dashboard (read-only)
+        </motion.div>
+      ) : null}
 
       <LeadOverviewGrid
         onDrillDown={handleLeadOverviewDrillDown}
@@ -654,7 +769,7 @@ const MyDashboardPage = () => {
           className="space-y-4"
         >
           {/* Filters */}
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -670,6 +785,24 @@ const MyDashboardPage = () => {
                 data-testid="lead-search-input"
               />
             </motion.div>
+            {leadsMetricFilter ? (
+              <CrmBadge
+                variant="gold"
+                size="sm"
+                className="flex items-center gap-1.5 pr-1"
+                data-testid="leads-metric-filter"
+              >
+                <span>Filter: {leadsMetricFilter.replace(/_/g, ' ')}</span>
+                <button
+                  type="button"
+                  onClick={clearLeadsMetricFilter}
+                  className="hover:text-white rounded p-0.5"
+                  aria-label="Clear metric filter"
+                >
+                  <X size={12} />
+                </button>
+              </CrmBadge>
+            ) : null}
           </div>
 
           {/* Leads List */}
@@ -710,8 +843,9 @@ const MyDashboardPage = () => {
                         taskCount={row.taskCount}
                         statusDisplay={row.statusDisplay}
                         isManager={data?.is_manager}
-                        onTransfer={handleTransferLead}
+                        onTransfer={viewingAs ? undefined : handleTransferLead}
                         onOpenTasks={handleOpenLeadTasks}
+                        readOnly={viewingAs}
                       />
                     </div>
                   );
@@ -727,8 +861,9 @@ const MyDashboardPage = () => {
                     taskCount={row.taskCount}
                     statusDisplay={row.statusDisplay}
                     isManager={data?.is_manager}
-                    onTransfer={handleTransferLead}
+                    onTransfer={viewingAs ? undefined : handleTransferLead}
                     onOpenTasks={handleOpenLeadTasks}
+                    readOnly={viewingAs}
                   />
                 ))}
               </div>
@@ -753,7 +888,7 @@ const MyDashboardPage = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {!showAddTask ? (
+            {!showAddTask && !viewingAs ? (
               <Button
                 onClick={() => setShowAddTask(true)}
                 className="bg-[#C5A059] hover:bg-[#B08D3E] text-black font-medium"
@@ -867,9 +1002,9 @@ const MyDashboardPage = () => {
                 task={task}
                 variant="pending"
                 index={i}
-                onComplete={(t) => handleCompleteFromModal(t)}
+                onComplete={viewingAs ? undefined : (t) => handleCompleteFromModal(t)}
                 onViewLead={handleOpenLeadFromTask}
-                onEdit={openTaskEdit}
+                onEdit={viewingAs ? undefined : openTaskEdit}
                 onOpenDetail={openTaskDetail}
               />
             ))
@@ -1010,9 +1145,9 @@ const MyDashboardPage = () => {
           if (!open) setSelectedTask(null);
         }}
         task={selectedTask}
-        onComplete={handleCompleteFromModal}
+        onComplete={viewingAs ? undefined : handleCompleteFromModal}
         onOpenLead={handleOpenLeadFromTask}
-        onEdit={(task) => {
+        onEdit={viewingAs ? undefined : (task) => {
           setTaskDetailOpen(false);
           openTaskEdit(task);
         }}
@@ -1055,7 +1190,7 @@ const MyDashboardPage = () => {
         tasks={leadTasksDrawerTasks}
         loading={leadTasksDrawerLoading}
         highlightedTaskId={leadTasksDrawerHighlightId}
-        onCompleteTask={handleCompleteDrawerTask}
+        onCompleteTask={viewingAs ? undefined : handleCompleteDrawerTask}
         onOpenLead={handleOpenDrawerLead}
       />
 

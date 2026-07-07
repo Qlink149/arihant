@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, Query
 
 from crm.constants.lead_status import CLOSED_LEAD_STATUS_REGEX, NURTURING_STATUS
 from crm.core.state import coerce_datetime, db, get_current_user, utc_now
-from crm.services.dashboard_scope import resolve_leads_base_filter
+from crm.services.dashboard_scope import (
+    dashboard_subject_meta,
+    rep_lead_filter,
+    resolve_dashboard_subject,
+    subject_user_dict,
+)
 from crm.services.lead_list_query import (
     build_metric_snapshot_filter,
     compose_leads_list_query,
@@ -49,12 +54,17 @@ COMPLETED_TASK_STATUSES = frozenset({"completed", "done", "cancelled"})
 
 
 @router.get("/my-dashboard")
-async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
-    name = current_user["full_name"]
-    uid = current_user["id"]
+async def get_my_dashboard(
+    rep_user_id: Optional[str] = Query(None, description="Admin/manager: view another rep's dashboard"),
+    current_user: dict = Depends(get_current_user),
+):
+    subject = await resolve_dashboard_subject(current_user, rep_user_id)
+    uid = subject["subject_id"]
+    name = subject["subject_name"]
+    is_manager = subject["is_manager"]
     now = utc_now()
 
-    base_filter, is_manager = await resolve_leads_base_filter(uid, name, current_user)
+    base_filter = rep_lead_filter(uid, name)
 
     nurturing_filter = {**base_filter, "lead_status": {"$regex": f"^{NURTURING_STATUS}$", "$options": "i"}}
     closed_filter = {
@@ -108,8 +118,7 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
     completed_tasks = [t for t in my_tasks if t.get("status") in COMPLETED_TASK_STATUSES]
 
     return {
-        "rep_name": name,
-        "is_manager": is_manager,
+        **dashboard_subject_meta(subject),
         "transferred_leads": incoming_transfers,
         "outgoing_transfers": outgoing_transfers,
         "incoming_transfers_total": leads_received,
@@ -134,16 +143,22 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/my-dashboard/lead-overview")
-async def get_lead_overview(current_user: dict = Depends(get_current_user)):
-    uid = current_user["id"]
-    name = current_user["full_name"]
-    base_filter, is_manager = await resolve_leads_base_filter(uid, name, current_user)
-    return await build_lead_overview_metrics(
+async def get_lead_overview(
+    rep_user_id: Optional[str] = Query(None, description="Admin/manager: view another rep's dashboard"),
+    current_user: dict = Depends(get_current_user),
+):
+    subject = await resolve_dashboard_subject(current_user, rep_user_id)
+    uid = subject["subject_id"]
+    name = subject["subject_name"]
+    is_manager = subject["is_manager"]
+    base_filter = rep_lead_filter(uid, name)
+    overview = await build_lead_overview_metrics(
         base_filter,
         uid=uid,
         name=name,
         is_manager=is_manager,
     )
+    return {**overview, **dashboard_subject_meta(subject)}
 
 
 @router.get("/my-dashboard/leads")
@@ -153,16 +168,19 @@ async def get_my_dashboard_leads(
     temperature: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     metric: Optional[str] = Query(None),
+    rep_user_id: Optional[str] = Query(None, description="Admin/manager: view another rep's dashboard"),
     current_user: dict = Depends(get_current_user),
 ):
-    uid = current_user["id"]
-    name = current_user["full_name"]
+    subject = await resolve_dashboard_subject(current_user, rep_user_id)
+    uid = subject["subject_id"]
+    name = subject["subject_name"]
+    subject_user = subject_user_dict(uid, name, subject["subject_role"])
 
-    base_filter, _is_manager = await resolve_leads_base_filter(uid, name, current_user)
+    base_filter = rep_lead_filter(uid, name)
     if metric:
-        snapshot = build_metric_snapshot_filter(current_user, use_rep_pipeline=True)
+        snapshot = build_metric_snapshot_filter(subject_user, use_rep_pipeline=True)
         query_base = await resolve_leads_list_query_base(
-            current_user,
+            subject_user,
             metric=metric,
             snapshot_filter=snapshot,
             use_rep_pipeline=True,
@@ -180,4 +198,10 @@ async def get_my_dashboard_leads(
     cursor = db.leads.find(query, LEAD_PROJECTION).sort(LEAD_SORT).skip(skip).limit(limit)
     leads = await cursor.to_list(limit)
 
-    return {"leads": leads, "total": total, "skip": skip, "limit": limit}
+    return {
+        "leads": leads,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        **dashboard_subject_meta(subject),
+    }
