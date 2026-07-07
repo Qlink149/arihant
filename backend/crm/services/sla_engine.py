@@ -37,6 +37,7 @@ _CRON_LOCK_TTL_MINUTES = 4
 # Status matchers (case-insensitive)
 _RE_CONTACTED = {"$regex": r"^\s*contacted\s*$", "$options": "i"}
 _RE_NURTURING = {"$regex": r"nurtur", "$options": "i"}
+_RE_INTERESTED = {"$regex": r"^\s*interested\s*$", "$options": "i"}
 _RE_VISIT_SCHEDULED = {"$regex": r"(site\s*)?visit\s*scheduled", "$options": "i"}
 _RE_VISIT_COMPLETED = {"$regex": r"(site\s*)?visit\s*completed", "$options": "i"}
 _RE_VISIT_COMPLETED_PY = re.compile(r"(site\s*)?visit\s*completed", re.IGNORECASE)
@@ -637,6 +638,41 @@ class SLAEngineService:
                     },
                 )
 
+    async def _process_rule_interested(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
+        """7-day reminder: surface Interested leads in Today's Follow-ups via next_action_date."""
+        status_q = {"lead_status": _RE_INTERESTED}
+        flag_7d = "sla_flags.interested.7d_at_dt"
+        cutoff_7d = now_dt - timedelta(days=7)
+        today_ist = now_dt.astimezone(IST).date().isoformat()
+
+        query_7d = self._rule_query(
+            {
+                **status_q,
+                **_entered_at_or_updated_fallback("interested_entered_at_dt", cutoff_7d),
+                **_flag_not_set(flag_7d),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_7d):
+            for lead in batch:
+                ref = coerce_datetime(lead.get("interested_entered_at_dt")) or coerce_datetime(lead.get("updated_at_dt"))
+                if not ref:
+                    continue
+                if ref.tzinfo is None:
+                    ref = ref.replace(tzinfo=timezone.utc)
+                if now_dt < ref + timedelta(days=7):
+                    continue
+                nad = (lead.get("next_action_date") or "")[:10]
+                if nad and nad > today_ist:
+                    continue
+                self._queue_lead_mutation(
+                    lead["id"],
+                    {"next_action_date": today_ist},
+                    flag_7d,
+                    now_dt,
+                    now_iso,
+                    "mutation:interested:7d_followup",
+                )
+
     async def _process_rule_visit_scheduled(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
@@ -783,27 +819,29 @@ class SLAEngineService:
     async def _process_rule_sv_followup_1(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
-        """7-day follow-up backup for SV Follow-up 1 (primary scheduling is on status entry)."""
+        """3-day follow-up backup for SV Follow-up 1 (primary scheduling is on status entry)."""
         status_q = {"lead_status": SV_FOLLOWUP_1_STATUS_QUERY}
-        flag_7d = "sla_flags.sv_followup_1.7d_at_dt"
-        cutoff_7d = now_dt - timedelta(days=7)
+        flag_3d = "sla_flags.sv_followup_1.3d_at_dt"
+        cutoff_3d = now_dt - timedelta(days=3)
         today_ist = now_dt.astimezone(IST).date().isoformat()
 
-        query_7d = self._rule_query(
+        query_3d = self._rule_query(
             {
                 **status_q,
-                "sv_followup_1_entered_at_dt": {"$exists": True, "$ne": None, "$lt": cutoff_7d},
-                **_flag_not_set(flag_7d),
+                "sv_followup_1_entered_at_dt": {"$exists": True, "$ne": None, "$lt": cutoff_3d},
+                # Backward-compat: if the old 7d flag exists, do not re-fire
+                "sla_flags.sv_followup_1.7d_at_dt": {"$exists": False},
+                **_flag_not_set(flag_3d),
             }
         )
-        async for batch in _paginate_leads(db.leads, query_7d):
+        async for batch in _paginate_leads(db.leads, query_3d):
             for lead in batch:
                 ref = coerce_datetime(lead.get("sv_followup_1_entered_at_dt"))
                 if not ref:
                     continue
                 if ref.tzinfo is None:
                     ref = ref.replace(tzinfo=timezone.utc)
-                if now_dt < ref + timedelta(days=7):
+                if now_dt < ref + timedelta(days=3):
                     continue
                 nad = (lead.get("next_action_date") or "")[:10]
                 if nad and nad > today_ist:
@@ -811,51 +849,53 @@ class SLAEngineService:
                 self._queue_lead_mutation(
                     lead["id"],
                     {"next_action_date": today_ist},
-                    flag_7d,
+                    flag_3d,
                     now_dt,
                     now_iso,
-                    "mutation:sv_followup_1:7d_followup",
+                    "mutation:sv_followup_1:3d_followup",
                 )
 
     async def _process_rule_sv_followup_2(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
-        """20-day SV Follow-up 2: agent follow-up due + admin in-app alert + email."""
+        """7-day SV Follow-up 2: agent follow-up due + admin in-app alert + email."""
         status_q = {"lead_status": SV_FOLLOWUP_2_STATUS_QUERY}
-        flag_20d = "sla_flags.sv_followup_2.admin_20d_at_dt"
-        cutoff_20d = now_dt - timedelta(days=20)
+        flag_7d = "sla_flags.sv_followup_2.admin_7d_at_dt"
+        cutoff_7d = now_dt - timedelta(days=7)
         today_ist = now_dt.astimezone(IST).date().isoformat()
 
-        query_20d = self._rule_query(
+        query_7d = self._rule_query(
             {
                 **status_q,
-                "sv_followup_2_entered_at_dt": {"$exists": True, "$ne": None, "$lt": cutoff_20d},
-                **_flag_not_set(flag_20d),
+                "sv_followup_2_entered_at_dt": {"$exists": True, "$ne": None, "$lt": cutoff_7d},
+                # Backward-compat: if the old 20d flag exists, do not re-fire
+                "sla_flags.sv_followup_2.admin_20d_at_dt": {"$exists": False},
+                **_flag_not_set(flag_7d),
             }
         )
-        async for batch in _paginate_leads(db.leads, query_20d):
+        async for batch in _paginate_leads(db.leads, query_7d):
             for lead in batch:
                 ref = coerce_datetime(lead.get("sv_followup_2_entered_at_dt"))
                 if not ref:
                     continue
                 if ref.tzinfo is None:
                     ref = ref.replace(tzinfo=timezone.utc)
-                if now_dt < ref + timedelta(days=20):
+                if now_dt < ref + timedelta(days=7):
                     continue
                 lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
                 self._queue_lead_mutation(
                     lead["id"],
                     {"next_action_date": today_ist},
-                    flag_20d,
+                    flag_7d,
                     now_dt,
                     now_iso,
-                    "mutation:sv_followup_2:20d_followup",
+                    "mutation:sv_followup_2:7d_followup",
                 )
                 self._queue_admin_notification(
                     lead,
-                    "SV Follow-up 2 — 20-day follow-up due",
-                    f"{lead_name} requires admin attention — 20 days in SV Follow-up 2",
-                    f"sla:sv_followup_2:20d:admin:{lead['id']}",
+                    "SV Follow-up 2 — 7-day follow-up due",
+                    f"{lead_name} requires admin attention — 7 days in SV Follow-up 2",
+                    f"sla:sv_followup_2:7d:admin:{lead['id']}",
                     now_dt,
                     now_iso,
                 )
@@ -865,113 +905,23 @@ class SLAEngineService:
                         "subject": f"SV Follow-up 2 alert — {lead_name or 'Lead'}",
                         "body_html": (
                             f"<p>Lead <strong>{lead_name or lead['id']}</strong> has been in "
-                            f"<strong>SV Follow-up 2</strong> for 20+ days.</p>"
+                            f"<strong>SV Follow-up 2</strong> for 7+ days.</p>"
                             f"<p>Please review and ensure the assigned agent has followed up.</p>"
                         ),
                         "admin_user_id": admin.get("id", ""),
-                        "dedupe_key": f"brevo:sv_followup_2:20d:{lead['id']}",
+                        "dedupe_key": f"brevo:sv_followup_2:7d:{lead['id']}",
                     }
                 )
 
     async def _process_rule_sv_followup(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
-        status_q = {"lead_status": _SV_FOLLOWUP_STATUS}
+        """Deprecated: SV Completed – Follow Up is no longer processed.
 
-        def _ref_dt(lead: dict) -> Optional[datetime]:
-            ref = coerce_datetime(lead.get("sv_followup_entered_at_dt"))
-            if not ref:
-                return None
-            if ref.tzinfo is None:
-                ref = ref.replace(tzinfo=timezone.utc)
-            return ref
-
-        flag_72h = "sla_flags.sv_followup.admin_72h_at_dt"
-        query_72h = self._rule_query(
-            {
-                **status_q,
-                "sv_followup_entered_at_dt": {"$exists": True, "$ne": None},
-                **_flag_not_set(flag_72h),
-            }
-        )
-        async for batch in _paginate_leads(db.leads, query_72h):
-            for lead in batch:
-                ref = _ref_dt(lead)
-                if not ref or now_dt < ref + timedelta(hours=72):
-                    continue
-                pending = await db.tasks.find_one(
-                    {
-                        "lead_id": lead["id"],
-                        "sla_rule": "sv_followup",
-                        "status": {"$in": ["pending", "in_progress"]},
-                    },
-                    {"_id": 0, "id": 1},
-                )
-                if not pending:
-                    continue
-                await assign_lead_to_admin(lead["id"], reason="sv_followup_72h")
-                self._queue_task(
-                    lead,
-                    "SV Follow Up delayed — Admin action",
-                    f"sla:sv_followup:72h:{lead['id']}",
-                    flag_72h,
-                    now_dt,
-                    now_iso,
-                    name_to_user_id,
-                    escalation_target="admin",
-                    priority="high",
-                    sla_rule="sv_followup",
-                    sla_threshold="72h",
-                    extra_lead_set={"sv_followup_delayed": True, "follow_up_delayed": True},
-                )
-
-        flag_7d = "sla_flags.sv_followup.hard_cap_7d_at_dt"
-        query_7d = self._rule_query(
-            {
-                **status_q,
-                "sv_followup_entered_at_dt": {"$exists": True, "$ne": None},
-                **_flag_not_set(flag_7d),
-            }
-        )
-        async for batch in _paginate_leads(db.leads, query_7d):
-            for lead in batch:
-                ref = _ref_dt(lead)
-                if not ref or now_dt < ref + timedelta(days=7):
-                    continue
-                if is_booking_progress_status(lead.get("lead_status")):
-                    self._queue_lead_mutation(
-                        lead["id"],
-                        {"lead_status": "Nurturing", "temperature": "Warm", "nurture_entered_at_dt": now_dt},
-                        flag_7d,
-                        now_dt,
-                        now_iso,
-                        "mutation:sv_followup:nurturing_warm",
-                    )
-                    self._queue_admin_notification(
-                        lead,
-                        "SV Follow Up +7d — moved to Nurturing (Warm)",
-                        f"Lead {lead.get('first_name', '')} {lead.get('last_name', '')} shows booking progress",
-                        f"sla:sv_followup:7d:nurture:{lead['id']}",
-                        now_dt,
-                        now_iso,
-                    )
-                else:
-                    self._queue_lead_mutation(
-                        lead["id"],
-                        {"lead_status": "Gone Cold"},
-                        flag_7d,
-                        now_dt,
-                        now_iso,
-                        "mutation:sv_followup:gone_cold",
-                    )
-                    self._queue_admin_notification(
-                        lead,
-                        "SV Follow Up +7d — moved to Gone Cold",
-                        f"Lead {lead.get('first_name', '')} {lead.get('last_name', '')} marked Gone Cold",
-                        f"sla:sv_followup:7d:cold:{lead['id']}",
-                        now_dt,
-                        now_iso,
-                    )
+        This method is kept only for backwards compatibility with historical deployments/tests,
+        but is no longer invoked from process_all_slas().
+        """
+        return None
 
     async def _process_rule_reengaged(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
@@ -1229,11 +1179,11 @@ class SLAEngineService:
             await self._process_rule_rnr(now_dt, now_iso, name_to_user_id)
             await self._process_rule_contacted(now_dt, now_iso, name_to_user_id)
             await self._process_rule_nurturing(now_dt, now_iso, name_to_user_id)
+            await self._process_rule_interested(now_dt, now_iso, name_to_user_id)
             await self._process_rule_visit_scheduled(now_dt, now_iso, name_to_user_id)
             await self._process_rule_visit_completed(now_dt, now_iso, name_to_user_id)
             await self._process_rule_sv_followup_1(now_dt, now_iso, name_to_user_id)
             await self._process_rule_sv_followup_2(now_dt, now_iso, name_to_user_id)
-            await self._process_rule_sv_followup(now_dt, now_iso, name_to_user_id)
             await self._process_rule_negotiation(now_dt, now_iso, name_to_user_id)
             await self._process_rule_gone_cold(now_dt, now_iso, name_to_user_id)
             await self._process_rule_future_prospect(now_dt, now_iso, name_to_user_id)

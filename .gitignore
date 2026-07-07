@@ -78,6 +78,12 @@ dump.rdb
 *.db
 *.sqlite3
 
+# Local CRM import/export CSVs (keep on disk; do not commit)
+backend/csv/
+
+# One-off migration script output (dry-run reports)
+backend/scripts/static_data/
+
 # Archive and Large Files
 **/*.zip
 **/*.tar.gz

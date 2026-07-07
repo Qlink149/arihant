@@ -22,7 +22,7 @@ _FW_TO_CANONICAL: dict[str, Tuple[str, bool]] = {
     "follow up 1": ("Nurturing", False),
     "follow up 2": ("Nurturing", False),
     "follow up": ("Nurturing", False),
-    "interested": ("Nurturing", False),
+    "interested": ("Interested", False),
     "site visit scheduled": ("Site Visit Scheduled", False),
     "site visit completed": ("Visit Completed", False),
     "office visit completed": ("Visit Completed", False),
@@ -39,8 +39,8 @@ _FW_TO_CANONICAL: dict[str, Tuple[str, bool]] = {
     "dropped": ("Closed Lost", False),
     "churned": ("Closed Lost", False),
     "rental": ("Closed Lost", False),
-    "junk": ("Closed Lost", False),
-    "unqualified": ("Closed Lost", False),
+    "junk": ("Junk", False),
+    "unqualified": ("Unqualified", False),
     "lost": ("Closed Lost", False),
 }
 

@@ -94,6 +94,7 @@ class LeadResponse(LeadBase):
     vip: bool = False
     assigned_to: Optional[str] = None
     nurture_entered_at_dt: Optional[datetime] = None
+    interested_entered_at_dt: Optional[datetime] = None
     rnr_entered_at_dt: Optional[datetime] = None
     contacted_at_dt: Optional[datetime] = None
     visit_completed_at_dt: Optional[datetime] = None

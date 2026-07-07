@@ -7,15 +7,17 @@ UI_LEAD_STATUSES = [
     "RNR",
     "Contacted",
     "Nurturing",
+    "Interested",
     "Site Visit Scheduled",
     "Visit Completed",
-    "SV Completed – Follow Up",
     "SV Follow-up 1",
     "SV Follow-up 2",
     "Negotiation",
     "Gone Cold",
     "Future Prospect",
     "Re-engaged",
+    "Junk",
+    "Unqualified",
     "Closed Won",
     "Closed Lost",
 ]
@@ -33,6 +35,7 @@ SV_FOLLOWUP_STATUS_QUERY = {"$regex": _RE_SV_FOLLOWUP.pattern, "$options": "i"}
 SV_FOLLOWUP_1_STATUS_QUERY = {"$regex": _RE_SV_FOLLOWUP_1.pattern, "$options": "i"}
 SV_FOLLOWUP_2_STATUS_QUERY = {"$regex": _RE_SV_FOLLOWUP_2.pattern, "$options": "i"}
 
+INTERESTED_STATUS = "Interested"
 NURTURING_STATUS = "Nurturing"
 NURTURE_LABELS = ("Hot", "Warm")
 
@@ -51,6 +54,11 @@ def is_terminal_lead_status(status: str | None) -> bool:
     if not status:
         return False
     return bool(CLOSED_LEAD_STATUS_REGEX.search(str(status).strip()))
+
+def is_interested_status(status: str | None) -> bool:
+    if not status:
+        return False
+    return str(status).strip().lower() == INTERESTED_STATUS.lower()
 
 
 def is_sv_followup_status(status: str | None) -> bool:

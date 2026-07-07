@@ -60,13 +60,13 @@ async def _visit_completed_3d_sets_next_action_date_backup():
     assert "sla_flags.visit_completed.3d_at_dt" in doc
 
 
-def test_sv_followup_2_20d_queues_admin_notification_and_email():
-    asyncio.run(_sv_followup_2_20d_queues_admin_notification_and_email())
+def test_sv_followup_2_7d_queues_admin_notification_and_email():
+    asyncio.run(_sv_followup_2_7d_queues_admin_notification_and_email())
 
 
-async def _sv_followup_2_20d_queues_admin_notification_and_email():
+async def _sv_followup_2_7d_queues_admin_notification_and_email():
     now = utc_now()
-    entered = now - timedelta(days=21)
+    entered = now - timedelta(days=8)
     lead = {
         "id": "lead-sv2-1",
         "first_name": "C",

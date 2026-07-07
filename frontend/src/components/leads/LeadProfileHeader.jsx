@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { getNurtureTemperatureTintClass } from '../../utils/leadTable';
 
-const VISIT_DATE_STATUSES = ['Site Visit Scheduled', 'SV Completed – Follow Up'];
+const VISIT_DATE_STATUSES = ['Site Visit Scheduled'];
 
 function toLocalDatetimeInput(iso) {
   if (!iso) return '';
@@ -139,7 +139,8 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
 
   const handleLeadStatusChange = async (newStatus) => {
     if (!newStatus) return;
-    if (String(newStatus).toLowerCase() === 'closed lost') {
+    const lostLike = ['closed lost', 'junk', 'unqualified'];
+    if (lostLike.includes(String(newStatus).toLowerCase())) {
       setPendingLostStatus(newStatus);
       setLostModalOpen(true);
       return;
@@ -174,7 +175,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
   const confirmClosedLost = async () => {
     const reason = (pendingLostReason || '').trim();
     if (!reason) {
-      toast.error('Lost reason is required for Closed Lost');
+      toast.error(`Reason is required for ${pendingLostStatus || 'this status'}`);
       return;
     }
     setSavingStatus(true);
@@ -591,15 +592,15 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
       <Dialog open={lostModalOpen} onOpenChange={setLostModalOpen}>
         <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-serif text-lg">Mark as Closed Lost</DialogTitle>
+            <DialogTitle className="font-serif text-lg">Mark as {pendingLostStatus || 'Closed Lost'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="text-sm text-[#A1A1AA]">
-              Provide a lost reason to mark this lead as <span className="text-white">Closed Lost</span>.
+              Provide a reason to mark this lead as <span className="text-white">{pendingLostStatus || 'Closed Lost'}</span>.
             </div>
             <div>
               <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-1">
-                Lost reason (required)
+                Reason (required)
               </label>
               <Input
                 value={pendingLostReason}
