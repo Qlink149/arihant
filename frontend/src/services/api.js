@@ -99,6 +99,7 @@ export const leadsAPI = {
   updateFilterView: (id, data) => api.put(`/leads/filter-views/${id}`, data),
   deleteFilterView: (id) => api.delete(`/leads/filter-views/${id}`),
   getAll: (params) => api.get('/leads', { params }),
+  exactLookup: (params) => api.get('/leads/exact-lookup', { params, skipGlobalErrorToast: true }),
   getDuplicateGroups: (params) => api.get('/leads/duplicates', { params }),
   getOne: (id) => api.get(`/leads/${id}`),
   create: (data) => api.post('/leads', data),

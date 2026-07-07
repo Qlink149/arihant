@@ -177,6 +177,22 @@ async def ensure_db_indexes():
 
         await db.lead_filter_views.create_index([("user_id", 1)], name="lead_filter_views_user_id")
 
+        # lead_view_grants — temporary view-only access (exact lookup); TTL auto-expire
+        await db.lead_view_grants.create_index(
+            [("user_id", 1), ("lead_id", 1)],
+            unique=True,
+            name="lead_view_grants_user_lead_uq",
+        )
+        await db.lead_view_grants.create_index(
+            "expires_at_dt",
+            expireAfterSeconds=0,
+            name="lead_view_grants_ttl",
+        )
+        await db.lead_view_grants.create_index(
+            [("lead_id", 1), ("expires_at_dt", -1)],
+            name="lead_view_grants_lead_expires",
+        )
+
         # lead_events (audit log)
         await db.lead_events.create_index([("id", 1)], unique=True, name="lead_events_id_uq")
         await db.lead_events.create_index([("lead_id", 1), ("created_at_dt", -1)], name="lead_events_lead_createdAtDt")
@@ -343,6 +359,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
+            raise credentials_exception
+        if payload.get("type") != "access":
             raise credentials_exception
         user = await db.users.find_one({"id": user_id}, {"_id": 0})
         if user is None:

@@ -9,8 +9,13 @@ from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdate
 from crm.services import lead_service
 from crm.services.lead_service import normalize_lead_for_response
 from crm.utils.helpers import coerce_datetime, utc_now
-from crm.services.dashboard_scope import resolve_lead_or_403, role_scope_filter
+from crm.services.dashboard_scope import resolve_lead_or_403, resolve_lead_view_or_403, role_scope_filter, user_owns_lead
 from crm.services.lead_analytics_queries import fetch_lead_filter_options
+from crm.services.lead_search import case_insensitive_regex_filter
+from crm.services.lead_events import log_lead_event
+from crm.services.lead_view_grants import DEFAULT_GRANT_MINUTES, upsert_view_grant
+from crm.core.state import db
+from crm.utils.helpers import normalize_phone
 from crm.services.lead_export_service import (
     assert_admin,
     create_export_job,
@@ -402,7 +407,7 @@ async def get_lead(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):
-    lead = await resolve_lead_or_403(lead_id, current_user)
+    lead = await resolve_lead_view_or_403(lead_id, current_user)
     if isinstance(lead.get("created_at"), str):
         lead["created_at"] = coerce_datetime(lead.get("created_at")) or utc_now()
     if isinstance(lead.get("updated_at"), str):
@@ -415,6 +420,76 @@ async def get_lead(
     lead["ai_generation_pending"] = bool(cfg and (stale or ai_refresh_in_progress(lead_id)))
     if cfg and stale:
         schedule_lead_ai_refresh(lead_id, background_tasks)
+    return LeadResponse(**lead)
+
+
+@router.get("/leads/exact-lookup", response_model=LeadResponse)
+async def exact_lookup_lead(
+    phone: Optional[str] = None,
+    email: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Exact-match lookup for a single lead by full phone/email.
+
+    - Admin/manager: org-wide lookup (no grant needed).
+    - Rep: only exact identifiers are accepted; if matched lead is outside rep scope,
+      a temporary view-only grant is created so GET /leads/{id} works for a short window.
+    """
+    if (phone and str(phone).strip()) and (email and str(email).strip()):
+        raise HTTPException(status_code=400, detail="Provide only one of phone or email")
+    if not ((phone and str(phone).strip()) or (email and str(email).strip())):
+        raise HTTPException(status_code=400, detail="Provide phone or email")
+
+    lead = None
+    lookup_type = None
+    lookup_value = None
+
+    if phone and str(phone).strip():
+        lookup_type = "phone"
+        normalized = normalize_phone(str(phone))
+        # Enforce full identifier: must normalize to exactly 10 digits.
+        if len(normalized) != 10:
+            raise HTTPException(status_code=400, detail="Phone must be a full 10-digit number")
+        lookup_value = normalized
+        lead = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+    else:
+        lookup_type = "email"
+        raw = str(email).strip()
+        if " " in raw or "@" not in raw or len(raw) < 5:
+            raise HTTPException(status_code=400, detail="Email must be a full address")
+        lookup_value = raw
+        lead = await db.leads.find_one(case_insensitive_regex_filter("email", raw, exact=True), {"_id": 0})
+
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    # Rep: if lead is outside ownership/task rules, mint a short-lived view grant.
+    role = (current_user.get("role") or "").lower()
+    if role not in ("admin", "manager"):
+        if not user_owns_lead(lead, current_user):
+            # task-assignee access already works via existing ACL and doesn't require a grant
+            await upsert_view_grant(
+                lead_id=lead["id"],
+                user_id=current_user.get("id") or "",
+                minutes=DEFAULT_GRANT_MINUTES,
+                reason="exact_lookup",
+                lookup_type=lookup_type,
+                lookup_value=lookup_value,
+            )
+            await log_lead_event(
+                "lead_exact_lookup_granted",
+                lead_id=lead.get("id"),
+                actor_user_id=current_user.get("id"),
+                actor_name=current_user.get("full_name"),
+                payload={"lookup_type": lookup_type, "grant_minutes": DEFAULT_GRANT_MINUTES},
+            )
+
+    if isinstance(lead.get("created_at"), str):
+        lead["created_at"] = coerce_datetime(lead.get("created_at")) or utc_now()
+    if isinstance(lead.get("updated_at"), str):
+        lead["updated_at"] = coerce_datetime(lead.get("updated_at")) or utc_now()
+    lead = normalize_lead_for_response(lead)
     return LeadResponse(**lead)
 
 

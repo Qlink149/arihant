@@ -82,6 +82,24 @@ import {
 
 const VC_PAGE = 50;
 
+const classifyExactLookup = (raw) => {
+  const term = (raw || '').trim();
+  if (!term) return null;
+
+  // Exact email: no spaces, basic shape user@domain.tld
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(term)) {
+    return { type: 'email', value: term };
+  }
+
+  // Exact phone: exactly 10 digits (after stripping separators)
+  const digits = term.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return { type: 'phone', value: term };
+  }
+
+  return null;
+};
+
 const formatLocalDate = (date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -388,6 +406,8 @@ const VirtualCustomerPage = () => {
     return { skip, limit: VC_PAGE, ...buildLeadListParams(filters, debouncedSearch) };
   }, [filters, debouncedSearch]);
 
+  const exactLookup = useMemo(() => classifyExactLookup(debouncedSearch), [debouncedSearch]);
+
   const exportParams = useMemo(
     () => buildLeadListParams(filters, debouncedSearch),
     [filters, debouncedSearch],
@@ -429,28 +449,47 @@ const VirtualCustomerPage = () => {
     prefetchedKey.current = '';
     leadsFetchBusy.current = false;
     try {
-      const params = buildLeadQueryParams(0);
-      const response = await leadsAPI.getAll(params);
-      if (requestGen !== leadsFetchGeneration.current) return;
+      if (exactLookup) {
+        const params = exactLookup.type === 'phone' ? { phone: exactLookup.value } : { email: exactLookup.value };
+        const response = await leadsAPI.exactLookup(params);
+        if (requestGen !== leadsFetchGeneration.current) return;
+        const lead = response?.data;
+        const batch = lead ? [lead] : [];
+        setLeads(batch);
+        setTotalLeads(batch.length);
+        setHasMoreLeads(false);
+      } else {
+        const params = buildLeadQueryParams(0);
+        const response = await leadsAPI.getAll(params);
+        if (requestGen !== leadsFetchGeneration.current) return;
 
-      const batch = response.data || [];
-      const total = parseTotalFromResponse(response);
-      if (total !== null) setTotalLeads(total);
-      setLeads(batch);
-      setHasMoreLeads(batch.length === VC_PAGE);
-      if (batch.length === VC_PAGE) {
-        prefetchNextVcPage(VC_PAGE);
+        const batch = response.data || [];
+        const total = parseTotalFromResponse(response);
+        if (total !== null) setTotalLeads(total);
+        setLeads(batch);
+        setHasMoreLeads(batch.length === VC_PAGE);
+        if (batch.length === VC_PAGE) {
+          prefetchNextVcPage(VC_PAGE);
+        }
       }
     } catch (error) {
       if (requestGen !== leadsFetchGeneration.current) return;
-      console.error('Failed to fetch leads:', error);
-      toast.error('Failed to load leads');
+      // For exact lookup, 404 should be treated as "no results" (not a toast error).
+      const status = error?.response?.status;
+      if (exactLookup && status === 404) {
+        setLeads([]);
+        setTotalLeads(0);
+        setHasMoreLeads(false);
+      } else {
+        console.error('Failed to fetch leads:', error);
+        toast.error('Failed to load leads');
+      }
     } finally {
       if (requestGen === leadsFetchGeneration.current) {
         setLoading(false);
       }
     }
-  }, [buildLeadQueryParams, prefetchNextVcPage]);
+  }, [buildLeadQueryParams, prefetchNextVcPage, exactLookup]);
 
   const appendLeadsPage = useCallback(async () => {
     if (leadsFetchBusy.current || loadingMore || !hasMoreLeads) return;
@@ -510,7 +549,7 @@ const VirtualCustomerPage = () => {
 
   useEffect(() => {
     const el = loadMoreSentinelRef.current;
-    if (!el || showDuplicates || loading) return;
+    if (!el || showDuplicates || loading || exactLookup) return;
     const obs = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) appendLeadsPage();
@@ -519,7 +558,7 @@ const VirtualCustomerPage = () => {
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [showDuplicates, loading, leads.length, hasMoreLeads, appendLeadsPage]);
+  }, [showDuplicates, loading, leads.length, hasMoreLeads, appendLeadsPage, exactLookup]);
 
   const findDuplicates = useCallback(async () => {
     setLoading(true);

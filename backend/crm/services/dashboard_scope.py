@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from crm.core.state import db
 from crm.services.lead_search import escape_regex_literal
 from crm.services.transfer_queries import is_manager_user
+from crm.services.lead_view_grants import has_active_view_grant
 
 
 def _name_field_clause(field: str, full_name: str) -> dict:
@@ -82,6 +83,26 @@ async def resolve_lead_or_403(lead_id: str, current_user: dict) -> dict:
     if user_owns_lead(lead, current_user):
         return lead
     if await user_is_task_assignee_on_lead(lead_id, current_user):
+        return lead
+    raise HTTPException(status_code=403, detail="Access denied")
+
+
+async def resolve_lead_view_or_403(lead_id: str, current_user: dict) -> dict:
+    """
+    View-only lead access used by read endpoints.
+
+    Extends normal ACL with temporary `lead_view_grants` created by exact lookup.
+    """
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if current_user.get("role") in ("admin", "manager"):
+        return lead
+    if user_owns_lead(lead, current_user):
+        return lead
+    if await user_is_task_assignee_on_lead(lead_id, current_user):
+        return lead
+    if await has_active_view_grant(lead_id=lead_id, user_id=current_user.get("id") or ""):
         return lead
     raise HTTPException(status_code=403, detail="Access denied")
 

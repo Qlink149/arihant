@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from crm.services.dashboard_scope import (
     rep_lead_filter,
     resolve_lead_or_403,
+    resolve_lead_view_or_403,
     role_scope_filter,
     task_assignee_clause,
     user_owns_lead,
@@ -94,3 +95,36 @@ async def _resolve_lead_or_403_denies_without_ownership_or_task():
             await resolve_lead_or_403("lead-1", user)
 
     assert exc.value.status_code == 403
+
+
+def test_resolve_lead_view_or_403_allows_active_grant():
+    asyncio.run(_resolve_lead_view_or_403_allows_active_grant())
+
+
+async def _resolve_lead_view_or_403_allows_active_grant():
+    lead = {"id": "lead-1", "assigned_user_id": "owner-id", "assigned_to": "Ravi"}
+    user = {"id": "uid-9", "full_name": "Viewer", "role": "rep"}
+
+    mock_leads = MagicMock()
+    mock_leads.find_one = AsyncMock(return_value=lead)
+
+    mock_tasks = MagicMock()
+    mock_tasks.find_one = AsyncMock(return_value=None)
+
+    mock_grants = MagicMock()
+    mock_grants.find_one = AsyncMock(return_value={"_id": "grant-doc"})
+
+    mock_db_scope = MagicMock()
+    mock_db_scope.leads = mock_leads
+    mock_db_scope.tasks = mock_tasks
+
+    mock_db_grants = MagicMock()
+    mock_db_grants.lead_view_grants = mock_grants
+
+    with patch("crm.services.dashboard_scope.db", mock_db_scope), patch(
+        "crm.services.lead_view_grants.db", mock_db_grants
+    ):
+        result = await resolve_lead_view_or_403("lead-1", user)
+
+    assert result["id"] == "lead-1"
+    mock_grants.find_one.assert_awaited_once()
