@@ -1,8 +1,11 @@
 import os
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 from crm.api.v1.router import api_router
@@ -15,6 +18,18 @@ app = FastAPI(title="Arihant Sales Intelligence API")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    if isinstance(exc, StarletteHTTPException):
+        raise exc
+    logger.exception("Unhandled exception on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal error occurred. Please try again."},
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -23,6 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Total-Count"],
 )
+app.add_middleware(SlowAPIMiddleware)
 
 app.include_router(api_router, prefix="/api")
 
@@ -48,4 +64,4 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    await client.close()

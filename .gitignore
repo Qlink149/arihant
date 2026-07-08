@@ -84,6 +84,12 @@ backend/csv/
 # One-off migration script output (dry-run reports)
 backend/scripts/static_data/
 
+# Local-only ops scripts (keep on disk; do not commit)
+backend/scripts/backup_before_update.py
+backend/scripts/import_leads_to_db.py
+backend/scripts/inspect_prod_leads_readonly.py
+backend/scripts/list_users.py
+
 # Archive and Large Files
 **/*.zip
 **/*.tar.gz

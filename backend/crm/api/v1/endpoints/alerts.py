@@ -1,12 +1,18 @@
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from crm.constants.lead_status import sla_paused_exclusion_clause
 from crm.core.state import AlertConfig, db, get_current_user, iso_utc_now, utc_now
 
 
 router = APIRouter()
+
+
+def _require_admin(user: dict) -> None:
+    role = (user.get("role") or "").strip().lower()
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
 
 
 def _stale_lead_filter(cutoff_dt: datetime, cutoff_iso: str) -> dict:
@@ -29,6 +35,7 @@ async def get_alert_configs(current_user: dict = Depends(get_current_user)):
 
 @router.post("/alerts/config")
 async def create_alert_config(config: AlertConfig, current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
     now_dt = utc_now()
     now_iso = iso_utc_now()
     config_dict = config.model_dump()

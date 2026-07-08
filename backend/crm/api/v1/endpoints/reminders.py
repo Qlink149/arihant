@@ -34,6 +34,12 @@ from crm.utils.helpers import coerce_datetime
 router = APIRouter()
 
 
+def _require_admin(user: dict) -> None:
+    role = (user.get("role") or "").strip().lower()
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+
 REMINDER_TEMPLATES = {
     "followup": "clara_reminder_1",
     "task_due": "clara_task_reminder",
@@ -409,6 +415,7 @@ async def get_reminder_history(limit: int = 50, current_user: dict = Depends(get
 
 @router.post("/reminders/trigger")
 async def trigger_reminders_now(current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
     count = await process_reminders()
     return {"message": f"Reminder engine ran. Created {count} reminders."}
 

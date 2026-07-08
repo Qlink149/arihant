@@ -16,6 +16,8 @@ BREVO_SETTINGS_KEY = "brevo"
 TEMPLATE_NURTURING_REVIEW = "nurturing_review_alert"
 MAX_RETRIES = 3
 RETRY_MINUTES = 30
+MAX_QUEUE_RETRIES = 5
+BACKOFF_MINUTES = [5, 15, 45, 120, 360]
 
 
 async def get_brevo_settings() -> dict:
@@ -104,6 +106,7 @@ async def _send_template_email(
     admin_user_id: str,
     dedupe_key: str,
     retry_count: int = 0,
+    from_retry_processor: bool = False,
 ) -> bool:
     api_key = settings.get("brevo_api_key")
     sender_email = settings.get("sender_email") or to_email
@@ -133,31 +136,32 @@ async def _send_template_email(
         return True
     except Exception as e:
         logger.warning("Brevo send failed: %s", e)
-        if retry_count < MAX_RETRIES:
-            await db.failed_email_queue.insert_one(
-                {
-                    "id": str(uuid.uuid4()),
-                    "template": template_name,
-                    "to_email": to_email,
-                    "params": params,
-                    "subject": subject,
-                    "retry_count": retry_count + 1,
-                    "next_retry_at_dt": utc_now() + timedelta(minutes=RETRY_MINUTES),
-                    "dedupe_key": dedupe_key,
-                    "error": str(e)[:500],
-                    "created_at": iso_utc_now(),
-                }
-            )
-        else:
-            await _queue_failed({"template": template_name, "params": params}, str(e))
-            if admin_user_id:
-                await create_notification(
-                    recipient_user_id=admin_user_id,
-                    title="Email delivery failed",
-                    message=f"Brevo nurturing review email failed after {MAX_RETRIES} retries",
-                    notification_type="system_warning",
-                    dedupe_key=f"{dedupe_key}:failed",
+        if not from_retry_processor:
+            if retry_count < MAX_RETRIES:
+                await db.failed_email_queue.insert_one(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "template": template_name,
+                        "to_email": to_email,
+                        "params": params,
+                        "subject": subject,
+                        "retry_count": retry_count + 1,
+                        "next_retry_at_dt": utc_now() + timedelta(minutes=RETRY_MINUTES),
+                        "dedupe_key": dedupe_key,
+                        "error": str(e)[:500],
+                        "created_at": iso_utc_now(),
+                    }
                 )
+            else:
+                await _queue_failed({"template": template_name, "params": params}, str(e))
+                if admin_user_id:
+                    await create_notification(
+                        recipient_user_id=admin_user_id,
+                        title="Email delivery failed",
+                        message=f"Brevo nurturing review email failed after {MAX_RETRIES} retries",
+                        notification_type="system_warning",
+                        dedupe_key=f"{dedupe_key}:failed",
+                    )
         return False
 
 
@@ -184,10 +188,36 @@ async def process_failed_email_queue() -> int:
             admin_user_id=admin_id,
             dedupe_key=item.get("dedupe_key") or item["id"],
             retry_count=int(item.get("retry_count") or 0),
+            from_retry_processor=True,
         )
-        await db.failed_email_queue.delete_one({"id": item["id"]})
         if ok:
+            await db.failed_email_queue.delete_one({"id": item["id"]})
             sent += 1
+        else:
+            retry_count = int(item.get("retry_count") or 0) + 1
+            if retry_count >= MAX_QUEUE_RETRIES:
+                await db.failed_email_queue.update_one(
+                    {"id": item["id"]},
+                    {
+                        "$set": {
+                            "status": "dead",
+                            "failed_at_dt": utc_now(),
+                            "retry_count": retry_count,
+                        }
+                    },
+                )
+                logger.error(
+                    "Brevo job %s dead-lettered after %s attempts",
+                    item["id"],
+                    retry_count,
+                )
+            else:
+                backoff_minutes = BACKOFF_MINUTES[min(retry_count - 1, len(BACKOFF_MINUTES) - 1)]
+                next_retry = utc_now() + timedelta(minutes=backoff_minutes)
+                await db.failed_email_queue.update_one(
+                    {"id": item["id"]},
+                    {"$set": {"retry_count": retry_count, "next_retry_at_dt": next_retry}},
+                )
     return sent
 
 

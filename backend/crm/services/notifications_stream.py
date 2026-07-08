@@ -7,8 +7,11 @@ class NotificationsStream:
     """
     In-memory pubsub for SSE notifications.
 
-    Note: This is process-local. In multi-worker deployments, users will only receive
-    events published on the same worker that holds their SSE connection.
+    NOTE: This SSE implementation uses in-process pub/sub (asyncio queues).
+    It works correctly only with a single Gunicorn worker.
+    To scale to multiple workers, replace with Redis pub/sub (redis.asyncio + aioredis).
+    Current deployment uses --workers 1 in Dockerfile for this reason.
+    Reference: backend/Dockerfile CMD ["gunicorn", ..., "--workers", "1", ...]
     """
 
     def __init__(self) -> None:
