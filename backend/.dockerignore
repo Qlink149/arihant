@@ -1,20 +1,54 @@
+# ── Secrets / env templates ───────────────────────────────────
 .env
 .env.*
+*.env
+env.example
+
+# ── Python / caches / local envs ──────────────────────────────
 __pycache__/
-*.pyc
-*.pyo
-.git/
-.gitignore
-venv/
-.venv/
+**/__pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
 .mypy_cache/
+.coverage
+.cache/
+venv/
+.venv/
+env/
+ENV/
+
+# ── Tests / scratch / data ────────────────────────────────────
 tests/
 scratch/
 csv/
-*.md
-SEED_PRODUCTION_CHECKLIST.md
+*.csv
+
+# ── Ops / seed / migration scripts (not needed at runtime) ────
+scripts/
 seed_db.py
 seed_db_v2.py
 import_leads.py
 clear_dev_data.py
+test_query.py
+
+# ── Dev dependencies ─────────────────────────────────────────
+requirements-dev.txt
+
+# ── Vercel-only (serverless deploy; not used by Docker) ───────
+vercel.json
+.vercelignore
+runtime.txt
+index.py
+
+# ── Docs ──────────────────────────────────────────────────────
+*.md
+POST_REFACTOR_BACKEND_AUDIT.md
+SEED_PRODUCTION_CHECKLIST.md
+
+# ── VCS / OS junk ─────────────────────────────────────────────
+.git/
+.gitignore
+.DS_Store
+Thumbs.db
+desktop.ini
