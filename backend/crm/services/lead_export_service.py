@@ -250,6 +250,8 @@ async def create_export_job(
         updated_to=filters.get("updated_to"),
         sources=filters.get("sources"),
         source=filters.get("source"),
+        sales_owners=filters.get("sales_owners"),
+        sales_owner=filters.get("sales_owner"),
         meta_qualified=filters.get("meta_qualified"),
         site_visit_min=filters.get("site_visit_min"),
         site_visit_max=filters.get("site_visit_max"),

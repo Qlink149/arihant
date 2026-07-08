@@ -83,4 +83,23 @@ describe('leadFilters', () => {
     expect(params.sources).toBe('google ads');
     expect(params.meta_qualified).toBe(false);
   });
+
+  it('parses and encodes sales_owners filter', () => {
+    const params = new URLSearchParams('sales_owners=Anusha+O,Rep+B');
+    const filters = filtersFromSearchParams(params);
+    expect(filters.sales_owners).toEqual(['Anusha O', 'Rep B']);
+
+    const encoded = filtersToSearchParams(
+      { ...emptyLeadFilters(), sales_owners: ['Anusha O', 'Rep B'] },
+      ''
+    );
+    expect(encoded.get('sales_owners')).toBe('Anusha O,Rep B');
+
+    const listParams = buildLeadListParams({
+      ...emptyLeadFilters(),
+      sales_owners: ['Anusha O'],
+    });
+    expect(listParams.sales_owners).toBe('Anusha O');
+    expect(countActiveFilters({ ...emptyLeadFilters(), sales_owners: ['Anusha O'] })).toBe(1);
+  });
 });

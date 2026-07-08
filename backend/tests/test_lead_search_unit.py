@@ -1,6 +1,8 @@
 """Unit tests for lead_search query builder (no database)."""
 from crm.services.lead_search import (
+    build_exact_phone_lookup_queries,
     build_leads_list_query,
+    build_sales_owners_filter,
     build_text_search_clause,
     case_insensitive_regex_or_filter,
     escape_regex_literal,
@@ -138,3 +140,47 @@ def test_case_insensitive_regex_or_filter_dedupes():
     clause = case_insensitive_regex_or_filter("project", ["A", "a", "B"])
     assert "$or" in clause
     assert len(clause["$or"]) == 2
+
+
+def test_build_exact_phone_lookup_queries_empty():
+    assert build_exact_phone_lookup_queries("") == []
+    assert build_exact_phone_lookup_queries("   ") == []
+
+
+def test_build_exact_phone_lookup_queries_typed_then_normalized():
+    queries = build_exact_phone_lookup_queries("+6596161814")
+    assert len(queries) >= 1
+    # First pass: exact typed phone / work_phone
+    first = queries[0]
+    assert "$or" in first
+    phone_patterns = [c["phone"]["$regex"] for c in first["$or"] if "phone" in c]
+    assert "^\\+6596161814$" in phone_patterns
+    # Second pass includes normalized_phone last-10
+    assert len(queries) >= 2
+    second = queries[1]
+    assert any(c.get("normalized_phone") == "6596161814" for c in second["$or"])
+
+
+def test_build_exact_phone_lookup_queries_indian_country_code():
+    queries = build_exact_phone_lookup_queries("+919876543210")
+    assert queries
+    second = queries[1]
+    assert any(c.get("normalized_phone") == "9876543210" for c in second["$or"])
+
+
+def test_build_sales_owners_filter_matches_owner_fields():
+    clause = build_sales_owners_filter(["Anusha O"])
+    assert "$or" in clause
+    fields = {list(c.keys())[0] for c in clause["$or"]}
+    assert fields == {"assigned_to", "assigned_to_name", "presales_agent"}
+    for part in clause["$or"]:
+        field = list(part.keys())[0]
+        assert part[field]["$regex"] == "^Anusha\\ O$"
+        assert part[field]["$options"] == "i"
+
+
+def test_build_leads_list_query_sales_owners():
+    q = build_leads_list_query(sales_owners=["Rep A", "Rep B"])
+    parts = q["$and"] if "$and" in q else [q]
+    owner_part = next(p for p in parts if "$or" in p and "assigned_to" in str(p))
+    assert len(owner_part["$or"]) == 6  # 2 names × 3 fields

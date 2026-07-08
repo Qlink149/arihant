@@ -81,6 +81,64 @@ def case_insensitive_regex_filter(
     return {field: {"$regex": pattern, "$options": "i"}}
 
 
+def build_exact_phone_lookup_queries(raw: str) -> List[Dict[str, Any]]:
+    """
+    Ordered Mongo filters for full-phone exact lookup.
+
+    1) Exact match on the typed value against phone / work_phone
+    2) Fallback: normalized last-10 digits on normalized_phone / phone digit forms
+
+    Used by /leads/exact-lookup so reps can grant view access without changing
+    the scoped regex list search behaviour.
+    """
+    from crm.utils.helpers import normalize_phone
+
+    term = (raw or "").strip()
+    if not term:
+        return []
+
+    queries: List[Dict[str, Any]] = []
+    typed_exact = {
+        "$or": [
+            case_insensitive_regex_filter("phone", term, exact=True),
+            case_insensitive_regex_filter("work_phone", term, exact=True),
+        ]
+    }
+    # Drop empty $or arms if somehow empty (should not happen for non-empty term)
+    typed_exact["$or"] = [c for c in typed_exact["$or"] if c]
+    if typed_exact["$or"]:
+        queries.append(typed_exact)
+
+    digits = re.sub(r"\D", "", term)
+    normalized = normalize_phone(term)
+    fallback_or: List[Dict[str, Any]] = []
+    if normalized and len(normalized) == 10:
+        fallback_or.append({"normalized_phone": normalized})
+        fallback_or.append(case_insensitive_regex_filter("phone", normalized, exact=True))
+        fallback_or.append(case_insensitive_regex_filter("work_phone", normalized, exact=True))
+        # Common stored forms: +<normalized>, 0<normalized>
+        fallback_or.append(case_insensitive_regex_filter("phone", f"+{normalized}", exact=True))
+        fallback_or.append(case_insensitive_regex_filter("work_phone", f"+{normalized}", exact=True))
+    if digits and digits != normalized:
+        fallback_or.append(case_insensitive_regex_filter("phone", digits, exact=True))
+        fallback_or.append(case_insensitive_regex_filter("work_phone", digits, exact=True))
+        fallback_or.append(case_insensitive_regex_filter("phone", f"+{digits}", exact=True))
+        fallback_or.append(case_insensitive_regex_filter("work_phone", f"+{digits}", exact=True))
+
+    # Deduplicate identical filter dicts while preserving order
+    seen: set[str] = set()
+    unique_fallback: List[Dict[str, Any]] = []
+    for clause in fallback_or:
+        key = repr(clause)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_fallback.append(clause)
+    if unique_fallback:
+        queries.append({"$or": unique_fallback})
+    return queries
+
+
 def case_insensitive_regex_or_filter(
     field: str,
     values: Optional[Sequence[str]],
@@ -102,6 +160,38 @@ def case_insensitive_regex_or_filter(
         clause = case_insensitive_regex_filter(field, str(raw), exact=exact)
         if clause:
             clauses.append(clause)
+    if not clauses:
+        return {}
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$or": clauses}
+
+
+_SALES_OWNER_FIELDS = ("assigned_to", "assigned_to_name", "presales_agent")
+
+
+def build_sales_owners_filter(values: Optional[Sequence[str]]) -> Dict[str, Any]:
+    """
+    Match leads whose sales owner is any of the given names.
+
+    Checks assigned_to, assigned_to_name, and presales_agent (exact, case-insensitive)
+    because older imports store the owner in different fields.
+    """
+    if not values:
+        return {}
+    clauses: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in values:
+        if not raw or not str(raw).strip():
+            continue
+        key = str(raw).strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        for field in _SALES_OWNER_FIELDS:
+            clause = case_insensitive_regex_filter(field, str(raw).strip(), exact=True)
+            if clause:
+                clauses.append(clause)
     if not clauses:
         return {}
     if len(clauses) == 1:
@@ -144,6 +234,8 @@ def build_leads_list_query(
     updated_at_to_iso: Optional[str] = None,
     sources: Optional[Sequence[str]] = None,
     source: Optional[str] = None,
+    sales_owners: Optional[Sequence[str]] = None,
+    sales_owner: Optional[str] = None,
     meta_qualified: Optional[bool] = None,
     site_visit_min: Optional[int] = None,
     site_visit_max: Optional[int] = None,
@@ -156,6 +248,7 @@ def build_leads_list_query(
     location_values = resolve_multi_filter_values(locations, location)
     status_values = resolve_multi_filter_values(statuses, status)
     source_values = resolve_multi_filter_values(sources, source)
+    sales_owner_values = resolve_multi_filter_values(sales_owners, sales_owner)
 
     if project_id:
         extra.append({"project_id": project_id})
@@ -169,6 +262,10 @@ def build_leads_list_query(
         extra.append(case_insensitive_regex_or_filter("location", location_values))
     if source_values:
         extra.append(case_insensitive_regex_or_filter("lead_source", source_values))
+    if sales_owner_values:
+        owner_clause = build_sales_owners_filter(sales_owner_values)
+        if owner_clause:
+            extra.append(owner_clause)
     if meta_qualified is not None:
         extra.append({"meta_qualified": meta_qualified})
     if intent:

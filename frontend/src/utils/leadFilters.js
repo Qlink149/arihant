@@ -2,7 +2,7 @@
  * Virtual Customer lead filter state, URL sync, and API param helpers.
  */
 
-const MULTI_FILTER_KEYS = ['budgets', 'locations', 'projects', 'statuses', 'sources'];
+const MULTI_FILTER_KEYS = ['budgets', 'locations', 'projects', 'statuses', 'sources', 'sales_owners'];
 
 const parseCommaList = (value) => {
   if (!value || !String(value).trim()) return [];
@@ -29,6 +29,7 @@ export const emptyLeadFilters = () => ({
   projects: [],
   statuses: [],
   sources: [],
+  sales_owners: [],
   intent: '',
   vip: null,
   temperature: '',
@@ -50,6 +51,9 @@ export const filtersFromSearchParams = (searchParams) => {
   const projects = parseCommaList(searchParams.get('projects') || searchParams.get('project'));
   const statuses = parseCommaList(searchParams.get('statuses') || searchParams.get('status'));
   const sources = parseCommaList(searchParams.get('sources') || searchParams.get('source'));
+  const sales_owners = parseCommaList(
+    searchParams.get('sales_owners') || searchParams.get('sales_owner')
+  );
 
   const vipRaw = searchParams.get('vip');
   let vip = null;
@@ -63,6 +67,7 @@ export const filtersFromSearchParams = (searchParams) => {
     projects,
     statuses,
     sources,
+    sales_owners,
     intent: searchParams.get('intent') || '',
     vip,
     temperature: searchParams.get('temperature') || '',
@@ -84,12 +89,14 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   const projects = encodeCommaList(filters.projects);
   const statuses = encodeCommaList(filters.statuses);
   const sources = encodeCommaList(filters.sources);
+  const sales_owners = encodeCommaList(filters.sales_owners);
 
   if (budgets) params.set('budgets', budgets);
   if (locations) params.set('locations', locations);
   if (projects) params.set('projects', projects);
   if (statuses) params.set('statuses', statuses);
   if (sources) params.set('sources', sources);
+  if (sales_owners) params.set('sales_owners', sales_owners);
 
   if (filters.intent) params.set('intent', filters.intent);
   if (filters.vip === true) params.set('vip', '1');
@@ -117,12 +124,14 @@ export const buildLeadListParams = (filters, search = '') => {
   const projects = encodeCommaList(filters.projects);
   const statuses = encodeCommaList(filters.statuses);
   const sources = encodeCommaList(filters.sources);
+  const sales_owners = encodeCommaList(filters.sales_owners);
 
   if (budgets) params.budgets = budgets;
   if (locations) params.locations = locations;
   if (projects) params.projects = projects;
   if (statuses) params.statuses = statuses;
   if (sources) params.sources = sources;
+  if (sales_owners) params.sales_owners = sales_owners;
 
   if (filters.intent) params.intent = filters.intent;
   if (filters.vip !== null && filters.vip !== undefined) params.vip = filters.vip;
@@ -171,6 +180,7 @@ const normalizeFilterSnapshot = (filters = {}) => ({
   projects: [...(filters.projects || [])].map(String).sort(),
   statuses: [...(filters.statuses || [])].map(String).sort(),
   sources: [...(filters.sources || [])].map(String).sort(),
+  sales_owners: [...(filters.sales_owners || [])].map(String).sort(),
   intent: filters.intent || '',
   vip: filters.vip ?? null,
   temperature: filters.temperature || '',
@@ -215,6 +225,7 @@ export const snapshotFiltersForView = (filters, search) => ({
   projects: [...(filters.projects || [])],
   statuses: [...(filters.statuses || [])],
   sources: [...(filters.sources || [])],
+  sales_owners: [...(filters.sales_owners || [])],
   vip: filters.vip ?? null,
   intent: filters.intent || '',
   temperature: filters.temperature || '',
@@ -235,6 +246,7 @@ export const applyViewFiltersToState = (viewFilters) => {
     projects: [...(viewFilters.projects || [])],
     statuses: [...(viewFilters.statuses || [])],
     sources: [...(viewFilters.sources || [])],
+    sales_owners: [...(viewFilters.sales_owners || [])],
     intent: viewFilters.intent || '',
     vip: viewFilters.vip ?? null,
     temperature: viewFilters.temperature || '',

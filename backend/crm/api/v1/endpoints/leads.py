@@ -1,4 +1,5 @@
 from typing import List, Optional
+import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import Response as FastAPIResponse
@@ -8,14 +9,13 @@ from crm.core.state import get_current_user
 from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
 from crm.services import lead_service
 from crm.services.lead_service import normalize_lead_for_response
-from crm.utils.helpers import coerce_datetime, utc_now
+from crm.utils.helpers import coerce_datetime, normalize_phone, utc_now
 from crm.services.dashboard_scope import resolve_lead_or_403, resolve_lead_view_or_403, role_scope_filter, user_owns_lead
 from crm.services.lead_analytics_queries import fetch_lead_filter_options
-from crm.services.lead_search import case_insensitive_regex_filter
+from crm.services.lead_search import build_exact_phone_lookup_queries, case_insensitive_regex_filter
 from crm.services.lead_events import log_lead_event
 from crm.services.lead_view_grants import DEFAULT_GRANT_MINUTES, upsert_view_grant
 from crm.core.state import db
-from crm.utils.helpers import normalize_phone
 from crm.services.lead_export_service import (
     assert_admin,
     create_export_job,
@@ -63,6 +63,8 @@ def _list_filter_params(
     locations: Optional[List[str]] = None,
     sources: Optional[List[str]] = None,
     source: Optional[str] = None,
+    sales_owners: Optional[List[str]] = None,
+    sales_owner: Optional[str] = None,
     intent: Optional[str] = None,
     vip: Optional[bool] = None,
     status: Optional[str] = None,
@@ -91,6 +93,8 @@ def _list_filter_params(
         "locations": locations,
         "sources": sources,
         "source": source,
+        "sales_owners": sales_owners,
+        "sales_owner": sales_owner,
         "intent": intent,
         "vip": vip,
         "status": status,
@@ -123,6 +127,8 @@ def _normalize_list_filters(
     statuses: Optional[List[str]] = None,
     sources: Optional[List[str]] = None,
     source: Optional[str] = None,
+    sales_owners: Optional[List[str]] = None,
+    sales_owner: Optional[str] = None,
 ) -> dict:
     """Merge legacy single-value and multi-value query params."""
     return {
@@ -131,6 +137,7 @@ def _normalize_list_filters(
         "locations": parse_multi_filter(locations) or parse_multi_filter(location),
         "statuses": parse_multi_filter(statuses) or parse_multi_filter(status),
         "sources": parse_multi_filter(sources) or parse_multi_filter(source),
+        "sales_owners": parse_multi_filter(sales_owners) or parse_multi_filter(sales_owner),
     }
 
 
@@ -198,6 +205,8 @@ async def get_leads(
     locations: Optional[List[str]] = Query(None),
     sources: Optional[List[str]] = Query(None),
     source: Optional[str] = None,
+    sales_owners: Optional[List[str]] = Query(None),
+    sales_owner: Optional[str] = None,
     intent: Optional[str] = None,
     vip: Optional[bool] = None,
     status: Optional[str] = None,
@@ -229,6 +238,8 @@ async def get_leads(
         statuses=statuses,
         sources=sources,
         source=source,
+        sales_owners=sales_owners,
+        sales_owner=sales_owner,
     )
     snapshot_filter = None
     use_rep_pipeline = bool(mine)
@@ -258,6 +269,8 @@ async def get_leads(
         locations=multi["locations"] or None,
         sources=multi["sources"] or None,
         source=source,
+        sales_owners=multi["sales_owners"] or None,
+        sales_owner=sales_owner,
         intent=intent,
         vip=vip,
         status=status,
@@ -302,6 +315,8 @@ async def start_leads_export(
     locations: Optional[List[str]] = Query(None),
     sources: Optional[List[str]] = Query(None),
     source: Optional[str] = None,
+    sales_owners: Optional[List[str]] = Query(None),
+    sales_owner: Optional[str] = None,
     intent: Optional[str] = None,
     vip: Optional[bool] = None,
     status: Optional[str] = None,
@@ -330,6 +345,8 @@ async def start_leads_export(
         statuses=statuses,
         sources=sources,
         source=source,
+        sales_owners=sales_owners,
+        sales_owner=sales_owner,
     )
     filters = _list_filter_params(
         project=project,
@@ -342,6 +359,8 @@ async def start_leads_export(
         locations=multi["locations"] or None,
         sources=multi["sources"] or None,
         source=source,
+        sales_owners=multi["sales_owners"] or None,
+        sales_owner=sales_owner,
         intent=intent,
         vip=vip,
         status=status,
@@ -401,28 +420,6 @@ async def get_lead_duplicates(
     }
 
 
-@router.get("/leads/{lead_id}", response_model=LeadResponse)
-async def get_lead(
-    lead_id: str,
-    background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user),
-):
-    lead = await resolve_lead_view_or_403(lead_id, current_user)
-    if isinstance(lead.get("created_at"), str):
-        lead["created_at"] = coerce_datetime(lead.get("created_at")) or utc_now()
-    if isinstance(lead.get("updated_at"), str):
-        lead["updated_at"] = coerce_datetime(lead.get("updated_at")) or utc_now()
-    lead = normalize_lead_for_response(lead)
-    cfg = grok_keys_configured()
-    stale = ai_insights_stale(lead)
-    lead["ai_configured"] = cfg
-    lead["ai_stale"] = stale
-    lead["ai_generation_pending"] = bool(cfg and (stale or ai_refresh_in_progress(lead_id)))
-    if cfg and stale:
-        schedule_lead_ai_refresh(lead_id, background_tasks)
-    return LeadResponse(**lead)
-
-
 @router.get("/leads/exact-lookup", response_model=LeadResponse)
 async def exact_lookup_lead(
     phone: Optional[str] = None,
@@ -432,9 +429,13 @@ async def exact_lookup_lead(
     """
     Exact-match lookup for a single lead by full phone/email.
 
+    MUST be registered before /leads/{lead_id} so "exact-lookup" is not captured as an id.
+
     - Admin/manager: org-wide lookup (no grant needed).
-    - Rep: only exact identifiers are accepted; if matched lead is outside rep scope,
+    - Rep: only full identifiers are accepted; if matched lead is outside rep scope,
       a temporary view-only grant is created so GET /leads/{id} works for a short window.
+
+    Phone match order: exact typed phone/work_phone, then normalized last-10 fallback.
     """
     if (phone and str(phone).strip()) and (email and str(email).strip()):
         raise HTTPException(status_code=400, detail="Provide only one of phone or email")
@@ -447,12 +448,17 @@ async def exact_lookup_lead(
 
     if phone and str(phone).strip():
         lookup_type = "phone"
-        normalized = normalize_phone(str(phone))
-        # Enforce full identifier: must normalize to exactly 10 digits.
-        if len(normalized) != 10:
-            raise HTTPException(status_code=400, detail="Phone must be a full 10-digit number")
-        lookup_value = normalized
-        lead = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+        raw_phone = str(phone).strip()
+        digits = re.sub(r"\D", "", raw_phone)
+        normalized = normalize_phone(raw_phone)
+        # Full identifier: 10–15 digits (local 10 or with country code). Partials stay on list search.
+        if len(digits) < 10 or len(digits) > 15:
+            raise HTTPException(status_code=400, detail="Phone must be a full number (10–15 digits)")
+        lookup_value = normalized if len(normalized) == 10 else digits
+        for query in build_exact_phone_lookup_queries(raw_phone):
+            lead = await db.leads.find_one(query, {"_id": 0})
+            if lead:
+                break
     else:
         lookup_type = "email"
         raw = str(email).strip()
@@ -490,6 +496,28 @@ async def exact_lookup_lead(
     if isinstance(lead.get("updated_at"), str):
         lead["updated_at"] = coerce_datetime(lead.get("updated_at")) or utc_now()
     lead = normalize_lead_for_response(lead)
+    return LeadResponse(**lead)
+
+
+@router.get("/leads/{lead_id}", response_model=LeadResponse)
+async def get_lead(
+    lead_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    lead = await resolve_lead_view_or_403(lead_id, current_user)
+    if isinstance(lead.get("created_at"), str):
+        lead["created_at"] = coerce_datetime(lead.get("created_at")) or utc_now()
+    if isinstance(lead.get("updated_at"), str):
+        lead["updated_at"] = coerce_datetime(lead.get("updated_at")) or utc_now()
+    lead = normalize_lead_for_response(lead)
+    cfg = grok_keys_configured()
+    stale = ai_insights_stale(lead)
+    lead["ai_configured"] = cfg
+    lead["ai_stale"] = stale
+    lead["ai_generation_pending"] = bool(cfg and (stale or ai_refresh_in_progress(lead_id)))
+    if cfg and stale:
+        schedule_lead_ai_refresh(lead_id, background_tasks)
     return LeadResponse(**lead)
 
 

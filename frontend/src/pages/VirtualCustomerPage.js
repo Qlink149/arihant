@@ -91,9 +91,10 @@ const classifyExactLookup = (raw) => {
     return { type: 'email', value: term };
   }
 
-  // Exact phone: exactly 10 digits (after stripping separators)
+  // Full phone for org-wide grant lookup: 10–15 digits (local or with country code).
+  // Shorter inputs stay on scoped regex list search.
   const digits = term.replace(/\D/g, '');
-  if (digits.length === 10) {
+  if (digits.length >= 10 && digits.length <= 15) {
     return { type: 'phone', value: term };
   }
 
@@ -438,6 +439,20 @@ const VirtualCustomerPage = () => {
     [buildLeadQueryParams, prefetchKey]
   );
 
+  const applyScopedListResults = useCallback(
+    (response) => {
+      const batch = response.data || [];
+      const total = parseTotalFromResponse(response);
+      if (total !== null) setTotalLeads(total);
+      setLeads(batch);
+      setHasMoreLeads(batch.length === VC_PAGE);
+      if (batch.length === VC_PAGE) {
+        prefetchNextVcPage(VC_PAGE);
+      }
+    },
+    [prefetchNextVcPage]
+  );
+
   const resetAndFetchLeads = useCallback(async () => {
     leadsFetchGeneration.current += 1;
     const requestGen = leadsFetchGeneration.current;
@@ -449,47 +464,46 @@ const VirtualCustomerPage = () => {
     prefetchedKey.current = '';
     leadsFetchBusy.current = false;
     try {
+      // Full phone/email: try org-wide exact lookup first (mints 10-min view grant for reps).
+      // On miss, fall back to scoped regex list search so searches never falsely go empty.
       if (exactLookup) {
-        const params = exactLookup.type === 'phone' ? { phone: exactLookup.value } : { email: exactLookup.value };
-        const response = await leadsAPI.exactLookup(params);
-        if (requestGen !== leadsFetchGeneration.current) return;
-        const lead = response?.data;
-        const batch = lead ? [lead] : [];
-        setLeads(batch);
-        setTotalLeads(batch.length);
-        setHasMoreLeads(false);
-      } else {
-        const params = buildLeadQueryParams(0);
-        const response = await leadsAPI.getAll(params);
-        if (requestGen !== leadsFetchGeneration.current) return;
-
-        const batch = response.data || [];
-        const total = parseTotalFromResponse(response);
-        if (total !== null) setTotalLeads(total);
-        setLeads(batch);
-        setHasMoreLeads(batch.length === VC_PAGE);
-        if (batch.length === VC_PAGE) {
-          prefetchNextVcPage(VC_PAGE);
+        try {
+          const params =
+            exactLookup.type === 'phone'
+              ? { phone: exactLookup.value }
+              : { email: exactLookup.value };
+          const response = await leadsAPI.exactLookup(params);
+          if (requestGen !== leadsFetchGeneration.current) return;
+          const lead = response?.data;
+          const batch = lead ? [lead] : [];
+          setLeads(batch);
+          setTotalLeads(batch.length);
+          setHasMoreLeads(false);
+          return;
+        } catch (lookupError) {
+          const status = lookupError?.response?.status;
+          // 404 = no org-wide match; continue to scoped regex search.
+          // 400 = invalid identifier shape; also fall back to list search.
+          if (status !== 404 && status !== 400) {
+            throw lookupError;
+          }
         }
       }
+
+      const params = buildLeadQueryParams(0);
+      const response = await leadsAPI.getAll(params);
+      if (requestGen !== leadsFetchGeneration.current) return;
+      applyScopedListResults(response);
     } catch (error) {
       if (requestGen !== leadsFetchGeneration.current) return;
-      // For exact lookup, 404 should be treated as "no results" (not a toast error).
-      const status = error?.response?.status;
-      if (exactLookup && status === 404) {
-        setLeads([]);
-        setTotalLeads(0);
-        setHasMoreLeads(false);
-      } else {
-        console.error('Failed to fetch leads:', error);
-        toast.error('Failed to load leads');
-      }
+      console.error('Failed to fetch leads:', error);
+      toast.error('Failed to load leads');
     } finally {
       if (requestGen === leadsFetchGeneration.current) {
         setLoading(false);
       }
     }
-  }, [buildLeadQueryParams, prefetchNextVcPage, exactLookup]);
+  }, [applyScopedListResults, buildLeadQueryParams, exactLookup]);
 
   const appendLeadsPage = useCallback(async () => {
     if (leadsFetchBusy.current || loadingMore || !hasMoreLeads) return;
@@ -549,7 +563,9 @@ const VirtualCustomerPage = () => {
 
   useEffect(() => {
     const el = loadMoreSentinelRef.current;
-    if (!el || showDuplicates || loading || exactLookup) return;
+    // Do not gate on exactLookup: after a miss we fall back to scoped list + pagination.
+    // Successful exact lookup sets hasMoreLeads=false, which already blocks append.
+    if (!el || showDuplicates || loading || !hasMoreLeads) return;
     const obs = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) appendLeadsPage();
@@ -558,7 +574,7 @@ const VirtualCustomerPage = () => {
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [showDuplicates, loading, leads.length, hasMoreLeads, appendLeadsPage, exactLookup]);
+  }, [showDuplicates, loading, leads.length, hasMoreLeads, appendLeadsPage]);
 
   const findDuplicates = useCallback(async () => {
     setLoading(true);
@@ -744,6 +760,20 @@ const VirtualCustomerPage = () => {
     setActiveFilterViewId(null);
     setFilters((prev) => ({ ...prev, statuses }));
   }, []);
+
+  const handleSalesOwnersChange = useCallback((sales_owners) => {
+    setActiveFilterViewId(null);
+    setFilters((prev) => ({ ...prev, sales_owners }));
+  }, []);
+
+  const salesOwnerOptions = useMemo(
+    () =>
+      (assigneeOptions || [])
+        .map((u) => (u?.full_name || '').trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b)),
+    [assigneeOptions]
+  );
 
   const handleSaveQuickNote = async () => {
     if (!noteLeadId || !quickNote.trim()) {
@@ -1072,6 +1102,17 @@ const VirtualCustomerPage = () => {
               selected={filters.statuses}
               onChange={handleStatusesChange}
               testId="status-filter"
+            />
+
+            {/* Sales Owner Filter */}
+            <MultiSelectFilterDropdown
+              label="Sales Owner"
+              icon={User}
+              options={salesOwnerOptions}
+              selected={filters.sales_owners}
+              loading={assigneesLoading}
+              onChange={handleSalesOwnersChange}
+              testId="sales-owner-filter"
             />
 
             {/* Date Filter */}
