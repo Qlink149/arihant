@@ -26,7 +26,7 @@ jobs:
 
       - name: Build and push Docker image
         env:
-          IMAGE: registry.digitalocean.com/arihant-registry/fastapi-backend
+          IMAGE: registry.digitalocean.com/qlink01/fastapi-backend
         run: |
           docker build -t "$IMAGE:latest" -t "$IMAGE:${GITHUB_SHA}" backend/
           docker push "$IMAGE:latest"
