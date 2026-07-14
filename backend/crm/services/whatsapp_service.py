@@ -25,7 +25,9 @@ from crm.core.state import (
     WHATSAPP_PROVIDER,
     WATI_API_ENDPOINT,
     WATI_API_TOKEN,
+    WATI_BROCHURE_PDF_URL,
     WATI_CHANNEL_PHONE,
+
     # Gupshup (legacy dead-code)
     GUPSHUP_API_KEY,
     GUPSHUP_APP_ID,
@@ -531,7 +533,88 @@ async def get_lead_chat_history(lead_id: str) -> dict:
     return await get_chat_history(phone)
 
 
+async def send_brochure(lead_id: str, current_user: dict) -> dict:
+    """
+    Send the project brochure PDF to a lead via WATI fileViaUrl.
+    Requires:
+      - WHATSAPP_PROVIDER=wati
+      - WATI_BROCHURE_PDF_URL configured on server
+      - Active WhatsApp session (customer messaged within 24h)
+
+    Returns a placeholder error when PDF URL is not yet configured.
+    """
+    if WHATSAPP_PROVIDER != "wati":
+        return {"success": False, "error": "WhatsApp is not enabled on this server"}
+
+    if not WATI_BROCHURE_PDF_URL:
+        return {
+            "success": False,
+            "error": "Brochure PDF URL not configured yet — add WATI_BROCHURE_PDF_URL to server .env and redeploy",
+            "placeholder": True,
+        }
+
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    phone = _wati_phone(lead.get("phone", ""))
+    if not phone:
+        return {"success": False, "error": "Lead has no phone number"}
+
+    try:
+        filename = f"Arihant_{(lead.get('project') or 'Brochure').replace(' ', '_')}.pdf"
+        resp = await _wati_send_file_via_url(phone, WATI_BROCHURE_PDF_URL, filename)
+
+        try:
+            result = resp.json()
+        except Exception:
+            result = {}
+
+        if 200 <= resp.status_code < 300:
+            now_dt = utc_now()
+            now_iso = iso_utc_now()
+
+            msg_doc = {
+                "id": str(uuid.uuid4()),
+                "wati_message_id": result.get("message", {}).get("id", ""),
+                "gupshup_message_id": None,
+                "direction": "outbound",
+                "destination": phone,
+                "message_type": "document",
+                "content": f"📄 Brochure sent: {filename}",
+                "status": "sent",
+                "sent_by": current_user["id"],
+                "created_at": now_iso,
+                "created_at_dt": now_dt,
+            }
+            await db.whatsapp_messages.insert_one(msg_doc)
+
+            context_update = {
+                "type": "whatsapp",
+                "timestamp": now_iso,
+                "timestamp_dt": now_dt,
+                "description": f"Brochure PDF sent via WhatsApp ({filename})",
+                "agent": current_user["full_name"],
+                "actor_user_id": current_user["id"],
+            }
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
+            )
+
+            return {"success": True, "status": "sent", "filename": filename}
+        else:
+            err = result.get("message") or f"WATI error {resp.status_code}"
+            logger.error(f"WATI sendBrochure failed {phone}: {resp.status_code} {resp.text[:300]}")
+            return {"success": False, "error": err}
+
+    except Exception as e:
+        logger.error(f"WATI brochure send error for {lead_id}: {e}")
+        return {"success": False, "error": str(e)}
+
+
 async def process_webhook(body: dict) -> None:
+
     """
     Route incoming webhook payload to the correct provider handler.
     WATI payloads are identified by the presence of 'waId' or 'whatsappMessageId'.

@@ -49,6 +49,9 @@ import {
   StickyNote,
   AlertCircle,
   Target,
+  Check,
+  CheckCheck,
+  Paperclip,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -58,6 +61,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
+
+// ─── Delivery status tick icons ───────────────────────────────────────────────
+const MessageStatus = ({ status }) => {
+  if (!status) return null;
+  if (status === 'submitted') return (
+    <Check size={11} className="opacity-50 text-green-200" />
+  );
+  if (status === 'sent') return (
+    <Check size={11} className="text-green-200" />
+  );
+  if (status === 'delivered') return (
+    <CheckCheck size={11} className="text-green-200" />
+  );
+  if (status === 'read') return (
+    <CheckCheck size={11} className="text-blue-300" />
+  );
+  if (status === 'failed') return (
+    <span className="text-red-400 text-xs leading-none">✗</span>
+  );
+  // 'received' and others: no ticks
+  return null;
+};
 
 const DigitalTwinPage = () => {
   const { leadId } = useParams();
@@ -80,6 +105,7 @@ const DigitalTwinPage = () => {
   const [waTemplates, setWaTemplates] = useState([]);
   const [waTemplatesLoaded, setWaTemplatesLoaded] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [sendingBrochure, setSendingBrochure] = useState(false);
   const [taskForm, setTaskForm] = useState({
     description: '', due_date: '', due_time: '', priority: 'medium',
     reminder_method: 'default', assigned_to: ''
@@ -292,6 +318,29 @@ const DigitalTwinPage = () => {
       toast.error('Failed to send message');
     } finally {
       setSendingMessage(false);
+    }
+  };
+
+  // Send brochure PDF
+  const handleSendBrochure = async () => {
+    setSendingBrochure(true);
+    try {
+      const res = await whatsappAPI.sendBrochure(leadId);
+      if (res.data.success) {
+        toast.success('Brochure sent!', { description: 'PDF delivered to ' + lead.first_name });
+        await fetchChatHistory(false);
+        fetchLead();
+      } else if (res.data.placeholder) {
+        toast.info('Brochure URL not set up yet', {
+          description: 'Add WATI_BROCHURE_PDF_URL to server .env — share the PDF URL with the team',
+        });
+      } else {
+        toast.error('Failed to send brochure', { description: res.data.error });
+      }
+    } catch {
+      toast.error('Failed to send brochure');
+    } finally {
+      setSendingBrochure(false);
     }
   };
 
@@ -1031,6 +1080,35 @@ const DigitalTwinPage = () => {
                 )}
               </Button>
             </div>
+
+            {/* Send Brochure — enabled when PDF URL is configured on server */}
+            <div className="border-t border-white/10 pt-3">
+              <Button
+                onClick={handleSendBrochure}
+                disabled={sendingBrochure}
+                variant="outline"
+                className="w-full border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50"
+                data-testid="send-brochure-btn"
+              >
+                {sendingBrochure ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Sending Brochure...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Paperclip size={15} />
+                    Send Brochure PDF
+                  </span>
+                )}
+              </Button>
+              <p className="text-[#52525B] text-xs text-center mt-1">
+                Requires active session · PDF URL configured on server
+              </p>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1074,8 +1152,8 @@ const DigitalTwinPage = () => {
                       <span>
                         {formatTimeIST(msg.created_at) || '—'}
                       </span>
-                      {msg.direction === 'outbound' && msg.status && (
-                        <span className="capitalize">• {msg.status}</span>
+                      {msg.direction === 'outbound' && (
+                        <MessageStatus status={msg.status} />
                       )}
                     </div>
                   </div>

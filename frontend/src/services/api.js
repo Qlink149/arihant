@@ -178,6 +178,7 @@ export const whatsappAPI = {
   sendToLead: (leadId, data) => api.post(`/whatsapp/send-to-lead/${leadId}`, data),
   getChatHistory: (phone) => api.get(`/whatsapp/chat-history/${phone}`),
   getLeadChat: (leadId) => api.get(`/whatsapp/lead-chat/${leadId}`),
+  sendBrochure: (leadId) => api.post(`/whatsapp/send-brochure/${leadId}`),
   setupWebhook: () => api.post('/integrations/gupshup/setup-webhook'),
   getSubscriptions: () => api.get('/integrations/gupshup/subscriptions'),
   getWebhookStatus: () => api.get('/integrations/gupshup/webhook-status')

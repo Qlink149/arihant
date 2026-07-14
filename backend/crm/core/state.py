@@ -77,6 +77,9 @@ WHATSAPP_PROVIDER = os.environ.get("WHATSAPP_PROVIDER", "disabled")
 WATI_API_ENDPOINT = os.environ.get("WATI_API_ENDPOINT", "")
 WATI_API_TOKEN = os.environ.get("WATI_API_TOKEN", "")
 WATI_CHANNEL_PHONE = os.environ.get("WATI_CHANNEL_PHONE", "919894474820")
+# Brochure PDF public URL — leave blank until client supplies the PDF link
+WATI_BROCHURE_PDF_URL = os.environ.get("WATI_BROCHURE_PDF_URL", "")
+
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
