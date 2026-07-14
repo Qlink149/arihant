@@ -5,7 +5,7 @@ import os
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
-from crm.core.state import get_current_user, logger
+from crm.core.state import get_current_user, logger, WHATSAPP_PROVIDER
 from crm.services.dashboard_scope import resolve_lead_or_403
 from crm.models.schemas.whatsapp_schemas import WhatsAppMessage
 from crm.services import whatsapp_service
@@ -13,10 +13,12 @@ from crm.services import whatsapp_service
 router = APIRouter()
 
 
-async def verify_webhook_signature(
-    request: Request,
-    x_hub_signature: str | None = Header(None, alias="x-hub-signature-256"),
-):
+async def _verify_gupshup_signature(request: Request) -> None:
+    """
+    Verify Gupshup HMAC x-hub-signature-256 header.
+    Only called when WHATSAPP_PROVIDER != 'wati'.
+    """
+    x_hub_signature = request.headers.get("x-hub-signature-256")
     if not x_hub_signature:
         raise HTTPException(status_code=401, detail="Missing webhook signature")
 
@@ -59,6 +61,10 @@ async def get_lead_chat_history(lead_id: str, current_user: dict = Depends(get_c
     return await whatsapp_service.get_lead_chat_history(lead_id)
 
 
+# ─── Gupshup integration stubs (deprecated) ───────────────────────────────────
+# These routes are left in place so any stale frontend/scripts don't 404.
+# They return a deprecation notice and are not actively used.
+
 @router.post("/integrations/gupshup/setup-webhook")
 async def setup_gupshup_webhook(current_user: dict = Depends(get_current_user)):
     return await whatsapp_service.setup_webhook(current_user)
@@ -74,20 +80,39 @@ async def get_webhook_status(current_user: dict = Depends(get_current_user)):
     return await whatsapp_service.get_webhook_status()
 
 
-@router.post("/whatsapp/webhook", dependencies=[Depends(verify_webhook_signature)])
+# ─── Webhook (public — no auth on WATI path) ──────────────────────────────────
+
+@router.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
+    """
+    Receive WhatsApp webhook events.
+
+    Auth behaviour:
+      provider=wati     → no HMAC check (WATI does not send x-hub-signature-256)
+      provider=disabled → still accepts POSTs (for smoke testing); ignores payload
+      provider=gupshup  → enforces Gupshup HMAC signature
+    """
     try:
-        raw_body = getattr(request.state, "raw_body", None) or await request.body()
+        # WATI and disabled both skip HMAC — only gupshup enforces it
+        if WHATSAPP_PROVIDER == "gupshup":
+            await _verify_gupshup_signature(request)
+            raw_body = getattr(request.state, "raw_body", None) or await request.body()
+        else:
+            raw_body = await request.body()
+
         try:
             body = json.loads(raw_body)
         except json.JSONDecodeError:
-            body_str = raw_body.decode("utf-8")
+            body_str = raw_body.decode("utf-8", errors="replace")
             logger.info(f"Webhook received non-JSON body: {body_str[:200]}")
             return {"status": "ok"}
 
-        logger.info(f"Received webhook: {json.dumps(body)[:500]}")
+        logger.info(f"Webhook received [{WHATSAPP_PROVIDER}]: {json.dumps(body)[:500]}")
         await whatsapp_service.process_webhook(body)
         return {"status": "ok"}
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Webhook processing error: {str(e)}")
-        return {"status": "ok"}
+        return {"status": "ok"}  # Always 200 to webhook senders

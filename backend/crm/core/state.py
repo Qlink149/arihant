@@ -61,7 +61,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 
-# Gupshup WhatsApp Configuration
+# Gupshup WhatsApp Configuration (legacy — kept for dead-code reference)
 GUPSHUP_TOKEN = os.environ.get("GUPSHUP_TOKEN", "")
 GUPSHUP_API_KEY = os.environ.get("GUPSHUP_API_KEY", "")
 GUPSHUP_APP_ID = os.environ.get("GUPSHUP_APP_ID", "")
@@ -69,6 +69,14 @@ GUPSHUP_SOURCE_PHONE = os.environ.get("GUPSHUP_SOURCE_PHONE", "")
 GUPSHUP_APP_NAME = os.environ.get("GUPSHUP_APP_NAME", "ArihantSalesIntelligence")
 GUPSHUP_BASE_URL = "https://api.gupshup.io"
 GUPSHUP_PARTNER_URL = "https://partner.gupshup.io"
+
+# WATI WhatsApp Configuration
+# WHATSAPP_PROVIDER: 'disabled' (default) | 'wati'
+# Keep disabled until client delivers: approved templates, webhook, token, test numbers.
+WHATSAPP_PROVIDER = os.environ.get("WHATSAPP_PROVIDER", "disabled")
+WATI_API_ENDPOINT = os.environ.get("WATI_API_ENDPOINT", "")
+WATI_API_TOKEN = os.environ.get("WATI_API_TOKEN", "")
+WATI_CHANNEL_PHONE = os.environ.get("WATI_CHANNEL_PHONE", "919894474820")
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -162,6 +170,7 @@ async def ensure_db_indexes():
         # whatsapp_messages
         await db.whatsapp_messages.create_index([("id", 1)], unique=True, name="whatsapp_messages_id_uq")
         await db.whatsapp_messages.create_index([("gupshup_message_id", 1)], name="whatsapp_messages_gsId")
+        await db.whatsapp_messages.create_index([("wati_message_id", 1)], sparse=True, name="whatsapp_messages_watiId")
         await db.whatsapp_messages.create_index([("source", 1), ("created_at", -1)], name="whatsapp_messages_source_createdAt")
         await db.whatsapp_messages.create_index([("destination", 1), ("created_at", -1)], name="whatsapp_messages_destination_createdAt")
 

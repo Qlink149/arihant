@@ -77,6 +77,9 @@ const DigitalTwinPage = () => {
   const [contextNote, setContextNote] = useState('');
   const [contextType, setContextType] = useState('general_note');
   const [savingContext, setSavingContext] = useState(false);
+  const [waTemplates, setWaTemplates] = useState([]);
+  const [waTemplatesLoaded, setWaTemplatesLoaded] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [taskForm, setTaskForm] = useState({
     description: '', due_date: '', due_time: '', priority: 'medium',
     reminder_method: 'default', assigned_to: ''
@@ -201,33 +204,61 @@ const DigitalTwinPage = () => {
     }
   };
 
+  // Fetch WATI templates when send modal opens
+  const fetchWaTemplates = async () => {
+    if (waTemplatesLoaded) return;
+    try {
+      const res = await whatsappAPI.getTemplates();
+      const tpls = res.data?.templates || [];
+      // Only show APPROVED templates
+      setWaTemplates(tpls.filter((t) => t.status === 'APPROVED'));
+    } catch {
+      setWaTemplates([]);
+    } finally {
+      setWaTemplatesLoaded(true);
+    }
+  };
+
   const handleSendWhatsApp = async () => {
-    if (!messageText.trim()) {
-      toast.error('Please enter a message');
+    if (!messageText.trim() && !selectedTemplate) {
+      toast.error('Please enter a message or select a template');
       return;
     }
 
     setSendingMessage(true);
     try {
-      const response = await whatsappAPI.sendToLead(leadId, {
+      const payload = {
         destination: lead.phone,
-        message_type: 'text',
-        text: messageText
-      });
+        message_type: selectedTemplate ? 'template' : 'text',
+        text: messageText || undefined,
+        template_name: selectedTemplate?.name || undefined,
+        template_parameters: selectedTemplate
+          ? [
+              { name: 'name', value: lead.first_name || lead.phone },
+              { name: 'project', value: lead.project || 'Arihant' },
+            ]
+          : undefined,
+        broadcast_name: selectedTemplate ? 'arihant_crm' : undefined,
+      };
+
+      const response = await whatsappAPI.sendToLead(leadId, payload);
 
       if (response.data.success) {
-        toast.success('WhatsApp message sent successfully!', {
-          description: `Message delivered to ${lead.first_name}`
+        toast.success('WhatsApp message sent!', {
+          description: `Delivered to ${lead.first_name}`,
         });
         setMessageText('');
-        // Refresh chat history to show the new message
+        setSelectedTemplate(null);
         await fetchChatHistory(false);
-        // Refresh lead to show updated context
         fetchLead();
       } else {
-        toast.error('Failed to send message', {
-          description: response.data.error || 'Please try again'
-        });
+        const errMsg = response.data.error || 'Failed to send message';
+        // Surface session-expired message clearly
+        if (errMsg.toLowerCase().includes('session') || errMsg.toLowerCase().includes('template')) {
+          toast.error('Session expired', { description: errMsg });
+        } else {
+          toast.error('Failed to send', { description: errMsg });
+        }
       }
     } catch (error) {
       console.error('Failed to send WhatsApp:', error);
@@ -240,22 +271,22 @@ const DigitalTwinPage = () => {
   // Send message from chat history modal
   const handleSendFromChat = async () => {
     if (!messageText.trim()) return;
-    
+
     setSendingMessage(true);
     try {
       const response = await whatsappAPI.sendToLead(leadId, {
         destination: lead.phone,
         message_type: 'text',
-        text: messageText
+        text: messageText,
       });
 
       if (response.data.success) {
         setMessageText('');
-        // Refresh chat history
         await fetchChatHistory(false);
         fetchLead();
       } else {
-        toast.error('Failed to send message');
+        const errMsg = response.data.error || 'Failed to send message';
+        toast.error('Failed to send', { description: errMsg });
       }
     } catch (error) {
       toast.error('Failed to send message');
@@ -875,7 +906,10 @@ const DigitalTwinPage = () => {
       </Dialog>
 
       {/* WhatsApp Send Modal */}
-      <Dialog open={showWhatsAppModal} onOpenChange={setShowWhatsAppModal}>
+      <Dialog open={showWhatsAppModal} onOpenChange={(open) => {
+        setShowWhatsAppModal(open);
+        if (open) { setSelectedTemplate(null); fetchWaTemplates(); }
+      }}>
         <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl flex items-center gap-2">
@@ -888,10 +922,44 @@ const DigitalTwinPage = () => {
               Sending to: {lead?.phone}
             </p>
             
-            {/* Quick Templates */}
-            <div className="space-y-2">
-              <p className="text-[#52525B] text-xs uppercase tracking-wider">Quick Templates</p>
-              <div className="flex flex-wrap gap-2">
+            {/* WATI Template picker (shown when APPROVED templates available) */}
+            {waTemplatesLoaded && waTemplates.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[#52525B] text-xs uppercase tracking-wider">Approved Templates</p>
+                <select
+                  value={selectedTemplate?.name || ''}
+                  onChange={(e) => {
+                    const tpl = waTemplates.find((t) => t.name === e.target.value) || null;
+                    setSelectedTemplate(tpl);
+                    if (tpl) setMessageText('');
+                  }}
+                  className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm focus:border-green-500"
+                  data-testid="template-select"
+                >
+                  <option value="">— Free text (session) —</option>
+                  {waTemplates.map((t) => (
+                    <option key={t.id || t.name} value={t.name}>{t.name}</option>
+                  ))}
+                </select>
+                {selectedTemplate && (
+                  <p className="text-[#52525B] text-xs">
+                    Template body: {selectedTemplate.body || selectedTemplate.hsm || '—'}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {waTemplatesLoaded && waTemplates.length === 0 && (
+              <div className="text-xs text-amber-400 bg-amber-900/20 border border-amber-500/20 rounded px-3 py-2">
+                ⚠ No approved templates yet — free text only if a session is open (customer messaged within 24h).
+              </div>
+            )}
+
+            {/* Quick fill buttons (pre-fill text area only) */}
+            {!selectedTemplate && (
+              <div className="space-y-2">
+                <p className="text-[#52525B] text-xs uppercase tracking-wider">Quick Fill</p>
+                <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => handleQuickMessage('greeting')}
                   className="px-3 py-1 text-xs bg-black/50 border border-white/10 rounded hover:border-green-500/50 transition-colors"
@@ -918,8 +986,10 @@ const DigitalTwinPage = () => {
                 </button>
               </div>
             </div>
+            )}
 
-            {/* Message Input */}
+            {/* Message Input — hidden when a template is selected */}
+            {!selectedTemplate && (
             <div>
               <textarea
                 value={messageText}
@@ -929,6 +999,7 @@ const DigitalTwinPage = () => {
                 data-testid="whatsapp-message-input"
               />
             </div>
+            )}
 
             <div className="flex gap-3">
               <Button
@@ -940,7 +1011,7 @@ const DigitalTwinPage = () => {
               </Button>
               <Button
                 onClick={handleSendWhatsApp}
-                disabled={sendingMessage || !messageText.trim()}
+                disabled={sendingMessage || (!messageText.trim() && !selectedTemplate)}
                 className="flex-1 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
                 data-testid="send-whatsapp-btn"
               >
@@ -1042,7 +1113,7 @@ const DigitalTwinPage = () => {
               </Button>
             </div>
             <p className="text-[#52525B] text-xs mt-2 text-center">
-              Press Enter to send • Messages sent via Gupshup WhatsApp
+              Press Enter to send • Messages sent via WhatsApp
             </p>
           </div>
         </DialogContent>
