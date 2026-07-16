@@ -747,7 +747,7 @@ const DigitalTwinPage = () => {
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-lg p-3 lg:p-4 relative z-10"
+        className="glass-card rounded-lg p-3 lg:p-4 relative z-[25]"
         data-testid="lead-hero-section"
       >
         <div className="flex flex-col lg:flex-row lg:items-center gap-3">
