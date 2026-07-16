@@ -52,12 +52,30 @@ async def send_whatsapp_to_lead(lead_id: str, message: WhatsAppMessage, current_
 
 @router.post("/whatsapp/send-brochure/{lead_id}")
 async def send_brochure_to_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
-    """
-    Send the project brochure PDF to the lead via WATI fileViaUrl.
-    Returns placeholder=True (not an error) when WATI_BROCHURE_PDF_URL is not yet configured.
-    """
+    """Send the project brochure (template + PDF) to the lead via WATI."""
     await resolve_lead_or_403(lead_id, current_user)
     return await whatsapp_service.send_brochure(lead_id, current_user)
+
+
+@router.post("/whatsapp/send-pricing/{lead_id}")
+async def send_pricing_to_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
+    """Send project pricing info via template to the lead."""
+    await resolve_lead_or_403(lead_id, current_user)
+    return await whatsapp_service.send_pricing(lead_id, current_user)
+
+
+@router.post("/whatsapp/send-site-visit-request/{lead_id}")
+async def send_site_visit_request_to_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
+    """Send site visit request acknowledgment to the lead."""
+    await resolve_lead_or_403(lead_id, current_user)
+    return await whatsapp_service.send_site_visit_request(lead_id, current_user)
+
+
+@router.post("/whatsapp/send-site-visit-done/{lead_id}")
+async def send_site_visit_done_to_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
+    """Send site visit completed thank you to the lead."""
+    await resolve_lead_or_403(lead_id, current_user)
+    return await whatsapp_service.send_site_visit_done(lead_id, current_user)
 
 
 @router.get("/whatsapp/chat-history/{phone}")

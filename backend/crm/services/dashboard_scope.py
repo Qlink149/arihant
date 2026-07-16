@@ -71,13 +71,13 @@ async def user_is_task_assignee_on_lead(lead_id: str, current_user: dict) -> boo
 
 
 def user_can_access_lead(lead: dict, current_user: dict) -> bool:
-    """Sync ownership check only; use resolve_lead_or_403 for task-delegated access."""
-    if current_user.get("role") in ("admin", "manager"):
-        return True
-    return user_owns_lead(lead, current_user)
+    """All authenticated users can access all leads."""
+    return True
 
 
 async def resolve_lead_or_403(lead_id: str, current_user: dict) -> dict:
+    """Edit access: admin/manager always; reps if they own the lead, are a task assignee,
+    OR have an active view grant (minted when searching by phone/email in the search bar)."""
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -86,28 +86,23 @@ async def resolve_lead_or_403(lead_id: str, current_user: dict) -> dict:
     if user_owns_lead(lead, current_user):
         return lead
     if await user_is_task_assignee_on_lead(lead_id, current_user):
+        return lead
+    # Reps who found this lead via the search bar (exact phone/email lookup) get a
+    # temporary 10-minute edit grant. This allows them to update the lead they searched.
+    if await has_active_view_grant(lead_id=lead_id, user_id=current_user.get("id") or ""):
         return lead
     raise HTTPException(status_code=403, detail="Access denied")
 
 
 async def resolve_lead_view_or_403(lead_id: str, current_user: dict) -> dict:
     """
-    View-only lead access used by read endpoints.
-
-    Extends normal ACL with temporary `lead_view_grants` created by exact lookup.
+    View access for read endpoints: any authenticated user can view any lead.
+    All leads are visible org-wide in Virtual Customer.
     """
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if current_user.get("role") in ("admin", "manager"):
-        return lead
-    if user_owns_lead(lead, current_user):
-        return lead
-    if await user_is_task_assignee_on_lead(lead_id, current_user):
-        return lead
-    if await has_active_view_grant(lead_id=lead_id, user_id=current_user.get("id") or ""):
-        return lead
-    raise HTTPException(status_code=403, detail="Access denied")
+    return lead
 
 
 async def resolve_leads_base_filter(uid: str, name: str, current_user: dict) -> tuple[dict, bool]:

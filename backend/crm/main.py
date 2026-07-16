@@ -30,6 +30,8 @@ async def global_exception_handler(request, exc):
     )
 
 
+from fastapi.staticfiles import StaticFiles
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -39,6 +41,10 @@ app.add_middleware(
     expose_headers=["X-Total-Count"],
 )
 app.add_middleware(SlowAPIMiddleware)
+
+# Ensure static directory exists and mount it
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.include_router(api_router, prefix="/api")
 

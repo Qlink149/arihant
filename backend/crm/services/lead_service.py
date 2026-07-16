@@ -4,6 +4,7 @@ import uuid
 from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
+import asyncio
 
 from fastapi import HTTPException, UploadFile
 
@@ -198,6 +199,11 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     lead_dict["created_at"] = coerce_datetime(lead_dict["created_at"]) or utc_now()
     lead_dict["updated_at"] = coerce_datetime(lead_dict["updated_at"]) or utc_now()
     normalize_lead_for_response(lead_dict)
+    
+    # Template 1: Auto-ack WhatsApp (fire and forget)
+    from crm.services.whatsapp_service import send_lead_ack
+    asyncio.create_task(send_lead_ack(lead_id, lead_dict))
+    
     return LeadResponse(**lead_dict)
 
 

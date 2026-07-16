@@ -82,7 +82,8 @@ def build_metric_snapshot_filter(
 def _list_role_scope(current_user: dict, *, use_rep_pipeline: bool) -> dict:
     if use_rep_pipeline:
         return rep_lead_filter(current_user["id"], current_user.get("full_name") or "")
-    return role_scope_filter(current_user)
+    # Org-wide VC list: all authenticated users can see all leads
+    return {}
 
 
 async def resolve_leads_list_query_base(

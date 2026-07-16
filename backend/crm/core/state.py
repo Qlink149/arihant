@@ -77,10 +77,78 @@ WHATSAPP_PROVIDER = os.environ.get("WHATSAPP_PROVIDER", "disabled")
 WATI_API_ENDPOINT = os.environ.get("WATI_API_ENDPOINT", "")
 WATI_API_TOKEN = os.environ.get("WATI_API_TOKEN", "")
 WATI_CHANNEL_PHONE = os.environ.get("WATI_CHANNEL_PHONE", "919894474820")
-# Brochure PDF public URL — leave blank until client supplies the PDF link
+# Public base URL of this backend (used to build static PDF URLs sent to WATI)
+# Example: https://api.claraai.tech
+# Must have no trailing slash.
+WATI_BASE_URL = os.environ.get("WATI_BASE_URL", "").rstrip("/")
+# Legacy single-URL var — kept for backward compat, no longer used by send_brochure
 WATI_BROCHURE_PDF_URL = os.environ.get("WATI_BROCHURE_PDF_URL", "")
 
+# ── Project → Brochure PDF filename mapping ─────────────────────────────────
+# Keys must match project names/IDs stored on leads (case-insensitive lookup).
+# Filenames must match files in backend/static/.
+PROJECT_BROCHURE_MAP: dict = {
+    "melange":   "Arihant Melange Brochure.pdf",
+    "mélange":   "Arihant Melange Brochure.pdf",
+    "reserve-16": "Arihant Reserve16 Brochure.pdf",
+    "reserve16": "Arihant Reserve16 Brochure.pdf",
+    "reserve 16": "Arihant Reserve16 Brochure.pdf",
+    "krsna":     "Krsna Brochure.pdf",
+    "vivriti":   "Vivriti Brochure.pdf",
+}
 
+# ── Project → Starting Price (Template 2 — {{3}}) ───────────────────────────
+# Format: human-readable string shown directly in WhatsApp.
+PROJECT_PRICING_MAP: dict = {
+    "melange":   "₹12,800/sq.ft. (basic price) + other applicable charges",
+    "mélange":   "₹12,800/sq.ft. (basic price) + other applicable charges",
+    "reserve-16": "₹3,500/sq.ft. (basic price) + other applicable charges",
+    "reserve16": "₹3,500/sq.ft. (basic price) + other applicable charges",
+    "reserve 16": "₹3,500/sq.ft. (basic price) + other applicable charges",
+    "krsna":     "",   # TODO: client has not shared Krsna pricing yet
+    "vivriti":   "₹13,000/sq.ft. (basic price) + other applicable charges",
+}
+
+# ── Lead → canonical project key resolution ─────────────────────────────────
+# Leads store display strings like 'Saligramam Melange', 'ECR - Reserve 16',
+# 'OMR - Vivriti', 'Abhiramapuram - Krishna' — often multi-valued with ';'.
+# Tokens are searched as substrings of lead.project (lowercased); for
+# multi-project leads the earliest match in the string wins.
+_PROJECT_KEY_TOKENS: list = [
+    ("mélange",    "melange"),
+    ("melange",    "melange"),
+    ("reserve-16", "reserve-16"),
+    ("reserve 16", "reserve-16"),
+    ("reserve16",  "reserve-16"),
+    ("vivriti",    "vivriti"),
+    ("krishna",    "krsna"),   # DB spells it 'Krishna'; brochure/pricing keys use 'krsna'
+    ("krsna",      "krsna"),
+    ("abhiramapuram", "krsna"),  # Krsna's location (brochure cover: 'Krsna — Abhiramapuram')
+    ("abiramapuram",  "krsna"),  # common typo variant seen in DB
+]
+
+
+def resolve_lead_project_key(lead: dict) -> str:
+    """
+    Canonical project key ('melange' | 'reserve-16' | 'vivriti' | 'krsna') for a lead.
+
+    Prefers the already-canonical lead.project_id; falls back to scanning the
+    lead.project display string. Returns '' when no known project matches.
+    """
+    pid = (lead.get("project_id") or "").strip().lower()
+    if pid in ("melange", "reserve-16", "vivriti", "krsna"):
+        return pid
+    text = (lead.get("project") or "").lower()
+    if not text:
+        return ""
+    best_pos = -1
+    best_key = ""
+    for token, key in _PROJECT_KEY_TOKENS:
+        pos = text.find(token)
+        if pos >= 0 and (best_pos < 0 or pos < best_pos):
+            best_pos = pos
+            best_key = key
+    return best_key
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 

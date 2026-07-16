@@ -121,6 +121,7 @@ export const leadsAPI = {
   addContext: (id, data) => api.post(`/leads/${id}/context`, data),
   addTask: (id, data) => api.post(`/leads/${id}/tasks`, data),
   getSuggestions: (id) => api.get(`/leads/${id}/suggestions`),
+  grantSearchAccess: (id) => api.post(`/leads/${id}/grant`, {}, { skipGlobalErrorToast: true }),
   // autoAssign deprecated — new leads use assignment_router on create; SLA uses reassign_new_lead
   // autoAssign: (id) => api.post('/leads/auto-assign', null, { params: { lead_id: id } }),
 };
@@ -179,6 +180,9 @@ export const whatsappAPI = {
   getChatHistory: (phone) => api.get(`/whatsapp/chat-history/${phone}`),
   getLeadChat: (leadId) => api.get(`/whatsapp/lead-chat/${leadId}`),
   sendBrochure: (leadId) => api.post(`/whatsapp/send-brochure/${leadId}`),
+  sendPricing: (leadId) => api.post(`/whatsapp/send-pricing/${leadId}`),
+  sendSiteVisitRequest: (leadId) => api.post(`/whatsapp/send-site-visit-request/${leadId}`),
+  sendSiteVisitDone: (leadId) => api.post(`/whatsapp/send-site-visit-done/${leadId}`),
   setupWebhook: () => api.post('/integrations/gupshup/setup-webhook'),
   getSubscriptions: () => api.get('/integrations/gupshup/subscriptions'),
   getWebhookStatus: () => api.get('/integrations/gupshup/webhook-status')

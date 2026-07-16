@@ -148,7 +148,7 @@ async def get_lead_filter_options(
 ):
     """Distinct project and location values from leads for Virtual Customer filters."""
     response.headers["Cache-Control"] = "private, max-age=300"
-    return await fetch_lead_filter_options(scope_filter=role_scope_filter(current_user))
+    return await fetch_lead_filter_options(scope_filter={})
 
 
 @router.get("/leads/filter-views")
@@ -519,6 +519,38 @@ async def get_lead(
     if cfg and stale:
         schedule_lead_ai_refresh(lead_id, background_tasks)
     return LeadResponse(**lead)
+
+
+@router.post("/leads/{lead_id}/grant", status_code=200)
+async def mint_search_grant(lead_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Mint a temporary 10-minute edit grant for the current user on a specific lead.
+    Called by the frontend when a rep navigates to any lead via the search bar
+    (regex name search or exact phone/email lookup). Admins/managers skip — they
+    always have full access. Audited so you can see who accessed what.
+    """
+    role = (current_user.get("role") or "").lower()
+    if role in ("admin", "manager"):
+        return {"granted": False, "reason": "admin/manager always have access"}
+
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0, "id": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    await upsert_view_grant(
+        lead_id=lead_id,
+        user_id=current_user.get("id") or "",
+        minutes=DEFAULT_GRANT_MINUTES,
+        reason="search_navigation",
+    )
+    await log_lead_event(
+        "lead_search_grant",
+        lead_id=lead_id,
+        actor_user_id=current_user.get("id"),
+        actor_name=current_user.get("full_name"),
+        payload={"grant_minutes": DEFAULT_GRANT_MINUTES, "reason": "search_navigation"},
+    )
+    return {"granted": True, "minutes": DEFAULT_GRANT_MINUTES}
 
 
 @router.put("/leads/{lead_id}", response_model=LeadResponse)

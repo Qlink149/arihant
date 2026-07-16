@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { leadsAPI, whatsappAPI, usersAPI } from '../services/api';
 import { LeadProfileHeader } from '../components/leads/LeadProfileHeader';
 import { LeadAvatar } from '../components/leads/LeadAvatar';
@@ -52,6 +52,8 @@ import {
   Check,
   CheckCheck,
   Paperclip,
+  Search,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -84,7 +86,218 @@ const MessageStatus = ({ status }) => {
   return null;
 };
 
+// ─── Lead Quick Search (in-page search bar for lead detail) ───────────────────
+const LeadQuickSearch = ({ currentLeadId }) => {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const wrapperRef = useRef(null);
+  const inputRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const handleMouseDown = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, []);
+
+  const doSearch = useCallback(async (q) => {
+    if (!q.trim()) { setResults([]); setOpen(false); return; }
+    setLoading(true);
+    try {
+      // Regex search across all leads — same engine as the outer VC search bar.
+      // Grant is minted on click (navigateToLead), not on search type.
+      const res = await leadsAPI.getAll({ search: q.trim(), limit: 5, skip: 0 });
+      const leads = Array.isArray(res.data) ? res.data : [];
+      setResults(leads);
+      setOpen(true);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    clearTimeout(debounceRef.current);
+    if (!val.trim()) { setResults([]); setOpen(false); return; }
+    debounceRef.current = setTimeout(() => doSearch(val), 400);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') { setOpen(false); setQuery(''); setResults([]); }
+    if (e.key === 'Enter' && results.length > 0) {
+      navigateToLead(results[0]);
+    }
+  };
+
+  const navigateToLead = (lead) => {
+    setOpen(false);
+    setQuery('');
+    setResults([]);
+    setExpanded(false);
+    if (lead.id !== currentLeadId) {
+      // Fire-and-forget: mint a 10-min edit grant so the rep can edit this lead.
+      // No need to await — navigation can happen immediately.
+      leadsAPI.grantSearchAccess(lead.id).catch(() => {});
+      navigate(`/lead/${lead.id}`);
+    }
+  };
+
+  const handleExpandToggle = () => {
+    setExpanded((prev) => {
+      if (!prev) setTimeout(() => inputRef.current?.focus(), 50);
+      else { setOpen(false); setQuery(''); setResults([]); }
+      return !prev;
+    });
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative flex items-center">
+      {/* Mobile: icon-only toggle */}
+      <button
+        type="button"
+        onClick={handleExpandToggle}
+        className={`flex items-center justify-center w-9 h-9 rounded-lg border transition-all duration-200 ${
+          expanded
+            ? 'bg-[#C5A059]/15 border-[#C5A059]/40 text-[#C5A059]'
+            : 'bg-black/30 border-white/10 text-[#A1A1AA] hover:text-white hover:border-white/20'
+        } lg:hidden`}
+        aria-label="Search leads"
+      >
+        <Search size={16} />
+      </button>
+
+      {/* Desktop: always-visible compact search input */}
+      <div className={`hidden lg:flex items-center relative`}>
+        <Search size={15} className="absolute left-3 text-[#52525B] pointer-events-none z-10" />
+        <Input
+          ref={inputRef}
+          value={query}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onFocus={() => { if (results.length > 0) setOpen(true); }}
+          placeholder="Search any lead..."
+          className="w-[230px] pl-9 pr-3 h-9 bg-black/40 border-white/10 text-white placeholder:text-[#52525B] text-sm focus:border-[#C5A059]/40 focus:ring-0 transition-all"
+        />
+        {loading && (
+          <Loader2 size={14} className="absolute right-3 text-[#C5A059] animate-spin" />
+        )}
+      </div>
+
+      {/* Mobile expanded input (overlay-style) */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 220, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="lg:hidden absolute right-10 flex items-center overflow-hidden"
+          >
+            <div className="relative w-full">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525B] pointer-events-none" />
+              <Input
+                ref={inputRef}
+                value={query}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                onFocus={() => { if (results.length > 0) setOpen(true); }}
+                placeholder="Search any lead..."
+                className="w-full pl-8 pr-3 h-9 bg-[#111] border-white/15 text-white placeholder:text-[#52525B] text-sm"
+              />
+              {loading && (
+                <Loader2 size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C5A059] animate-spin" />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Dropdown results */}
+      <AnimatePresence>
+        {open && (expanded || true) && (results.length > 0 || loading) && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-2 w-[320px] z-50 glass-card border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+          >
+            {loading && results.length === 0 ? (
+              <div className="flex items-center justify-center gap-2 py-5 text-[#A1A1AA] text-sm">
+                <Loader2 size={15} className="animate-spin text-[#C5A059]" />
+                Searching…
+              </div>
+            ) : results.length === 0 ? (
+              <div className="py-5 text-center text-[#A1A1AA] text-sm">No leads found</div>
+            ) : (
+              <div className="max-h-72 overflow-y-auto">
+                <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-widest text-[#52525B] font-medium">
+                  {results.length} result{results.length !== 1 ? 's' : ''}
+                </div>
+                {results.map((lead) => (
+                  <button
+                    key={lead.id}
+                    type="button"
+                    onClick={() => navigateToLead(lead)}
+                    className={`w-full text-left px-3 py-2.5 flex items-start gap-3 hover:bg-white/5 transition-colors border-t border-white/5 first:border-0 ${
+                      lead.id === currentLeadId ? 'bg-[#C5A059]/10' : ''
+                    }`}
+                  >
+                    {/* Avatar */}
+                    <div className="w-8 h-8 rounded-full bg-[#C5A059]/20 flex items-center justify-center text-[#C5A059] text-xs font-semibold shrink-0 mt-0.5">
+                      {(lead.first_name?.[0] || '?').toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-white text-sm font-medium truncate leading-tight">
+                        {lead.first_name} {lead.last_name}
+                        {lead.id === currentLeadId && (
+                          <span className="ml-2 text-[10px] text-[#C5A059] font-normal">(current)</span>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        {lead.phone && (
+                          <span className="text-[#A1A1AA] text-xs flex items-center gap-1">
+                            <Phone size={10} />
+                            {lead.phone}
+                          </span>
+                        )}
+                        {(lead.presales_agent || lead.assigned_to_name) && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-[#52525B] border border-white/10">
+                            {lead.presales_agent || lead.assigned_to_name}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="px-3 py-2 border-t border-white/5 text-[10px] text-[#52525B] flex items-center gap-1">
+              <Search size={10} />
+              Showing top 5 — type more to narrow
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
 const DigitalTwinPage = () => {
+
   const { leadId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -106,6 +319,9 @@ const DigitalTwinPage = () => {
   const [waTemplatesLoaded, setWaTemplatesLoaded] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [sendingBrochure, setSendingBrochure] = useState(false);
+  const [sendingPricing, setSendingPricing] = useState(false);
+  const [sendingSiteVisitReq, setSendingSiteVisitReq] = useState(false);
+  const [sendingSiteVisitDone, setSendingSiteVisitDone] = useState(false);
   const [taskForm, setTaskForm] = useState({
     description: '', due_date: '', due_time: '', priority: 'medium',
     reminder_method: 'default', assigned_to: ''
@@ -330,10 +546,6 @@ const DigitalTwinPage = () => {
         toast.success('Brochure sent!', { description: 'PDF delivered to ' + lead.first_name });
         await fetchChatHistory(false);
         fetchLead();
-      } else if (res.data.placeholder) {
-        toast.info('Brochure URL not set up yet', {
-          description: 'Add WATI_BROCHURE_PDF_URL to server .env — share the PDF URL with the team',
-        });
       } else {
         toast.error('Failed to send brochure', { description: res.data.error });
       }
@@ -341,6 +553,60 @@ const DigitalTwinPage = () => {
       toast.error('Failed to send brochure');
     } finally {
       setSendingBrochure(false);
+    }
+  };
+
+  const handleSendPricing = async () => {
+    setSendingPricing(true);
+    try {
+      const res = await whatsappAPI.sendPricing(leadId);
+      if (res.data.success) {
+        toast.success('Pricing info sent!');
+        await fetchChatHistory(false);
+        fetchLead();
+      } else {
+        toast.error('Failed to send pricing', { description: res.data.error });
+      }
+    } catch {
+      toast.error('Failed to send pricing');
+    } finally {
+      setSendingPricing(false);
+    }
+  };
+
+  const handleSendSiteVisitReq = async () => {
+    setSendingSiteVisitReq(true);
+    try {
+      const res = await whatsappAPI.sendSiteVisitRequest(leadId);
+      if (res.data.success) {
+        toast.success('Site visit request sent!');
+        await fetchChatHistory(false);
+        fetchLead();
+      } else {
+        toast.error('Failed to send site visit request', { description: res.data.error });
+      }
+    } catch {
+      toast.error('Failed to send site visit request');
+    } finally {
+      setSendingSiteVisitReq(false);
+    }
+  };
+
+  const handleSendSiteVisitDone = async () => {
+    setSendingSiteVisitDone(true);
+    try {
+      const res = await whatsappAPI.sendSiteVisitDone(leadId);
+      if (res.data.success) {
+        toast.success('Site visit completed sent!');
+        await fetchChatHistory(false);
+        fetchLead();
+      } else {
+        toast.error('Failed to send site visit completed', { description: res.data.error });
+      }
+    } catch {
+      toast.error('Failed to send site visit completed');
+    } finally {
+      setSendingSiteVisitDone(false);
     }
   };
 
@@ -513,6 +779,12 @@ const DigitalTwinPage = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+            {/* Quick Search — search any lead without leaving this page */}
+            <LeadQuickSearch currentLeadId={leadId} />
+
+            {/* Divider */}
+            <div className="hidden lg:block w-px h-6 bg-white/10 mx-1" />
+
             <Button
               size="primary"
               onClick={() => setShowWhatsAppModal(true)}
@@ -542,6 +814,7 @@ const DigitalTwinPage = () => {
               AI Call
             </Button>
           </div>
+
         </div>
       </motion.div>
       <div ref={heroSentinelRef} className="h-px" aria-hidden="true" />
@@ -1108,6 +1381,77 @@ const DigitalTwinPage = () => {
               <p className="text-[#52525B] text-xs text-center mt-1">
                 Requires active session · PDF URL configured on server
               </p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 border-t border-white/10 pt-3">
+              {/* Send Pricing */}
+              <Button
+                onClick={handleSendPricing}
+                disabled={sendingPricing}
+                variant="outline"
+                className="w-full border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50"
+              >
+                {sendingPricing ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Sending Pricing...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Send size={15} />
+                    Send Pricing Info
+                  </span>
+                )}
+              </Button>
+
+              {/* Send Site Visit Request */}
+              <Button
+                onClick={handleSendSiteVisitReq}
+                disabled={sendingSiteVisitReq}
+                variant="outline"
+                className="w-full border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50"
+              >
+                {sendingSiteVisitReq ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Sending Request...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Send size={15} />
+                    Site Visit Request
+                  </span>
+                )}
+              </Button>
+
+              {/* Send Site Visit Done */}
+              <Button
+                onClick={handleSendSiteVisitDone}
+                disabled={sendingSiteVisitDone}
+                variant="outline"
+                className="w-full border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50 md:col-span-2"
+              >
+                {sendingSiteVisitDone ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Sending Thank You...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    <Send size={15} />
+                    Site Visit Completed
+                  </span>
+                )}
+              </Button>
             </div>
           </div>
         </DialogContent>

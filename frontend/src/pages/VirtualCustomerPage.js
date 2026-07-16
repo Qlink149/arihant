@@ -240,6 +240,7 @@ const VirtualCustomerPage = () => {
   const [activeFilterViewId, setActiveFilterViewId] = useState(null);
   const [assigneeOptions, setAssigneeOptions] = useState([]);
   const [assigneesLoading, setAssigneesLoading] = useState(true);
+  const [salesOwnerOptions, setSalesOwnerOptions] = useState([]);
   const [addCustomerFieldModes, setAddCustomerFieldModes] = useState({
     project: 'preset',
     budget: 'preset',
@@ -261,6 +262,13 @@ const VirtualCustomerPage = () => {
         setLocationOptions(mergePicklistWithApi(CANONICAL_LOCATIONS, filterData?.locations || []));
         setProjectOptions(mergePicklistWithApi(CANONICAL_PROJECTS, filterData?.projects || []));
         setSourceOptions(mergePicklistWithApi(CANONICAL_SOURCES, filterData?.sources || []));
+        // Sales owner options come from actual presales_agent values in leads (not user accounts)
+        // so the filter matches exactly what's stored on leads.
+        setSalesOwnerOptions(
+          Array.isArray(filterData?.sales_owners)
+            ? [...filterData.sales_owners].sort((a, b) => a.localeCompare(b))
+            : []
+        );
         setAssigneeOptions(Array.isArray(assigneeRes?.data) ? assigneeRes.data : []);
         setFilterViews(Array.isArray(viewsRes?.data) ? viewsRes.data : []);
       } catch {
@@ -268,6 +276,7 @@ const VirtualCustomerPage = () => {
           setLocationOptions(mergePicklistWithApi(CANONICAL_LOCATIONS, []));
           setProjectOptions(mergePicklistWithApi(CANONICAL_PROJECTS, []));
           setSourceOptions(mergePicklistWithApi(CANONICAL_SOURCES, []));
+          setSalesOwnerOptions([]);
           setAssigneeOptions([]);
           setFilterViews([]);
         }
@@ -766,14 +775,7 @@ const VirtualCustomerPage = () => {
     setFilters((prev) => ({ ...prev, sales_owners }));
   }, []);
 
-  const salesOwnerOptions = useMemo(
-    () =>
-      (assigneeOptions || [])
-        .map((u) => (u?.full_name || '').trim())
-        .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b)),
-    [assigneeOptions]
-  );
+  // salesOwnerOptions is populated from filter-options API (presales_agent values from leads)
 
   const handleSaveQuickNote = async () => {
     if (!noteLeadId || !quickNote.trim()) {

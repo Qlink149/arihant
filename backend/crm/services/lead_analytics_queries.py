@@ -391,14 +391,35 @@ async def fetch_lead_filter_options(
     ]
     source_rows = await db.leads.aggregate(source_pipeline).to_list(source_limit)
 
+    sales_owner_match: Dict[str, Any] = {
+        "presales_agent": {"$exists": True, "$nin": [None, ""]},
+    }
+    if base:
+        sales_owner_match = merge_query(base, sales_owner_match)
+    sales_owner_pipeline = [
+        {"$match": sales_owner_match},
+        {
+            "$group": {
+                "_id": {"$trim": {"input": {"$ifNull": ["$presales_agent", ""]}}},
+                "count": {"$sum": 1},
+            }
+        },
+        {"$match": {"_id": {"$ne": ""}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 100},
+    ]
+    sales_owner_rows = await db.leads.aggregate(sales_owner_pipeline).to_list(100)
+
     db_projects = [{"name": r["_id"], "count": r["count"]} for r in project_rows if r.get("_id")]
     db_locations = [{"name": r["_id"], "count": r["count"]} for r in location_rows if r.get("_id")]
     db_sources = [{"name": r["_id"], "count": r["count"]} for r in source_rows if r.get("_id")]
+    db_sales_owners = [r["_id"] for r in sales_owner_rows if r.get("_id")]
 
     return {
         "projects": merge_picklist_with_db(CANONICAL_PROJECTS, db_projects),
         "locations": merge_picklist_with_db(CANONICAL_LOCATIONS, db_locations),
         "sources": merge_picklist_with_db(CANONICAL_SOURCES, db_sources),
+        "sales_owners": db_sales_owners,
     }
 
 

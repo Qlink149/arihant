@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Briefcase, ChevronDown, Home, MapPin, Building } from 'lucide-react';
+import { Briefcase, ChevronDown, Home, MapPin, Building, Pencil, Check, X as XIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { leadsAPI, myDashboardAPI, usersAPI } from '../../services/api';
 import { UI_LEAD_STATUSES } from '../../constants/leadStatus';
@@ -71,6 +71,36 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
   const [visitDateDt, setVisitDateDt] = useState(() => toLocalDatetimeInput(lead?.visit_date_dt));
   const [savingVisitDate, setSavingVisitDate] = useState(false);
   const [extraFieldsOpen, setExtraFieldsOpen] = useState(false);
+
+  // Inline name editing
+  const [editingName, setEditingName] = useState(false);
+  const [pendingFirst, setPendingFirst] = useState('');
+  const [pendingLast, setPendingLast] = useState('');
+  const [savingName, setSavingName] = useState(false);
+
+  const openNameEdit = () => {
+    setPendingFirst(lead?.first_name || '');
+    setPendingLast(lead?.last_name || '');
+    setEditingName(true);
+  };
+
+  const cancelNameEdit = () => setEditingName(false);
+
+  const saveNameEdit = async () => {
+    const first = pendingFirst.trim();
+    if (!first) { toast.error('First name is required'); return; }
+    setSavingName(true);
+    try {
+      await leadsAPI.update(leadId, { first_name: first, last_name: pendingLast.trim() });
+      toast.success('Name updated');
+      setEditingName(false);
+      await onLeadUpdated?.();
+    } catch {
+      toast.error('Failed to update name');
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   const canAssign = useMemo(() => {
     const role = (user?.role || 'rep').toLowerCase();
@@ -347,9 +377,69 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
   return (
     <div className={`flex-1 min-w-0 rounded-xl ${tint}`}>
       <div className={`flex flex-wrap items-center ${compact ? 'gap-2' : 'gap-3'}`}>
-        <h1 className={compact ? 'text-lg font-semibold text-white' : 'font-serif text-3xl text-white'}>
-          {lead.first_name} {lead.last_name}
-        </h1>
+        {editingName ? (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Input
+              autoFocus
+              value={pendingFirst}
+              onChange={(e) => setPendingFirst(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveNameEdit(); if (e.key === 'Escape') cancelNameEdit(); }}
+              placeholder="First name"
+              disabled={savingName}
+              className={`bg-black/50 border-white/15 text-white focus:border-[#C5A059]/50 ${
+                compact ? 'h-7 text-sm w-32' : 'h-9 text-base w-40'
+              }`}
+              data-testid="edit-first-name-input"
+            />
+            <Input
+              value={pendingLast}
+              onChange={(e) => setPendingLast(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveNameEdit(); if (e.key === 'Escape') cancelNameEdit(); }}
+              placeholder="Last name"
+              disabled={savingName}
+              className={`bg-black/50 border-white/15 text-white focus:border-[#C5A059]/50 ${
+                compact ? 'h-7 text-sm w-28' : 'h-9 text-base w-36'
+              }`}
+              data-testid="edit-last-name-input"
+            />
+            <button
+              type="button"
+              onClick={saveNameEdit}
+              disabled={savingName}
+              className="flex items-center justify-center w-7 h-7 rounded-md bg-[#C5A059]/20 text-[#C5A059] hover:bg-[#C5A059]/30 disabled:opacity-50 transition-colors"
+              data-testid="save-name-btn"
+            >
+              <Check size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={cancelNameEdit}
+              disabled={savingName}
+              className="flex items-center justify-center w-7 h-7 rounded-md bg-white/5 text-[#A1A1AA] hover:bg-white/10 transition-colors"
+              data-testid="cancel-name-btn"
+            >
+              <XIcon size={14} />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={openNameEdit}
+            className={`group flex items-center gap-1.5 text-left hover:text-[#E5C079] transition-colors ${
+              compact ? 'text-lg font-semibold text-white' : 'font-serif text-3xl text-white'
+            }`}
+            title="Click to edit name"
+            data-testid="lead-name-display"
+          >
+            <h1 className={compact ? 'text-lg font-semibold' : 'font-serif text-3xl'}>
+              {lead.first_name} {lead.last_name}
+            </h1>
+            <Pencil
+              size={compact ? 11 : 14}
+              className="opacity-0 group-hover:opacity-60 transition-opacity shrink-0 mt-0.5"
+            />
+          </button>
+        )}
         {compact && lead.project && (
           <span className="text-[#52525B] text-xs flex items-center gap-1">
             <Building size={12} className="text-[#C5A059]" />
