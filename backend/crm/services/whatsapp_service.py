@@ -152,15 +152,17 @@ async def _wati_send_file_via_url(phone: str, file_url: str, filename: str = "do
 
 async def _wati_get_history(phone: str, page_size: int = 50) -> list:
     """
-    Fetch conversation messages from WATI v3 and map to the shape
-    the frontend already expects: {direction, content, created_at, status}.
+    Fetch message history from WATI v1 getMessages — keyed by phone number and
+    works regardless of conversation state (the v3 conversations lookup only
+    resolves OPEN conversations and returns nothing otherwise). Maps to the
+    shape the frontend already expects: {direction, content, created_at, status}.
     Falls back to DB-only history on any error.
     """
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
-                f"{WATI_API_ENDPOINT}/api/ext/v3/conversations/{phone}/messages",
-                params={"page_number": 1, "page_size": page_size},
+                f"{WATI_API_ENDPOINT}/api/v1/getMessages/{phone}",
+                params={"pageNumber": 1, "pageSize": page_size},
                 headers=_wati_headers(),
                 timeout=30.0,
             )
@@ -169,7 +171,14 @@ async def _wati_get_history(phone: str, page_size: int = 50) -> list:
                 return []
 
             data = resp.json()
-            raw_messages = data.get("messages", []) if isinstance(data, dict) else []
+            # v1 shape: {"messages": {"items": [...]}} — some tenants return a plain list
+            raw_messages = []
+            if isinstance(data, dict):
+                msgs = data.get("messages")
+                if isinstance(msgs, dict):
+                    raw_messages = msgs.get("items", []) or []
+                elif isinstance(msgs, list):
+                    raw_messages = msgs
             mapped = []
             for m in raw_messages:
                 mapped.append({
