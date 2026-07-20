@@ -602,7 +602,12 @@ async def send_pricing(lead_id: str, current_user: dict) -> dict:
 
 async def send_brochure(lead_id: str, current_user: dict) -> dict:
     """
-    Template 3: Brochure (arihant_brochure_v1) + PDF File Attachment.
+    Template 3: Brochure (arihant_brochure_v1).
+
+    The template's document header is a dynamic {{pdfLink}} variable. We pass the
+    correct per-project brochure URL as a template parameter, so WhatsApp attaches
+    the right PDF inside the single template message — works with no open session
+    (business-initiated), unlike the old fileViaUrl step which 404'd for cold leads.
     """
     if WHATSAPP_PROVIDER != "wati":
         return {"success": False, "error": "WhatsApp is not enabled on this server"}
@@ -623,64 +628,17 @@ async def send_brochure(lead_id: str, current_user: dict) -> dict:
     if not pdf_filename:
         return {"success": False, "error": f"No brochure PDF configured for project: {lead.get('project') or 'not set'}"}
 
-    # 1. Send the template first
+    # WATI dynamic media header: pass the project brochure URL as {{pdfLink}}.
+    pdf_url = f"{WATI_BASE_URL}/static/{pdf_filename.replace(' ', '%20')}"
     msg = WhatsAppMessage(
         destination=phone,
         template_name="arihant_brochure_v1",
-        template_parameters=[]
+        template_parameters=[{"name": "pdfLink", "value": pdf_url}],
     )
-    template_result = await send_to_lead(lead_id, msg, current_user)
-    if not template_result.get("success"):
-        return template_result
-
-    # 2. Then send the PDF via fileViaUrl
-    pdf_url = f"{WATI_BASE_URL}/static/{pdf_filename.replace(' ', '%20')}"
-    
-    try:
-        resp = await _wati_send_file_via_url(phone, pdf_url, pdf_filename)
-        try:
-            result = resp.json()
-        except Exception:
-            result = {}
-
-        if 200 <= resp.status_code < 300:
-            now_dt = utc_now()
-            now_iso = iso_utc_now()
-            msg_doc = {
-                "id": str(uuid.uuid4()),
-                "wati_message_id": result.get("message", {}).get("id", ""),
-                "gupshup_message_id": None,
-                "direction": "outbound",
-                "destination": phone,
-                "message_type": "document",
-                "content": f"📄 Brochure sent: {pdf_filename}",
-                "status": "sent",
-                "sent_by": current_user["id"],
-                "created_at": now_iso,
-                "created_at_dt": now_dt,
-            }
-            await db.whatsapp_messages.insert_one(msg_doc)
-
-            context_update = {
-                "type": "whatsapp",
-                "timestamp": now_iso,
-                "timestamp_dt": now_dt,
-                "description": f"Brochure PDF sent via WhatsApp ({pdf_filename})",
-                "agent": current_user.get("full_name"),
-                "actor_user_id": current_user.get("id"),
-            }
-            await db.leads.update_one(
-                {"id": lead_id},
-                {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
-            )
-            return {"success": True, "status": "sent", "filename": pdf_filename, "template_sent": True}
-        else:
-            err = result.get("message") or f"WATI error {resp.status_code}"
-            logger.error(f"WATI sendBrochure file failed {phone}: {resp.status_code} {resp.text[:300]}")
-            return {"success": False, "error": f"Template sent, but file failed: {err}"}
-    except Exception as e:
-        logger.error(f"WATI brochure send error for {lead_id}: {e}")
-        return {"success": False, "error": f"Template sent, but file failed: {str(e)}"}
+    result = await send_to_lead(lead_id, msg, current_user)
+    if result.get("success"):
+        result["filename"] = pdf_filename
+    return result
 
 
 async def send_site_visit_request(lead_id: str, current_user: dict) -> dict:
