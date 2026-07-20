@@ -231,6 +231,26 @@
 .light-mode .text-\[\#52525B\] { color: #71717A !important; }
 .light-mode .text-\[\#EDEDED\] { color: #1A1A2E !important; }
 
+/* WhatsApp chat bubbles — scoped so global .text-white light-mode override
+   cannot make inbound text unreadable on dark #262626 bubbles. */
+.light-mode .wa-chat-thread .wa-bubble-out,
+.light-mode .wa-chat-thread .wa-bubble-out .wa-bubble-text {
+    color: #ffffff !important;
+}
+.light-mode .wa-chat-thread .wa-bubble-out .wa-bubble-meta {
+    color: #bbf7d0 !important;
+}
+.light-mode .wa-chat-thread .wa-bubble-in {
+    background-color: #e8e8e4 !important;
+}
+.light-mode .wa-chat-thread .wa-bubble-in,
+.light-mode .wa-chat-thread .wa-bubble-in .wa-bubble-text {
+    color: #1a1a2e !important;
+}
+.light-mode .wa-chat-thread .wa-bubble-in .wa-bubble-meta {
+    color: #71717a !important;
+}
+
 /* Dashboard hero — always light text on dark imagery (both themes) */
 .dashboard-hero .hero-greeting {
     color: #ffffff;

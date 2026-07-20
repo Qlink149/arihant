@@ -54,6 +54,8 @@ import {
   Paperclip,
   Search,
   Loader2,
+  RefreshCw,
+  File,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -84,6 +86,78 @@ const MessageStatus = ({ status }) => {
   );
   // 'received' and others: no ticks
   return null;
+};
+
+/** Typed WhatsApp bubble — text / document / template (additive fields optional). */
+const ChatMessageBubble = ({ msg }) => {
+  const outbound = msg.direction === 'outbound';
+  const type = String(msg.message_type || '').toLowerCase();
+  const isDocument =
+    type === 'document' ||
+    Boolean(msg.media_filename) ||
+    (typeof msg.content === 'string' && /brochure|\.pdf/i.test(msg.content));
+  const isTemplate = type === 'template' || Boolean(msg.template_name);
+
+  let body;
+  if (isDocument) {
+    const name = msg.media_filename || msg.content || 'Document';
+    body = (
+      <div className="wa-bubble-text text-sm space-y-1">
+        <div className="flex items-start gap-2">
+          <File size={16} className="mt-0.5 shrink-0 opacity-90" />
+          <div className="min-w-0">
+            <p className="font-medium truncate">{name}</p>
+            <p className="text-xs opacity-80">PDF document</p>
+            {msg.media_url ? (
+              <a
+                href={msg.media_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs underline opacity-90 hover:opacity-100"
+              >
+                Open file
+              </a>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  } else if (isTemplate && !msg.reply_label) {
+    body = (
+      <div className="wa-bubble-text text-sm space-y-0.5">
+        <p className="text-xs uppercase tracking-wide opacity-70">Template</p>
+        <p className="whitespace-pre-wrap">{msg.content}</p>
+      </div>
+    );
+  } else {
+    body = (
+      <p className="wa-bubble-text text-sm whitespace-pre-wrap">
+        {msg.reply_label || msg.content}
+      </p>
+    );
+  }
+
+  return (
+    <div className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}>
+      <div
+        className={`max-w-[75%] px-4 py-3 rounded-2xl ${
+          outbound
+            ? 'wa-bubble-out bg-green-600 text-white rounded-br-md'
+            : 'wa-bubble-in bg-[#262626] text-white rounded-bl-md'
+        }`}
+      >
+        {body}
+        <div
+          className={`wa-bubble-meta flex items-center gap-2 mt-1 text-xs ${
+            outbound ? 'text-green-200' : 'text-[#52525B]'
+          }`}
+        >
+          <span>{formatTimeIST(msg.created_at) || '—'}</span>
+          {outbound ? <MessageStatus status={msg.status} /> : null}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // ─── Lead Quick Search (in-page search bar for lead detail) ───────────────────
@@ -308,6 +382,7 @@ const DigitalTwinPage = () => {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
+  const [syncingChat, setSyncingChat] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
   const [showContextModal, setShowContextModal] = useState(false);
@@ -432,17 +507,53 @@ const DigitalTwinPage = () => {
     return () => clearTimeout(t);
   }, [lead, fetchLead]);
 
+  const sortChatAscending = (messages) => {
+    const list = [...(messages || [])];
+    list.sort(
+      (a, b) =>
+        (parseApiDate(a.created_at)?.getTime() ?? 0) -
+        (parseApiDate(b.created_at)?.getTime() ?? 0)
+    );
+    return list;
+  };
+
   const fetchChatHistory = async (showModal = true) => {
     try {
+      // 1) Instant: show whatever we already have in Mongo
       const response = await whatsappAPI.getLeadChat(leadId);
-      const messages = response.data.messages || [];
-      // Sort messages by date (oldest first for chat view)
-      messages.sort((a, b) => (parseApiDate(a.created_at)?.getTime() ?? 0) - (parseApiDate(b.created_at)?.getTime() ?? 0));
-      setChatHistory(messages);
+      const localMessages = sortChatAscending(response.data.messages || []);
+      setChatHistory(localMessages);
       if (showModal) setShowChatHistory(true);
+
+      // 2) Always background-sync from WATI so OLD WhatsApp messages gap-fill into DB
+      //    (even when Mongo already has a few CRM-sent templates). Idempotent upserts.
+      setSyncingChat(true);
+      try {
+        const synced = await whatsappAPI.syncLeadChat(leadId);
+        setChatHistory(sortChatAscending(synced.data.messages || []));
+      } catch (syncErr) {
+        console.warn('WhatsApp background sync skipped:', syncErr);
+      } finally {
+        setSyncingChat(false);
+      }
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
       if (showModal) toast.error('Failed to load chat history');
+    }
+  };
+
+  const handleSyncChat = async () => {
+    setSyncingChat(true);
+    try {
+      const res = await whatsappAPI.syncLeadChat(leadId);
+      setChatHistory(sortChatAscending(res.data.messages || []));
+      const n = res.data.synced ?? 0;
+      toast.success(n ? `Synced ${n} message${n === 1 ? '' : 's'} from WhatsApp` : 'Chat up to date');
+    } catch (error) {
+      console.error('Failed to sync chat:', error);
+      toast.error('Failed to sync from WhatsApp');
+    } finally {
+      setSyncingChat(false);
     }
   };
 
@@ -495,16 +606,20 @@ const DigitalTwinPage = () => {
         fetchLead();
       } else {
         const errMsg = response.data.error || 'Failed to send message';
-        // Surface session-expired message clearly
-        if (errMsg.toLowerCase().includes('session') || errMsg.toLowerCase().includes('template')) {
-          toast.error('Session expired', { description: errMsg });
+        const low = errMsg.toLowerCase();
+        if (low.includes('no open whatsapp') || low.includes('session') || low.includes('template')) {
+          toast.error('Cannot send free-text right now', { description: errMsg });
         } else {
-          toast.error('Failed to send', { description: errMsg });
+          toast.error('Message not sent', { description: errMsg });
         }
       }
     } catch (error) {
       console.error('Failed to send WhatsApp:', error);
-      toast.error('Failed to send WhatsApp message');
+      const detail =
+        error?.response?.data?.error ||
+        error?.response?.data?.detail ||
+        'Network or server error. Please try again.';
+      toast.error('Message not sent', { description: String(detail) });
     } finally {
       setSendingMessage(false);
     }
@@ -524,14 +639,19 @@ const DigitalTwinPage = () => {
 
       if (response.data.success) {
         setMessageText('');
+        toast.success('Message sent');
         await fetchChatHistory(false);
         fetchLead();
       } else {
         const errMsg = response.data.error || 'Failed to send message';
-        toast.error('Failed to send', { description: errMsg });
+        toast.error('Message not sent', { description: errMsg });
       }
     } catch (error) {
-      toast.error('Failed to send message');
+      const detail =
+        error?.response?.data?.error ||
+        error?.response?.data?.detail ||
+        'Network or server error. Please try again.';
+      toast.error('Message not sent', { description: String(detail) });
     } finally {
       setSendingMessage(false);
     }
@@ -1461,47 +1581,54 @@ const DigitalTwinPage = () => {
       <Dialog open={showChatHistory} onOpenChange={setShowChatHistory}>
         <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="font-serif text-xl flex items-center gap-2">
-              <MessageCircle className="text-green-500" size={24} />
-              Chat with {lead?.first_name} {lead?.last_name}
-            </DialogTitle>
-            <p className="text-[#52525B] text-sm">{lead?.phone}</p>
+            <div className="flex items-start justify-between gap-3 pr-6">
+              <div>
+                <DialogTitle className="font-serif text-xl flex items-center gap-2">
+                  <MessageCircle className="text-green-500" size={24} />
+                  Chat with {lead?.first_name} {lead?.last_name}
+                </DialogTitle>
+                <p className="text-[#52525B] text-sm">{lead?.phone}</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSyncChat}
+                disabled={syncingChat}
+                className="border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/5 shrink-0"
+                data-testid="chat-sync-btn"
+              >
+                {syncingChat ? (
+                  <Loader2 size={14} className="animate-spin mr-1.5" />
+                ) : (
+                  <RefreshCw size={14} className="mr-1.5" />
+                )}
+                Sync
+              </Button>
+            </div>
           </DialogHeader>
           
           {/* Chat Messages */}
-          <div className="flex-1 overflow-y-auto py-4 space-y-3 min-h-[300px] max-h-[400px]" data-testid="chat-messages">
+          <div className="wa-chat-thread flex-1 overflow-y-auto py-4 space-y-3 min-h-[300px] max-h-[400px]" data-testid="chat-messages">
             {chatHistory.length === 0 ? (
               <div className="text-center py-12 text-[#52525B]">
                 <MessageCircle className="mx-auto mb-3" size={40} />
                 <p className="text-lg">No messages yet</p>
                 <p className="text-sm mt-1">Start a conversation with {lead?.first_name}</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSyncChat}
+                  disabled={syncingChat}
+                  className="mt-3 text-green-500 hover:text-green-400"
+                >
+                  {syncingChat ? 'Syncing…' : 'Sync from WhatsApp'}
+                </Button>
               </div>
             ) : (
               chatHistory.map((msg, idx) => (
-                <div
-                  key={msg.id || idx}
-                  className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[75%] px-4 py-3 rounded-2xl ${
-                      msg.direction === 'outbound'
-                        ? 'bg-green-600 text-white rounded-br-md'
-                        : 'bg-[#262626] text-white rounded-bl-md'
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                    <div className={`flex items-center gap-2 mt-1 text-xs ${
-                      msg.direction === 'outbound' ? 'text-green-200' : 'text-[#52525B]'
-                    }`}>
-                      <span>
-                        {formatTimeIST(msg.created_at) || '—'}
-                      </span>
-                      {msg.direction === 'outbound' && (
-                        <MessageStatus status={msg.status} />
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <ChatMessageBubble key={msg.id || msg.wati_message_id || idx} msg={msg} />
               ))
             )}
           </div>

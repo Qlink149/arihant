@@ -20,6 +20,9 @@ export function parseApiDate(value) {
   let s = String(value).trim();
   if (!s) return null;
 
+  // WATI / .NET often emit 7+ digit fractional seconds; JS Date needs ≤3
+  s = s.replace(/\.(\d{3})\d+(?=(Z|[+-]\d{2}:?\d{2})?$)/i, '.$1');
+
   if (DATE_ONLY.test(s)) {
     const d = new Date(`${s}T00:00:00+05:30`);
     return Number.isNaN(d.getTime()) ? null : d;

@@ -179,6 +179,7 @@ export const whatsappAPI = {
   sendToLead: (leadId, data) => api.post(`/whatsapp/send-to-lead/${leadId}`, data),
   getChatHistory: (phone) => api.get(`/whatsapp/chat-history/${phone}`),
   getLeadChat: (leadId) => api.get(`/whatsapp/lead-chat/${leadId}`),
+  syncLeadChat: (leadId) => api.post(`/whatsapp/lead-chat/${leadId}/sync`),
   sendBrochure: (leadId) => api.post(`/whatsapp/send-brochure/${leadId}`),
   sendPricing: (leadId) => api.post(`/whatsapp/send-pricing/${leadId}`),
   sendSiteVisitRequest: (leadId) => api.post(`/whatsapp/send-site-visit-request/${leadId}`),

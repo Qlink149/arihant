@@ -50,7 +50,9 @@ async def count_open_new_leads(user_id: str, full_name: str) -> int:
 
 
 async def is_active_for_routing(user: dict, now_dt: Optional[datetime] = None) -> bool:
-    """Eligible for auto-assignment: active account, business hours, online heartbeat, not away."""
+    """Eligible for auto-assignment: active account, business hours, on duty today (IST)."""
+    from crm.utils.business_time import is_on_duty_today
+
     now_dt = now_dt or utc_now()
     if not user.get("is_active", True):
         return False
@@ -58,19 +60,7 @@ async def is_active_for_routing(user: dict, now_dt: Optional[datetime] = None) -
         return False
 
     activity = await db.user_activity.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
-    manual = (activity.get("manual_status") or "available").strip().lower()
-    if manual in {"on_break", "site_visit", "away", "unavailable"}:
-        return False
-
-    last = coerce_datetime(activity.get("last_active_dt")) or coerce_datetime(activity.get("last_active"))
-    if not last:
-        return False
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=timezone.utc)
-    if (now_dt - last).total_seconds() > 60 * 60:
-        return False
-
-    return True
+    return is_on_duty_today(activity, now_dt)
 
 
 async def list_routing_eligible_agents(now_dt: Optional[datetime] = None) -> List[dict]:

@@ -241,9 +241,42 @@ async def ensure_db_indexes():
         # whatsapp_messages
         await db.whatsapp_messages.create_index([("id", 1)], unique=True, name="whatsapp_messages_id_uq")
         await db.whatsapp_messages.create_index([("gupshup_message_id", 1)], name="whatsapp_messages_gsId")
-        await db.whatsapp_messages.create_index([("wati_message_id", 1)], sparse=True, name="whatsapp_messages_watiId")
+        # Prefer unique sparse wati_message_id for idempotent upserts. Drop legacy non-unique
+        # index if present so create_index can establish the unique constraint.
+        try:
+            await db.whatsapp_messages.drop_index("whatsapp_messages_watiId")
+        except Exception:
+            pass
+        try:
+            await db.whatsapp_messages.create_index(
+                [("wati_message_id", 1)],
+                unique=True,
+                sparse=True,
+                name="whatsapp_messages_watiId_uq_sparse",
+            )
+        except Exception as idx_err:
+            logger.warning(
+                f"Unique wati_message_id index failed (likely duplicate legacy ids): {idx_err}. "
+                "Falling back to non-unique sparse index."
+            )
+            try:
+                await db.whatsapp_messages.create_index(
+                    [("wati_message_id", 1)],
+                    sparse=True,
+                    name="whatsapp_messages_watiId",
+                )
+            except Exception:
+                pass
         await db.whatsapp_messages.create_index([("source", 1), ("created_at", -1)], name="whatsapp_messages_source_createdAt")
         await db.whatsapp_messages.create_index([("destination", 1), ("created_at", -1)], name="whatsapp_messages_destination_createdAt")
+        await db.whatsapp_messages.create_index(
+            [("destination", 1), ("created_at_dt", -1)],
+            name="whatsapp_messages_destination_createdAtDt",
+        )
+        await db.whatsapp_messages.create_index(
+            [("source", 1), ("created_at_dt", -1)],
+            name="whatsapp_messages_source_createdAtDt",
+        )
 
         # lead_transfers
         await db.lead_transfers.create_index([("id", 1)], unique=True, name="lead_transfers_id_uq")

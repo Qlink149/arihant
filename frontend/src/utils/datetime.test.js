@@ -23,6 +23,12 @@ describe('parseApiDate', () => {
     const d = parseApiDate('2025-05-27');
     expect(d.toISOString()).toBe('2025-05-26T18:30:00.000Z');
   });
+
+  it('parses WATI long fractional seconds', () => {
+    const d = parseApiDate('2025-11-27T10:14:16.6268572Z');
+    expect(d).not.toBeNull();
+    expect(d.toISOString()).toBe('2025-11-27T10:14:16.626Z');
+  });
 });
 
 describe('formatDateTimeIST', () => {

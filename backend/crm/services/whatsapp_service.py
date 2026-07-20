@@ -14,8 +14,11 @@ docs continue to display correctly in history.
 
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 from fastapi import HTTPException
@@ -42,7 +45,13 @@ from crm.core.state import (
     logger,
 )
 from crm.models.schemas.whatsapp_schemas import WhatsAppMessage
-from crm.utils.helpers import format_phone_for_gupshup, iso_utc_now, normalize_phone, utc_now
+from crm.utils.helpers import (
+    coerce_datetime,
+    format_phone_for_gupshup,
+    iso_utc_now,
+    normalize_phone,
+    utc_now,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -73,6 +82,386 @@ def _wati_phone(raw: str) -> str:
     return digits
 
 
+# Friendly labels for WATI message types / our templates (display only — never changes send payloads).
+_WATI_TYPE_LABELS = {
+    "text": "Message",
+    "image": "Image",
+    "document": "PDF document",
+    "audio": "Audio",
+    "voice": "Voice message",
+    "video": "Video",
+    "sticker": "Sticker",
+    "location": "Location",
+    "contacts": "Contact",
+    "button": "Button reply",
+    "interactive": "Interactive reply",
+    "reaction": "Reaction",
+    "template": "Template message",
+    "media_placeholder": "Media",
+    "order": "Order",
+    "catalog": "Catalog",
+}
+
+_TEMPLATE_DISPLAY_NAMES = {
+    "arihant_new_lead_ack_v1": "New lead acknowledgment",
+    "arihant_pricing_v1": "Pricing information",
+    "arihant_brochure_v1": "Project brochure",
+    "arihant_site_visit_request_ack_v1": "Site visit request",
+    "arihant_site_visit_completed_v1": "Site visit completed",
+}
+
+_PLACEHOLDER_CONTENT_RE = re.compile(r"^\[(.+)\]$")
+
+
+def _friendly_template_label(template_name: str) -> str:
+    name = (template_name or "").strip()
+    if not name:
+        return "Template message"
+    return _TEMPLATE_DISPLAY_NAMES.get(name, name.replace("_", " "))
+
+
+def _reply_object_text(obj) -> str:
+    """Extract display text from WATI button/list reply objects."""
+    if not isinstance(obj, dict):
+        return ""
+    for key in ("text", "title", "payload"):
+        val = obj.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _filename_from_url(url: str) -> str:
+    if not url or not isinstance(url, str):
+        return ""
+    try:
+        path = unquote(urlparse(url).path or "")
+        return path.rsplit("/", 1)[-1] if path else ""
+    except Exception:
+        return ""
+
+
+def _extract_wati_content(m: dict) -> str:
+    """
+    Build human-readable chat content from a WATI message/webhook payload.
+    Prefer real text / button labels / document names over raw type codes like [0].
+    """
+    if not isinstance(m, dict):
+        return "WhatsApp message"
+
+    text = m.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+
+    for key in ("buttonReply", "interactiveButtonReply", "listReply"):
+        reply = _reply_object_text(m.get(key))
+        if reply:
+            return reply
+
+    tc = m.get("templateContent")
+    if isinstance(tc, dict):
+        parts = []
+        for key in ("headerText", "body", "bodyText"):
+            val = tc.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(val.strip())
+        if parts:
+            return "\n".join(parts)
+
+    msg_type = m.get("type")
+    type_str = str(msg_type).strip().lower() if msg_type is not None else ""
+
+    data = m.get("data")
+    filename = None
+    if isinstance(data, dict):
+        filename = (
+            data.get("fileName")
+            or data.get("filename")
+            or data.get("name")
+            or data.get("caption")
+        )
+        if isinstance(filename, str):
+            filename = filename.strip() or None
+        else:
+            filename = None
+    elif isinstance(data, str) and data.strip() and not data.strip().startswith("http"):
+        filename = data.strip()
+
+    source_url = m.get("sourceUrl") or m.get("headerLink") or ""
+    if not filename and isinstance(source_url, str):
+        filename = _filename_from_url(source_url) or None
+
+    if type_str in ("document", "image", "video", "audio", "voice", "sticker", "media_placeholder"):
+        label = _WATI_TYPE_LABELS.get(type_str, "Media")
+        return f"{label}: {filename}" if filename else label
+
+    template_name = m.get("templateName") or m.get("template_name")
+    if type_str == "template" or template_name:
+        label = _friendly_template_label(template_name) if template_name else "Template message"
+        return f"{label}: {filename}" if filename else label
+
+    if type_str in _WATI_TYPE_LABELS:
+        return _WATI_TYPE_LABELS[type_str]
+
+    # Numeric / unknown type codes → never surface as "[0]" / "[1]"
+    if type_str.isdigit() or isinstance(msg_type, int):
+        return "WhatsApp message"
+    if type_str:
+        return type_str.replace("_", " ").title()
+    return "WhatsApp message"
+
+
+def _humanize_stored_content(content) -> str:
+    """Upgrade legacy stored placeholders without rewriting Mongo docs."""
+    if content is None:
+        return "WhatsApp message"
+    if not isinstance(content, str):
+        return str(content)
+    c = content.strip()
+    if not c:
+        return "WhatsApp message"
+    if c.lower().startswith("template:"):
+        return _friendly_template_label(c.split(":", 1)[1].strip())
+    m = _PLACEHOLDER_CONTENT_RE.match(c)
+    if m:
+        inner = m.group(1).strip()
+        inner_key = re.sub(r"\s+message$", "", inner, flags=re.I).strip().lower()
+        if inner_key.isdigit() or inner_key in ("message", "msg", ""):
+            return "WhatsApp message"
+        if inner_key in _WATI_TYPE_LABELS:
+            return _WATI_TYPE_LABELS[inner_key]
+        return inner.replace("_", " ").title()
+    return content
+
+
+def _outbound_template_content(template_name: str, parameters=None) -> str:
+    """Human-readable content for outbound template rows we insert into Mongo."""
+    label = _friendly_template_label(template_name)
+    for p in parameters or []:
+        if not isinstance(p, dict):
+            continue
+        if (p.get("name") or "").strip() != "pdfLink":
+            continue
+        name = _filename_from_url(p.get("value") or "")
+        if name:
+            return f"{label}: {unquote(name)}"
+    return label
+
+
+def _message_sort_ts(m: dict) -> float:
+    """Stable epoch seconds for chat history ordering (DB + live WATI merge)."""
+    if not isinstance(m, dict):
+        return 0.0
+    raw = m.get("created_at_dt") if m.get("created_at_dt") is not None else m.get("created_at")
+    dt = coerce_datetime(raw)
+    if dt is not None:
+        return dt.timestamp()
+    # Unix seconds (string/int) from some WATI payloads
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _looks_like_media_template_error(result: dict) -> bool:
+    """True when WATI likely rejected the brochure template media/header params."""
+    if not isinstance(result, dict):
+        return False
+    code = result.get("status_code")
+    err = str(result.get("error") or "").lower()
+    if code == 400:
+        return True
+    needles = ("pdf", "media", "header", "parameter", "variable", "document", "url", "link", "file")
+    return any(n in err for n in needles)
+
+
+def _pdf_from_template_params(parameters) -> tuple:
+    """Return (pdf_url, filename) from template parameters named pdfLink."""
+    for p in parameters or []:
+        if not isinstance(p, dict):
+            continue
+        if (p.get("name") or "").strip() != "pdfLink":
+            continue
+        url = (p.get("value") or "").strip()
+        if url:
+            return url, unquote(_filename_from_url(url) or "")
+    return None, None
+
+
+def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
+    """
+    Build an additive CRM whatsapp_messages doc from a WATI payload.
+    Keeps `content` for backward compat and adds structured optional fields.
+    """
+    if not isinstance(m, dict):
+        return {
+            "id": str(uuid.uuid4()),
+            "content": "WhatsApp message",
+            "message_type": "text",
+            "direction": "outbound",
+            "created_at": iso_utc_now(),
+            "created_at_dt": utc_now(),
+            "status": "sent",
+        }
+
+    content = _extract_wati_content(m)
+    msg_type = m.get("type", "text")
+    type_str = str(msg_type).strip().lower() if msg_type is not None else "text"
+    if type_str.isdigit() or isinstance(msg_type, int):
+        type_str = "text"
+
+    reply_label = ""
+    for key in ("buttonReply", "interactiveButtonReply", "listReply"):
+        reply_label = _reply_object_text(m.get(key))
+        if reply_label:
+            break
+
+    data = m.get("data")
+    media_filename = None
+    if isinstance(data, dict):
+        raw_name = (
+            data.get("fileName")
+            or data.get("filename")
+            or data.get("name")
+            or data.get("caption")
+        )
+        if isinstance(raw_name, str) and raw_name.strip():
+            media_filename = raw_name.strip()
+    elif isinstance(data, str) and data.strip() and not data.strip().startswith("http"):
+        media_filename = data.strip()
+
+    media_url = m.get("sourceUrl") or m.get("headerLink") or None
+    if isinstance(media_url, str):
+        media_url = media_url.strip() or None
+    else:
+        media_url = None
+
+    if not media_filename and media_url:
+        media_filename = _filename_from_url(media_url) or None
+
+    template_name = m.get("templateName") or m.get("template_name")
+    if isinstance(template_name, str):
+        template_name = template_name.strip() or None
+    else:
+        template_name = None
+
+    created_raw = m.get("created") or m.get("timestamp")
+    created_dt = coerce_datetime(created_raw)
+    if created_dt is None and created_raw is not None:
+        try:
+            # WATI sometimes sends unix seconds as string
+            created_dt = datetime.fromtimestamp(float(created_raw), tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            created_dt = None
+    if created_dt is None:
+        created_dt = utc_now()
+    created_iso = created_dt.isoformat()
+
+    owner = m.get("owner", True)
+    direction = "inbound" if not owner else "outbound"
+    wati_id = m.get("whatsappMessageId") or m.get("id")
+    wati_id = str(wati_id) if wati_id else None
+
+    wa_id = m.get("waId") or phone or ""
+    if direction == "inbound":
+        source = _wati_phone(wa_id) if wa_id else wa_id
+        destination = WATI_CHANNEL_PHONE
+    else:
+        source = None
+        destination = _wati_phone(phone or wa_id) if (phone or wa_id) else (phone or wa_id)
+
+    status = (m.get("statusString") or m.get("status") or "").lower() or (
+        "received" if direction == "inbound" else "sent"
+    )
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "wati_message_id": wati_id,
+        "gupshup_message_id": None,
+        "direction": direction,
+        "destination": destination,
+        "message_type": type_str,
+        "content": content,
+        "status": status,
+        "sender_name": m.get("senderName") or m.get("operatorName") or "",
+        "created_at": created_iso,
+        "created_at_dt": created_dt,
+    }
+    if source:
+        doc["source"] = source
+    if media_url:
+        doc["media_url"] = media_url
+    if media_filename:
+        doc["media_filename"] = media_filename
+    if template_name:
+        doc["template_name"] = template_name
+    if reply_label:
+        doc["reply_label"] = reply_label
+        # Prefer reply label as content when text was empty-ish placeholder
+        if not (isinstance(m.get("text"), str) and m.get("text").strip()):
+            doc["content"] = reply_label
+    return doc
+
+
+async def _upsert_whatsapp_message(doc: dict) -> None:
+    """
+    Idempotent write by wati_message_id when present.
+    Never deletes; empty/missing ids fall back to insert.
+    """
+    if not isinstance(doc, dict):
+        return
+    wati_id = doc.get("wati_message_id")
+    if isinstance(wati_id, str):
+        wati_id = wati_id.strip() or None
+        doc["wati_message_id"] = wati_id
+    if wati_id:
+        set_fields = {k: v for k, v in doc.items() if k != "id" and v is not None}
+        await db.whatsapp_messages.update_one(
+            {"wati_message_id": wati_id},
+            {
+                "$set": set_fields,
+                "$setOnInsert": {"id": doc.get("id") or str(uuid.uuid4())},
+            },
+            upsert=True,
+        )
+    else:
+        doc.pop("wati_message_id", None)
+        if "id" not in doc:
+            doc["id"] = str(uuid.uuid4())
+        await db.whatsapp_messages.insert_one(doc)
+
+
+def _decorate_history_messages(messages: list) -> list:
+    """Humanize legacy content strings for API responses (no Mongo rewrite)."""
+    out = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        row = dict(m)
+        row["content"] = _humanize_stored_content(row.get("content"))
+        out.append(row)
+    return out
+
+
+async def _preflight_public_url(url: str) -> tuple:
+    """
+    Verify Meta/WATI can likely fetch the PDF. HEAD first; some hosts need GET Range.
+    Returns (ok, error_message).
+    """
+    if not url:
+        return False, "PDF URL is empty"
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            resp = await client.head(url, timeout=15.0)
+            if resp.status_code >= 400:
+                resp = await client.get(url, headers={"Range": "bytes=0-0"}, timeout=15.0)
+            if resp.status_code >= 400:
+                return False, f"PDF URL not reachable (HTTP {resp.status_code}): {url}"
+            return True, ""
+    except Exception as e:
+        return False, f"PDF URL not reachable: {e}"
+
+
 async def _wati_ensure_contact(phone: str, name: str) -> None:
     """
     Create or update a WATI contact before first outbound message.
@@ -97,19 +486,70 @@ async def _wati_ensure_contact(phone: str, name: str) -> None:
         logger.warning(f"WATI addContact soft-fail for {phone}: {e}")
 
 
-async def _wati_send_text(phone: str, text: str) -> dict:
+def _wati_session_targets(phone: str) -> list:
+    """
+    Targets for v3 conversation APIs. Prefer plain phone, then channel-scoped
+    Channel:Phone (needed on multi-channel tenants — otherwise WATI returns 404).
+    """
+    targets = []
+    if phone:
+        targets.append(phone)
+    ch = (WATI_CHANNEL_PHONE or "").strip()
+    if ch and phone:
+        scoped = f"{ch}:{phone}"
+        if scoped not in targets:
+            targets.append(scoped)
+    return targets
+
+
+def _friendly_wati_send_error(status_code: int, result, *, kind: str = "message") -> str:
+    """Map raw WATI errors to short, user-facing copy for toasts."""
+    raw = ""
+    if isinstance(result, dict):
+        raw = result.get("error") or result.get("message") or result.get("info") or ""
+        if isinstance(raw, dict):
+            raw = raw.get("message") or raw.get("error") or str(raw)
+    raw_s = str(raw or "").strip()
+    low = raw_s.lower()
+
+    if status_code == 404 or "not found" in low or "conversation" in low:
+        return (
+            "No open WhatsApp chat with this customer right now. "
+            "Ask them to reply once on WhatsApp, or send an approved template instead."
+        )
+    if status_code == 401 or status_code == 403:
+        return "WhatsApp is not authorized on the server. Check the WATI API token."
+    if status_code == 429:
+        return "WhatsApp rate limit hit. Wait a moment and try again."
+    if status_code == 400:
+        return raw_s or f"WhatsApp rejected this {kind}. Check details and try again."
+    if 500 <= int(status_code or 0) < 600:
+        return "WhatsApp service is temporarily unavailable. Try again shortly."
+    if raw_s and not raw_s.lower().startswith("wati error"):
+        return raw_s
+    return f"Could not send WhatsApp {kind}. Please try again."
+
+
+async def _wati_send_text(phone: str, text: str):
     """
     Send a session text message via WATI v3.
     Only valid when a 24-hour session window is open (inbound from customer < 24h ago).
+    Retries with channel-scoped target on 404 (multi-channel tenants).
     """
+    last_resp = None
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{WATI_API_ENDPOINT}/api/ext/v3/conversations/messages/text",
-            headers=_wati_headers(),
-            json={"target": phone, "text": text},
-            timeout=30.0,
-        )
-        return resp
+        for target in _wati_session_targets(phone):
+            resp = await client.post(
+                f"{WATI_API_ENDPOINT}/api/ext/v3/conversations/messages/text",
+                headers=_wati_headers(),
+                json={"target": target, "text": text},
+                timeout=30.0,
+            )
+            last_resp = resp
+            if resp.status_code != 404:
+                return resp
+            logger.warning(f"WATI sendText 404 for target={target}; trying next target if any")
+    return last_resp
 
 
 async def _wati_send_template(
@@ -138,63 +578,83 @@ async def _wati_send_template(
         return resp
 
 
-async def _wati_send_file_via_url(phone: str, file_url: str, filename: str = "document.pdf") -> dict:
-    """Send a file (brochure PDF) via URL to an active WATI session."""
+async def _wati_send_file_via_url(phone: str, file_url: str, filename: str = "document.pdf"):
+    """Send a file (brochure PDF) via URL to an active WATI session. Retries channel target on 404."""
+    last_resp = None
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{WATI_API_ENDPOINT}/api/ext/v3/conversations/messages/fileViaUrl",
-            headers=_wati_headers(),
-            json={"target": phone, "url": file_url, "fileName": filename},
-            timeout=30.0,
-        )
-        return resp
-
-
-async def _wati_get_history(phone: str, page_size: int = 50) -> list:
-    """
-    Fetch message history from WATI v1 getMessages — keyed by phone number and
-    works regardless of conversation state (the v3 conversations lookup only
-    resolves OPEN conversations and returns nothing otherwise). Maps to the
-    shape the frontend already expects: {direction, content, created_at, status}.
-    Falls back to DB-only history on any error.
-    """
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{WATI_API_ENDPOINT}/api/v1/getMessages/{phone}",
-                params={"pageNumber": 1, "pageSize": page_size},
+        for target in _wati_session_targets(phone):
+            resp = await client.post(
+                f"{WATI_API_ENDPOINT}/api/ext/v3/conversations/messages/fileViaUrl",
                 headers=_wati_headers(),
+                json={"target": target, "url": file_url, "fileName": filename},
                 timeout=30.0,
             )
-            if resp.status_code != 200:
-                logger.warning(f"WATI get history {phone} returned {resp.status_code}")
-                return []
+            last_resp = resp
+            if resp.status_code != 404:
+                return resp
+            logger.warning(f"WATI fileViaUrl 404 for target={target}; trying next target if any")
+    return last_resp
 
-            data = resp.json()
-            # v1 shape: {"messages": {"items": [...]}} — some tenants return a plain list
-            raw_messages = []
-            if isinstance(data, dict):
-                msgs = data.get("messages")
-                if isinstance(msgs, dict):
-                    raw_messages = msgs.get("items", []) or []
-                elif isinstance(msgs, list):
-                    raw_messages = msgs
-            mapped = []
-            for m in raw_messages:
-                mapped.append({
-                    "id": m.get("id", str(uuid.uuid4())),
-                    "wati_message_id": m.get("whatsappMessageId") or m.get("id"),
-                    "direction": "inbound" if not m.get("owner", True) else "outbound",
-                    "content": m.get("text") or f"[{m.get('type', 'message')}]",
-                    "message_type": m.get("type", "text"),
-                    "status": (m.get("statusString") or m.get("status") or "").lower() or "sent",
-                    "created_at": m.get("created") or iso_utc_now(),
-                    "sender_name": m.get("senderName") or m.get("operatorName") or "",
-                })
-            return mapped
+
+async def _wati_get_history(phone: str, page_size: int = 50, max_pages: int = 5) -> list:
+    """
+    Fetch message history from WATI v1 getMessages (paginated).
+    Pulls multiple pages so older WhatsApp messages are not stuck on page 1 only.
+    Soft-fails to [] on any error.
+    """
+    page_size = max(1, min(int(page_size or 50), 100))
+    max_pages = max(1, min(int(max_pages or 5), 10))
+    mapped = []
+    seen_ids = set()
+
+    try:
+        async with httpx.AsyncClient() as client:
+            for page in range(1, max_pages + 1):
+                resp = await client.get(
+                    f"{WATI_API_ENDPOINT}/api/v1/getMessages/{phone}",
+                    params={"pageNumber": page, "pageSize": page_size},
+                    headers=_wati_headers(),
+                    timeout=30.0,
+                )
+                if resp.status_code != 200:
+                    logger.warning(
+                        f"WATI get history {phone} page {page} returned {resp.status_code}"
+                    )
+                    break
+
+                data = resp.json()
+                raw_messages = []
+                if isinstance(data, dict):
+                    msgs = data.get("messages")
+                    if isinstance(msgs, dict):
+                        raw_messages = msgs.get("items", []) or []
+                    elif isinstance(msgs, list):
+                        raw_messages = msgs
+
+                if not raw_messages:
+                    break
+
+                page_added = 0
+                for m in raw_messages:
+                    if not isinstance(m, dict):
+                        continue
+                    doc = _normalize_wati_message(m, phone=phone)
+                    wid = doc.get("wati_message_id")
+                    if wid and wid in seen_ids:
+                        continue
+                    if wid:
+                        seen_ids.add(wid)
+                    mapped.append(doc)
+                    page_added += 1
+
+                # Last page if fewer items than requested
+                if page_added < page_size or len(raw_messages) < page_size:
+                    break
+
+        return mapped
     except Exception as e:
         logger.warning(f"WATI get history soft-fail for {phone}: {e}")
-        return []
+        return mapped
 
 
 async def _wati_get_templates() -> dict:
@@ -274,21 +734,28 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
 
             if 200 <= resp.status_code < 300 and result.get("result"):
                 wati_msg_id = str(result.get("model", {}).get("ids", [None])[0] or "")
+                pdf_url, pdf_name = _pdf_from_template_params(params)
                 msg_doc = {
                     "id": str(uuid.uuid4()),
-                    "wati_message_id": wati_msg_id,
+                    "wati_message_id": wati_msg_id or None,
                     "gupshup_message_id": None,
                     "direction": "outbound",
                     "destination": phone,
                     "message_type": "template",
-                    "content": f"Template: {message.template_name}",
+                    "content": _outbound_template_content(message.template_name, params),
+                    "template_name": message.template_name,
                     "status": "submitted",
                     "sent_by": current_user["id"],
                     "sent_by_user_id": current_user["id"],
                     "created_at": now_iso,
                     "created_at_dt": now_dt,
                 }
-                await db.whatsapp_messages.insert_one(msg_doc)
+                if pdf_url:
+                    msg_doc["media_url"] = pdf_url
+                if pdf_name:
+                    msg_doc["media_filename"] = pdf_name
+                    msg_doc["message_type"] = "document"
+                await _upsert_whatsapp_message(msg_doc)
                 return {
                     "success": True,
                     "status": "submitted",
@@ -296,8 +763,8 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
                     "destination": phone,
                 }
             else:
-                err = result.get("error") or result.get("message") or f"WATI error {resp.status_code}"
-                logger.error(f"WATI sendTemplate failed {phone}: {resp.status_code} {resp.text[:300]}")
+                err = _friendly_wati_send_error(resp.status_code, result, kind="template")
+                logger.error(f"WATI sendTemplate failed {phone}: {resp.status_code} {resp.text[:500]}")
                 return {"success": False, "error": err, "status_code": resp.status_code}
 
         # ── Session text send ──────────────────────────────────────────────────
@@ -315,16 +782,22 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
             }
 
         resp = await _wati_send_text(phone, message.text)
+        if resp is None:
+            return {
+                "success": False,
+                "error": _friendly_wati_send_error(404, {}, kind="message"),
+                "status_code": 404,
+            }
         try:
             result = resp.json()
         except Exception:
-            result = {"raw": resp.text}
+            result = {"raw": getattr(resp, "text", "")}
 
         if 200 <= resp.status_code < 300:
             wati_msg_id = result.get("message", {}).get("id", "")
             msg_doc = {
                 "id": str(uuid.uuid4()),
-                "wati_message_id": wati_msg_id,
+                "wati_message_id": wati_msg_id or None,
                 "gupshup_message_id": None,
                 "direction": "outbound",
                 "destination": phone,
@@ -336,7 +809,7 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
                 "created_at": now_iso,
                 "created_at_dt": now_dt,
             }
-            await db.whatsapp_messages.insert_one(msg_doc)
+            await _upsert_whatsapp_message(msg_doc)
             return {
                 "success": True,
                 "status": "sent",
@@ -344,7 +817,7 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
                 "destination": phone,
             }
         else:
-            err = result.get("message") or f"WATI error {resp.status_code}"
+            err = _friendly_wati_send_error(resp.status_code, result, kind="message")
             logger.error(f"WATI sendText failed {phone}: {resp.status_code} {resp.text[:300]}")
             return {"success": False, "error": err, "status_code": resp.status_code}
 
@@ -396,38 +869,27 @@ async def handle_wati_webhook(body: dict) -> None:
         # ── Inbound message from customer ──────────────────────────────────────
         if event_type == "message" and not owner:
             wa_id = body.get("waId", "")
-            text = body.get("text") or ""
-            msg_type = body.get("type", "text")
             sender_name = body.get("senderName", "")
+            msg_doc = _normalize_wati_message(body, phone=wa_id)
+            msg_doc["wati_message_id"] = wati_msg_id or msg_doc.get("wati_message_id")
+            msg_doc["sender_name"] = sender_name or msg_doc.get("sender_name") or ""
+            msg_doc["status"] = "received"
+            msg_doc["raw_payload"] = body
+            # Prefer webhook receive time when WATI created stamp is missing/odd
+            if not body.get("created"):
+                msg_doc["created_at"] = iso_utc_now()
+                msg_doc["created_at_dt"] = utc_now()
 
-            if not text and msg_type != "text":
-                text = f"[{msg_type} message]"
-
-            now_dt = utc_now()
-            now_iso = iso_utc_now()
-
-            msg_doc = {
-                "id": str(uuid.uuid4()),
-                "wati_message_id": wati_msg_id,
-                "gupshup_message_id": None,
-                "direction": "inbound",
-                "source": wa_id,
-                "destination": WATI_CHANNEL_PHONE,
-                "message_type": msg_type,
-                "content": text,
-                "sender_name": sender_name,
-                "status": "received",
-                "raw_payload": body,
-                "created_at": now_iso,
-                "created_at_dt": now_dt,
-            }
-            await db.whatsapp_messages.insert_one(msg_doc)
+            await _upsert_whatsapp_message(msg_doc)
+            text = msg_doc.get("content") or ""
             logger.info(f"WATI inbound stored from {wa_id}: {text[:80]}")
 
             # Push to lead timeline (no lead_status change — per plan)
             normalized = normalize_phone(wa_id)
             lead = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
             if lead:
+                now_iso = msg_doc.get("created_at") or iso_utc_now()
+                now_dt = msg_doc.get("created_at_dt") or utc_now()
                 context_update = {
                     "type": "whatsapp",
                     "timestamp": now_iso,
@@ -502,13 +964,11 @@ async def send_to_lead(lead_id: str, message: WhatsAppMessage, current_user: dic
 
 async def get_chat_history(phone: str, limit: int = 50) -> dict:
     """
-    Return chat history for a phone number.
-    When provider=wati: merge WATI API history with DB history (DB is source of truth for inbound).
-    When provider=disabled: return DB-only history (preserves old Gupshup messages).
+    Return chat history for a phone number from Mongo only (DB-first).
+    Use sync_lead_chat_history / sync_chat_history to pull gaps from WATI.
     """
     normalized = _wati_phone(phone) if WHATSAPP_PROVIDER == "wati" else format_phone_for_gupshup(phone)
 
-    # Always read from DB first (includes legacy Gupshup messages + new WATI inserts)
     db_messages = (
         await db.whatsapp_messages.find(
             {"$or": [{"destination": normalized}, {"source": normalized}]},
@@ -519,18 +979,39 @@ async def get_chat_history(phone: str, limit: int = 50) -> dict:
         .to_list(limit)
     )
 
-    if WHATSAPP_PROVIDER == "wati":
-        # Also pull live from WATI API and merge (avoids stale DB if webhook missed)
-        live_messages = await _wati_get_history(normalized, page_size=limit)
-        # Deduplicate: prefer DB record if wati_message_id already stored
-        db_wati_ids = {m.get("wati_message_id") for m in db_messages if m.get("wati_message_id")}
-        new_live = [m for m in live_messages if m.get("wati_message_id") not in db_wati_ids]
-        all_messages = list(db_messages) + new_live
-        # Sort combined by created_at descending
-        all_messages.sort(key=lambda m: m.get("created_at", ""), reverse=True)
-        return {"phone": normalized, "messages": all_messages[:limit], "count": len(all_messages[:limit])}
+    db_messages.sort(key=_message_sort_ts, reverse=True)
+    sliced = _decorate_history_messages(db_messages[:limit])
+    return {"phone": normalized, "messages": sliced, "count": len(sliced)}
 
-    return {"phone": normalized, "messages": db_messages, "count": len(db_messages)}
+
+async def sync_chat_history(phone: str, limit: int = 100) -> dict:
+    """
+    Pull live WATI messages (paginated), upsert by wati_message_id, return DB history.
+    Used to gap-fill older WhatsApp messages into Mongo — idempotent, never deletes.
+    """
+    normalized = _wati_phone(phone) if WHATSAPP_PROVIDER == "wati" else format_phone_for_gupshup(phone)
+    synced = 0
+    # Fetch enough WATI pages to cover older conversation history
+    page_size = 50
+    max_pages = max(3, min(8, (int(limit or 100) + page_size - 1) // page_size))
+
+    if WHATSAPP_PROVIDER == "wati":
+        live_messages = await _wati_get_history(
+            normalized, page_size=page_size, max_pages=max_pages
+        )
+        for doc in live_messages:
+            if not doc.get("wati_message_id"):
+                continue
+            if doc.get("direction") == "inbound":
+                doc["source"] = normalized
+            else:
+                doc["destination"] = normalized
+            await _upsert_whatsapp_message(doc)
+            synced += 1
+
+    history = await get_chat_history(normalized, limit=limit)
+    history["synced"] = synced
+    return history
 
 
 async def get_lead_chat_history(lead_id: str) -> dict:
@@ -543,6 +1024,18 @@ async def get_lead_chat_history(lead_id: str) -> dict:
         return {"messages": [], "error": "Lead has no phone number"}
 
     return await get_chat_history(phone)
+
+
+async def sync_lead_chat_history(lead_id: str) -> dict:
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    phone = lead.get("phone", "")
+    if not phone:
+        return {"messages": [], "error": "Lead has no phone number", "synced": 0}
+
+    return await sync_chat_history(phone)
 
 
 async def send_lead_ack(lead_id: str, lead: dict) -> dict:
@@ -604,10 +1097,9 @@ async def send_brochure(lead_id: str, current_user: dict) -> dict:
     """
     Template 3: Brochure (arihant_brochure_v1).
 
-    The template's document header is a dynamic {{pdfLink}} variable. We pass the
-    correct per-project brochure URL as a template parameter, so WhatsApp attaches
-    the right PDF inside the single template message — works with no open session
-    (business-initiated), unlike the old fileViaUrl step which 404'd for cold leads.
+    Primary path: template with dynamic {{pdfLink}} header (works with no open session).
+    Fallback (session open only): if WATI rejects the media/header params (common 400),
+    deliver the correct project PDF via fileViaUrl so live users still get the brochure.
     """
     if WHATSAPP_PROVIDER != "wati":
         return {"success": False, "error": "WhatsApp is not enabled on this server"}
@@ -628,8 +1120,20 @@ async def send_brochure(lead_id: str, current_user: dict) -> dict:
     if not pdf_filename:
         return {"success": False, "error": f"No brochure PDF configured for project: {lead.get('project') or 'not set'}"}
 
+    static_path = Path(__file__).resolve().parents[2] / "static" / pdf_filename
+    if not static_path.is_file():
+        logger.error(f"Brochure file missing on disk: {static_path}")
+        return {"success": False, "error": f"Brochure file missing on server: {pdf_filename}"}
+
     # WATI dynamic media header: pass the project brochure URL as {{pdfLink}}.
-    pdf_url = f"{WATI_BASE_URL}/static/{pdf_filename.replace(' ', '%20')}"
+    pdf_url = f"{WATI_BASE_URL}/static/{quote(pdf_filename)}"
+
+    ok, preflight_err = await _preflight_public_url(pdf_url)
+    if not ok:
+        # Soft fail: many hosts cannot HEAD their own public URL from inside the VPC.
+        # Still attempt WATI; surface preflight detail only if the send also fails.
+        logger.warning(f"Brochure preflight warning (continuing send): {preflight_err}")
+
     msg = WhatsAppMessage(
         destination=phone,
         template_name="arihant_brochure_v1",
@@ -638,6 +1142,74 @@ async def send_brochure(lead_id: str, current_user: dict) -> dict:
     result = await send_to_lead(lead_id, msg, current_user)
     if result.get("success"):
         result["filename"] = pdf_filename
+        return result
+
+    # Session fallback — only when template media looks rejected and customer window is open.
+    # Does not change successful template sends; avoids shipping the wrong fixed-header PDF.
+    if _looks_like_media_template_error(result) and await _is_session_open(phone):
+        try:
+            resp = await _wati_send_file_via_url(phone, pdf_url, pdf_filename)
+            try:
+                file_result = resp.json()
+            except Exception:
+                file_result = {"raw": resp.text}
+
+            if 200 <= resp.status_code < 300:
+                now_dt = utc_now()
+                now_iso = iso_utc_now()
+                wati_msg_id = ""
+                if isinstance(file_result, dict):
+                    wati_msg_id = str(
+                        (file_result.get("message") or {}).get("id")
+                        or file_result.get("id")
+                        or ""
+                    )
+                await _upsert_whatsapp_message({
+                    "id": str(uuid.uuid4()),
+                    "wati_message_id": wati_msg_id or None,
+                    "gupshup_message_id": None,
+                    "direction": "outbound",
+                    "destination": phone,
+                    "message_type": "document",
+                    "content": f"Project brochure: {pdf_filename}",
+                    "template_name": "arihant_brochure_v1",
+                    "media_url": pdf_url,
+                    "media_filename": pdf_filename,
+                    "status": "sent",
+                    "sent_by": current_user["id"],
+                    "sent_by_user_id": current_user["id"],
+                    "created_at": now_iso,
+                    "created_at_dt": now_dt,
+                })
+                logger.warning(
+                    f"Brochure template failed for {phone}; delivered via fileViaUrl fallback: {pdf_filename}"
+                )
+                return {
+                    "success": True,
+                    "status": "sent",
+                    "filename": pdf_filename,
+                    "delivery": "session_file",
+                    "message_id": wati_msg_id,
+                    "destination": phone,
+                    "note": "Template media send failed; brochure delivered via open WhatsApp session.",
+                }
+
+            logger.error(
+                f"Brochure fileViaUrl fallback failed {phone}: {resp.status_code} {resp.text[:500]}"
+            )
+        except Exception as e:
+            logger.error(f"Brochure fileViaUrl fallback error for {phone}: {e}")
+
+    # Surface a clearer production hint when public URL / template header is the likely cause
+    err = result.get("error") or "Failed to send brochure"
+    if _looks_like_media_template_error(result):
+        err = (
+            f"{err}. Check that arihant_brochure_v1 uses a dynamic document header "
+            f"{{{{pdfLink}}}} and that {pdf_url} is publicly reachable by Meta/WATI."
+        )
+        if not ok and preflight_err:
+            err = f"{err} Server preflight: {preflight_err}"
+        result = {**result, "error": err, "pdf_url": pdf_url}
     return result
 
 

@@ -22,6 +22,9 @@ def coerce_datetime(value: Union[None, str, datetime]) -> Optional[datetime]:
     if isinstance(value, str):
         try:
             s = value.strip().replace("Z", "+00:00")
+            # WATI / .NET often emit 7+ digit fractional seconds; fromisoformat
+            # accepts at most microseconds (6 digits) on older Python.
+            s = re.sub(r"(\.\d{6})\d+", r"\1", s)
             dt = datetime.fromisoformat(s)
             if dt.tzinfo is None:
                 return dt.replace(tzinfo=timezone.utc)

@@ -89,6 +89,13 @@ async def get_lead_chat_history(lead_id: str, current_user: dict = Depends(get_c
     return await whatsapp_service.get_lead_chat_history(lead_id)
 
 
+@router.post("/whatsapp/lead-chat/{lead_id}/sync")
+async def sync_lead_chat_history(lead_id: str, current_user: dict = Depends(get_current_user)):
+    """Pull gaps from WATI into Mongo, then return DB-first history."""
+    await resolve_lead_or_403(lead_id, current_user)
+    return await whatsapp_service.sync_lead_chat_history(lead_id)
+
+
 # ─── Gupshup integration stubs (deprecated) ───────────────────────────────────
 # These routes are left in place so any stale frontend/scripts don't 404.
 # They return a deprecation notice and are not actively used.

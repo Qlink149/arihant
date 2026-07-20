@@ -143,6 +143,22 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         {"$set": {"current_session_id": sid, "updated_at": now_iso, "updated_at_dt": now_dt}},
     )
 
+    # Stamp duty-day presence so SLA routing treats them as on duty today (IST)
+    await db.user_activity.update_one(
+        {"user_id": user["id"]},
+        {
+            "$set": {
+                "user_id": user["id"],
+                "full_name": user.get("full_name") or "",
+                "last_login": now_iso,
+                "last_login_dt": now_dt,
+                "last_active": now_iso,
+                "last_active_dt": now_dt,
+            }
+        },
+        upsert=True,
+    )
+
     access_token = create_access_token(data={"sub": user["id"], "sid": sid})
     refresh_token = create_refresh_token(data={"sub": user["id"], "sid": sid})
 

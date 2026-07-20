@@ -40,6 +40,54 @@ def is_business_hours_ist(now_dt: datetime) -> bool:
     return BUSINESS_START <= t <= BUSINESS_END
 
 
+def next_business_open_ist(now_dt: datetime) -> datetime:
+    """Next Mon–Sat 10:00 IST as UTC (if currently open, returns today's open already past or now window start)."""
+    ist = _to_ist(now_dt)
+    # If before start on a business day → today's open
+    if ist.weekday() != 6 and ist.time() < BUSINESS_START:
+        return datetime.combine(ist.date(), BUSINESS_START, tzinfo=IST).astimezone(timezone.utc)
+    # Otherwise walk forward to next business day's open
+    day = ist.date() + timedelta(days=1)
+    for _ in range(8):
+        if day.weekday() != 6:
+            return datetime.combine(day, BUSINESS_START, tzinfo=IST).astimezone(timezone.utc)
+        day += timedelta(days=1)
+    return datetime.combine(ist.date() + timedelta(days=1), BUSINESS_START, tzinfo=IST).astimezone(timezone.utc)
+
+
+def business_closes_ist(now_dt: datetime) -> datetime | None:
+    """Today's 17:30 IST as UTC when currently inside business hours; else None."""
+    if not is_business_hours_ist(now_dt):
+        return None
+    ist = _to_ist(now_dt)
+    return datetime.combine(ist.date(), BUSINESS_END, tzinfo=IST).astimezone(timezone.utc)
+
+
+def is_same_ist_day(dt: datetime | None, now_dt: datetime) -> bool:
+    """True when dt falls on the same Asia/Kolkata calendar day as now_dt."""
+    if dt is None:
+        return False
+    try:
+        return _to_ist(dt).date() == _to_ist(now_dt).date()
+    except Exception:
+        return False
+
+
+def is_on_duty_today(activity: dict | None, now_dt: datetime) -> bool:
+    """
+    On duty for the IST calendar day if they logged in or were active today.
+    Used for SLA routing eligibility (replaces 60-minute heartbeat gate).
+    """
+    from crm.utils.helpers import coerce_datetime
+
+    activity = activity or {}
+    for key in ("last_login_dt", "last_login", "last_active_dt", "last_active"):
+        dt = coerce_datetime(activity.get(key))
+        if is_same_ist_day(dt, now_dt):
+            return True
+    return False
+
+
 def _business_window_seconds_for_day(day_start_ist: datetime) -> tuple[datetime, datetime, int]:
     """Return (window_start_utc, window_end_utc, seconds_in_window) for one IST calendar day."""
     d = day_start_ist.date()
