@@ -499,8 +499,41 @@ def _pick_primary_and_local_wati_ids(*docs) -> tuple:
     return primary, local
 
 
+def _ids_suggest_same_message(a: dict, b: dict) -> bool:
+    """
+    True only for the same WhatsApp bubble referenced two ways
+    (shared id, or webhook wamid paired with getMessages local id).
+    Distinct local ids / distinct wamids are different messages — even if text matches.
+    """
+    a_ids = set(_collect_wati_ids(a))
+    b_ids = set(_collect_wati_ids(b))
+    if not a_ids or not b_ids:
+        # Incomplete id on one side: allow soft twin only with content+time at caller
+        a_w = any(_is_wamid(x) for x in a_ids)
+        b_w = any(_is_wamid(x) for x in b_ids)
+        a_l = any(not _is_wamid(x) for x in a_ids)
+        b_l = any(not _is_wamid(x) for x in b_ids)
+        if (a_w and b_l and not b_w) or (b_w and a_l and not a_w):
+            return True
+        if (a_w and not b_ids) or (b_w and not a_ids):
+            return True
+        return False
+    if a_ids & b_ids:
+        return True
+    a_w = [x for x in a_ids if _is_wamid(x)]
+    b_w = [x for x in b_ids if _is_wamid(x)]
+    a_l = [x for x in a_ids if not _is_wamid(x)]
+    b_l = [x for x in b_ids if not _is_wamid(x)]
+    # Classic twin: one row is wamid-only, the other is local-only
+    if a_w and b_l and not b_w:
+        return True
+    if b_w and a_l and not a_w:
+        return True
+    return False
+
+
 async def _find_existing_whatsapp_message(doc: dict):
-    """Match by wamid/local id, else same text+direction+phone within 30s."""
+    """Match by wamid/local id, else wamid↔local twin with same text within 30s."""
     if not isinstance(doc, dict):
         return None
 
@@ -541,7 +574,10 @@ async def _find_existing_whatsapp_message(doc: dict):
         other = coerce_datetime(cand.get("created_at_dt") or cand.get("created_at"))
         if other is None:
             continue
-        if abs((other - created).total_seconds()) <= 30:
+        if abs((other - created).total_seconds()) > 30:
+            continue
+        # Do NOT merge two distinct local-id messages that happen to share text
+        if _ids_suggest_same_message(doc, cand):
             return cand
     return None
 
@@ -615,8 +651,8 @@ async def _upsert_whatsapp_message(doc: dict) -> None:
 
 async def _collapse_near_duplicate_messages(phone: str) -> int:
     """
-    Remove already-stored webhook/sync twins for a phone
-    (same direction+content within 30s). Prefer wamid rows.
+    Remove webhook/sync twins only (shared ids or wamid↔local).
+    Never delete distinct messages that merely share the same text.
     """
     if not phone:
         return 0
@@ -659,6 +695,8 @@ async def _collapse_near_duplicate_messages(phone: str) -> int:
                 continue
             if abs((ta - tb).total_seconds()) > 30:
                 continue
+            if not _ids_suggest_same_message(a, b):
+                continue
             group.append(b)
 
         if len(group) == 1:
@@ -694,8 +732,8 @@ async def _collapse_near_duplicate_messages(phone: str) -> int:
 
 def _dedupe_history_messages(messages: list) -> list:
     """
-    Collapse webhook+sync duplicates in API responses
-    (same direction/content within 30s — prefer wamid row).
+    Collapse webhook+sync twins in API responses only.
+    Prefer wamid row when ids indicate the same bubble.
     """
     if not messages:
         return []
@@ -718,13 +756,14 @@ def _dedupe_history_messages(messages: list) -> list:
                 continue
             if abs((ts - pts).total_seconds()) > 30:
                 continue
+            if not _ids_suggest_same_message(prev, msg):
+                continue
             dup_idx = i
             break
         if dup_idx is None:
             kept.append(msg)
             continue
         prev = kept[dup_idx]
-        # Prefer WhatsApp wamid + richer metadata
         prev_score = (
             2 if _is_wamid(prev.get("wati_message_id")) else 0,
             1 if prev.get("sender_name") else 0,

@@ -127,6 +127,49 @@ def test_dedupe_history_collapses_webhook_and_sync_twins():
     assert out[0]["sender_name"] == "Rajendra"
 
 
+def test_dedupe_keeps_distinct_same_text_messages():
+    from crm.services.whatsapp_service import _dedupe_history_messages
+
+    messages = [
+        {
+            "wati_message_id": "6a5e25afef5b53b99936d568",
+            "wati_local_id": "6a5e25afef5b53b99936d568",
+            "direction": "outbound",
+            "content": "CRM test hey ignore",
+            "created_at": "2026-07-20T13:42:07.641Z",
+        },
+        {
+            "wati_message_id": "6a5e25b1360e2ff5d69525fa",
+            "wati_local_id": "6a5e25b1360e2ff5d69525fa",
+            "direction": "outbound",
+            "content": "CRM test hey ignore",
+            "created_at": "2026-07-20T13:42:09.316Z",
+        },
+        {
+            "wati_message_id": "6a5e25b2360e2ff5d6952614",
+            "wati_local_id": "6a5e25b2360e2ff5d6952614",
+            "direction": "outbound",
+            "content": "CRM test hey ignore",
+            "created_at": "2026-07-20T13:42:10.444Z",
+        },
+    ]
+    out = _dedupe_history_messages(messages)
+    assert len(out) == 3
+
+
+def test_ids_suggest_same_message_rules():
+    from crm.services.whatsapp_service import _ids_suggest_same_message
+
+    assert _ids_suggest_same_message(
+        {"wati_message_id": "wamid.ABC"},
+        {"wati_message_id": "6alocal"},
+    )
+    assert not _ids_suggest_same_message(
+        {"wati_message_id": "6aaa", "wati_local_id": "6aaa"},
+        {"wati_message_id": "6bbb", "wati_local_id": "6bbb"},
+    )
+
+
 def test_humanize_legacy_template_prefix():
     assert _humanize_stored_content("Template: arihant_new_lead_ack_v1") == "New lead acknowledgment"
     assert _humanize_stored_content("Template: arihant_brochure_v1") == "Project brochure"
