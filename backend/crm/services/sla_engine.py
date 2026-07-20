@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from pymongo import InsertOne, ReturnDocument, UpdateOne
-from pymongo.errors import BulkWriteError
+from pymongo.errors import BulkWriteError, DuplicateKeyError
 
 from crm.constants.lead_kpi import RNR_STATUS_REGEX
 from crm.constants.task import TASK_REMINDER_METHOD_DEFAULT
@@ -107,6 +107,22 @@ def _entered_at_or_updated_fallback(field: str, cutoff: datetime) -> dict:
             {field: {"$exists": False}, "updated_at_dt": {"$lt": cutoff}},
             {field: None, "updated_at_dt": {"$lt": cutoff}},
         ],
+    }
+
+
+# Max RNR reminder buckets per RNR stay (4 business hours each).
+_RNR_REMINDER_MAX_BUCKETS = 3
+_RNR_REMINDER_OPEN_STATUSES = ("pending", "in_progress")
+
+
+def _rnr_open_reminder_query(lead_id: str) -> dict:
+    """Match any still-open SLA RNR reminder for a lead."""
+    return {
+        "lead_id": lead_id,
+        "source": "sla",
+        "sla_rule": "rnr",
+        "status": {"$in": list(_RNR_REMINDER_OPEN_STATUSES)},
+        "sla_threshold": {"$regex": r"^reminder_"},
     }
 
 
@@ -262,6 +278,7 @@ class SLAEngineService:
         sla_rule: str = "",
         sla_threshold: str = "",
         extra_lead_set: Optional[dict] = None,
+        due_date: Optional[str] = None,
     ) -> None:
         escalation_user = None
         if escalation_target:
@@ -275,6 +292,7 @@ class SLAEngineService:
             name_to_user_id=name_to_user_id,
             escalation_user=escalation_user,
             priority=priority,
+            due_date=due_date,
             sla_rule=sla_rule,
             sla_threshold=sla_threshold,
         )
@@ -378,29 +396,43 @@ class SLAEngineService:
         self._bump(summary_key)
 
     async def _acquire_cron_lock(self, now_dt: datetime) -> bool:
+        """
+        Acquire a single-job lock. Relies on unique index on cron_locks.job.
+        Only succeeds when we create/refresh an expired lock ourselves.
+        """
         expires = now_dt + timedelta(minutes=_CRON_LOCK_TTL_MINUTES)
-        result = await db.cron_locks.find_one_and_update(
-            {
-                "job": _CRON_LOCK_JOB,
-                "$or": [
-                    {"expires_at": {"$lt": now_dt}},
-                    {"expires_at": {"$exists": False}},
-                ],
-            },
-            {
-                "$set": {
+        try:
+            result = await db.cron_locks.find_one_and_update(
+                {
                     "job": _CRON_LOCK_JOB,
-                    "locked_at": now_dt,
-                    "expires_at": expires,
-                }
-            },
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
+                    "$or": [
+                        {"expires_at": {"$lt": now_dt}},
+                        {"expires_at": {"$exists": False}},
+                    ],
+                },
+                {
+                    "$set": {
+                        "job": _CRON_LOCK_JOB,
+                        "locked_at": now_dt,
+                        "expires_at": expires,
+                    }
+                },
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+        except DuplicateKeyError:
+            # Another runner holds a non-expired lock (unique job index)
+            return False
+        except Exception as e:
+            logger.warning("SLA cron lock not acquired: %s", e)
+            return False
         locked_at = coerce_datetime((result or {}).get("locked_at"))
         if locked_at and locked_at.tzinfo is None:
             locked_at = locked_at.replace(tzinfo=timezone.utc)
-        return locked_at == now_dt or (locked_at and abs((locked_at - now_dt).total_seconds()) < 2)
+        if locked_at is None:
+            return False
+        # Exact match only — no soft <2s window that allows double runners
+        return locked_at == now_dt
 
     async def _load_name_to_user_id(self) -> Dict[str, str]:
         users = await db.users.find({}, {"_id": 0, "id": 1, "full_name": 1}).to_list(500)
@@ -481,6 +513,7 @@ class SLAEngineService:
             return
 
         status_base = _rnr_status_filter()
+        today_ist = now_dt.astimezone(IST).date().isoformat()
         query_reminder = self._rule_query(status_base)
         async for batch in _paginate_leads(db.leads, query_reminder):
             for lead in batch:
@@ -491,10 +524,20 @@ class SLAEngineService:
                 periods = elapsed_biz // (4 * 3600)
                 if periods < 1:
                     continue
+                # Lifetime cap: at most 3 reminders per RNR stay
+                if periods > _RNR_REMINDER_MAX_BUCKETS:
+                    periods = _RNR_REMINDER_MAX_BUCKETS
                 bucket = str(periods)
                 flag = f"sla_flags.rnr.reminder_{bucket}_at_dt"
                 rnr_flags = (lead.get("sla_flags") or {}).get("rnr") or {}
                 if rnr_flags.get(f"reminder_{bucket}_at_dt"):
+                    continue
+                # Max one open RNR reminder at a time
+                existing_open = await db.tasks.find_one(
+                    _rnr_open_reminder_query(lead["id"]),
+                    {"_id": 0, "id": 1},
+                )
+                if existing_open:
                     continue
                 dedupe = f"sla:rnr:reminder:{lead['id']}:{bucket}"
                 self._queue_task(
@@ -505,6 +548,7 @@ class SLAEngineService:
                     now_dt,
                     now_iso,
                     name_to_user_id,
+                    due_date=today_ist,
                     sla_rule="rnr",
                     sla_threshold=f"reminder_{bucket}",
                 )
@@ -537,6 +581,7 @@ class SLAEngineService:
                         name_to_user_id,
                         escalation_target=target,
                         priority=priority,
+                        due_date=today_ist,
                         sla_rule="rnr",
                         sla_threshold=threshold,
                     )

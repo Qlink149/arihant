@@ -384,7 +384,28 @@ async def update_task(task_id: str, update: TaskUpdatePatch, current_user: dict 
     await db.tasks.update_one({"id": task_id}, {"$set": patch})
 
     new_status = patch.get("status")
-    if new_status == "completed" and task.get("lead_id"):
+    lead_id = task.get("lead_id") or ""
+
+    # Completing/cancelling an RNR reminder cancels sibling open RNR reminders
+    rnr_reminder = (
+        task.get("source") == "sla"
+        and (task.get("sla_rule") or "") == "rnr"
+        and str(task.get("sla_threshold") or "").startswith("reminder_")
+    )
+    if completing and rnr_reminder and lead_id:
+        await db.tasks.update_many(
+            {
+                "lead_id": lead_id,
+                "source": "sla",
+                "sla_rule": "rnr",
+                "status": {"$in": ["pending", "in_progress"]},
+                "sla_threshold": {"$regex": r"^reminder_"},
+                "id": {"$ne": task_id},
+            },
+            {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
+        )
+
+    if new_status == "completed" and lead_id:
         context_entry = {
             "type": "task_completed",
             "timestamp": now_iso,
@@ -415,7 +436,6 @@ async def update_task(task_id: str, update: TaskUpdatePatch, current_user: dict 
             {"$push": {"context_updates": context_entry}, "$set": lead_set},
         )
 
-    lead_id = task.get("lead_id") or ""
     if lead_id and (
         completing
         or "due_date" in patch

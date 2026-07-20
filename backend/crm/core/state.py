@@ -326,7 +326,12 @@ async def ensure_db_indexes():
         # webhook_configs
         await db.webhook_configs.create_index([("app_id", 1)], unique=True, name="webhook_configs_app_id_uq")
 
-        # cron_locks — TTL auto-expire at expires_at
+        # cron_locks — one doc per job + TTL auto-expire at expires_at
+        await db.cron_locks.create_index(
+            [("job", 1)],
+            unique=True,
+            name="cron_locks_job_uq",
+        )
         await db.cron_locks.create_index(
             "expires_at",
             expireAfterSeconds=0,

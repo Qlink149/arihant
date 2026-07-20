@@ -8,6 +8,7 @@ import asyncio
 
 from fastapi import HTTPException, UploadFile
 
+from crm.constants.lead_kpi import fw_status_indicates_rnr
 from crm.constants.lead_status import (
     is_interested_status,
     is_sv_followup_1_status,
@@ -467,8 +468,13 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
             patch["sla_activated_at_dt"] = now_dt
 
         # Stage-entry timestamps (dedicated reference fields; do not reset on subsequent updates)
-        if next_status.lower() == "rnr" and (is_sla_activation or not existing.get("rnr_entered_at_dt")):
+        if fw_status_indicates_rnr(next_status) or next_status.strip().lower() == "rnr":
+            # Fresh RNR cycle on every enter — reset clock + clear RNR SLA flags
             patch["rnr_entered_at_dt"] = now_dt
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.rnr": ""}},
+            )
         if next_status.lower() == "contacted":
             if is_sla_activation or not existing.get("contacted_at_dt"):
                 patch["contacted_at_dt"] = now_dt
