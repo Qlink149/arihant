@@ -421,8 +421,14 @@ def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
     else:
         owner = True
     direction = "inbound" if not owner else "outbound"
-    wati_id = m.get("whatsappMessageId") or m.get("id")
-    wati_id = str(wati_id) if wati_id else None
+
+    # getMessages uses internal conversation `id`; webhooks use WhatsApp `wamid.*`.
+    # Keep both so upsert can merge the same bubble from either source.
+    raw_local = m.get("id")
+    raw_wamid = m.get("whatsappMessageId")
+    local_id = str(raw_local).strip() if raw_local not in (None, "") else None
+    wamid = str(raw_wamid).strip() if isinstance(raw_wamid, str) and raw_wamid.strip() else None
+    wati_id = wamid or local_id
 
     wa_id = m.get("waId") or phone or ""
     if direction == "inbound":
@@ -449,6 +455,8 @@ def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
         "created_at": created_iso,
         "created_at_dt": created_dt,
     }
+    if local_id:
+        doc["wati_local_id"] = local_id
     if source:
         doc["source"] = source
     if media_url:
@@ -465,21 +473,133 @@ def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
     return doc
 
 
+def _is_wamid(value) -> bool:
+    return isinstance(value, str) and value.startswith("wamid.")
+
+
+def _collect_wati_ids(*docs) -> list:
+    ids = []
+    for d in docs:
+        if not isinstance(d, dict):
+            continue
+        for key in ("wati_message_id", "wati_local_id"):
+            val = d.get(key)
+            if isinstance(val, str) and val.strip():
+                ids.append(val.strip())
+    # preserve order, unique
+    return list(dict.fromkeys(ids))
+
+
+def _pick_primary_and_local_wati_ids(*docs) -> tuple:
+    ids = _collect_wati_ids(*docs)
+    primary = next((x for x in ids if _is_wamid(x)), ids[0] if ids else None)
+    local = next((x for x in ids if x != primary and not _is_wamid(x)), None)
+    if local is None and primary and not _is_wamid(primary):
+        local = primary
+    return primary, local
+
+
+async def _find_existing_whatsapp_message(doc: dict):
+    """Match by wamid/local id, else same text+direction+phone within 30s."""
+    if not isinstance(doc, dict):
+        return None
+
+    ids = _collect_wati_ids(doc)
+    if ids:
+        existing = await db.whatsapp_messages.find_one(
+            {
+                "$or": [
+                    {"wati_message_id": {"$in": ids}},
+                    {"wati_local_id": {"$in": ids}},
+                ]
+            }
+        )
+        if existing:
+            return existing
+
+    content = (doc.get("content") or "").strip()
+    direction = doc.get("direction")
+    if not content or not direction:
+        return None
+    created = coerce_datetime(doc.get("created_at_dt") or doc.get("created_at"))
+    if created is None:
+        return None
+
+    phone_ors = []
+    if doc.get("source"):
+        phone_ors.append({"source": doc["source"]})
+    if doc.get("destination"):
+        phone_ors.append({"destination": doc["destination"]})
+    query = {"direction": direction, "content": content}
+    if phone_ors:
+        query["$or"] = phone_ors
+
+    candidates = (
+        await db.whatsapp_messages.find(query).sort("created_at", -1).limit(25).to_list(25)
+    )
+    for cand in candidates:
+        other = coerce_datetime(cand.get("created_at_dt") or cand.get("created_at"))
+        if other is None:
+            continue
+        if abs((other - created).total_seconds()) <= 30:
+            return cand
+    return None
+
+
 async def _upsert_whatsapp_message(doc: dict) -> None:
     """
-    Idempotent write by wati_message_id when present.
-    Never deletes; empty/missing ids fall back to insert.
+    Idempotent write. Merges webhook wamid rows with getMessages local ids so
+    the same WhatsApp bubble is not stored twice.
     """
     if not isinstance(doc, dict):
         return
-    wati_id = doc.get("wati_message_id")
-    if isinstance(wati_id, str):
-        wati_id = wati_id.strip() or None
-        doc["wati_message_id"] = wati_id
-    if wati_id:
-        set_fields = {k: v for k, v in doc.items() if k != "id" and v is not None}
+
+    for key in ("wati_message_id", "wati_local_id"):
+        val = doc.get(key)
+        if isinstance(val, str):
+            doc[key] = val.strip() or None
+        elif val is not None and not isinstance(val, str):
+            doc[key] = str(val)
+
+    existing = await _find_existing_whatsapp_message(doc)
+    primary, local = _pick_primary_and_local_wati_ids(existing or {}, doc)
+
+    set_fields = {k: v for k, v in doc.items() if k != "id" and v is not None}
+    if primary:
+        set_fields["wati_message_id"] = primary
+    if local:
+        set_fields["wati_local_id"] = local
+
+    if existing:
+        keep_id = existing.get("id") or doc.get("id") or str(uuid.uuid4())
+        extra_ids = _collect_wati_ids(
+            existing, doc, {"wati_message_id": primary, "wati_local_id": local}
+        )
+        # Delete siblings first so unique wati_message_id index cannot conflict
+        sibling_ors = []
+        if extra_ids:
+            sibling_ors.extend(
+                [
+                    {"wati_message_id": {"$in": extra_ids}},
+                    {"wati_local_id": {"$in": extra_ids}},
+                ]
+            )
+        if primary:
+            sibling_ors.append({"wati_message_id": primary})
+        if sibling_ors:
+            await db.whatsapp_messages.delete_many(
+                {"id": {"$ne": keep_id}, "$or": sibling_ors}
+            )
         await db.whatsapp_messages.update_one(
-            {"wati_message_id": wati_id},
+            {"id": keep_id} if existing.get("id") else {"_id": existing["_id"]},
+            {"$set": set_fields},
+        )
+        return
+
+    if primary:
+        set_fields["wati_message_id"] = primary
+        await db.whatsapp_messages.update_one(
+            {"wati_message_id": primary},
             {
                 "$set": set_fields,
                 "$setOnInsert": {"id": doc.get("id") or str(uuid.uuid4())},
@@ -493,10 +613,137 @@ async def _upsert_whatsapp_message(doc: dict) -> None:
         await db.whatsapp_messages.insert_one(doc)
 
 
+async def _collapse_near_duplicate_messages(phone: str) -> int:
+    """
+    Remove already-stored webhook/sync twins for a phone
+    (same direction+content within 30s). Prefer wamid rows.
+    """
+    if not phone:
+        return 0
+    msgs = await db.whatsapp_messages.find(
+        {"$or": [{"destination": phone}, {"source": phone}]},
+        {
+            "_id": 0,
+            "id": 1,
+            "wati_message_id": 1,
+            "wati_local_id": 1,
+            "direction": 1,
+            "content": 1,
+            "created_at": 1,
+            "created_at_dt": 1,
+            "status": 1,
+            "sender_name": 1,
+        },
+    ).to_list(1000)
+    if len(msgs) < 2:
+        return 0
+
+    deleted = 0
+    used = set()
+    for i, a in enumerate(msgs):
+        aid = a.get("id")
+        if not aid or aid in used:
+            continue
+        ta = coerce_datetime(a.get("created_at_dt") or a.get("created_at"))
+        group = [a]
+        for b in msgs[i + 1 :]:
+            bid = b.get("id")
+            if not bid or bid in used:
+                continue
+            if a.get("direction") != b.get("direction"):
+                continue
+            if (a.get("content") or "").strip() != (b.get("content") or "").strip():
+                continue
+            tb = coerce_datetime(b.get("created_at_dt") or b.get("created_at"))
+            if ta is None or tb is None:
+                continue
+            if abs((ta - tb).total_seconds()) > 30:
+                continue
+            group.append(b)
+
+        if len(group) == 1:
+            used.add(aid)
+            continue
+
+        def _score(m: dict) -> tuple:
+            return (
+                2 if _is_wamid(m.get("wati_message_id")) else 0,
+                1 if m.get("sender_name") else 0,
+                1 if (m.get("status") or "").lower() == "received" else 0,
+            )
+
+        group.sort(key=_score, reverse=True)
+        keeper = group[0]
+        primary, local = _pick_primary_and_local_wati_ids(*group)
+        merge_set = {}
+        if primary:
+            merge_set["wati_message_id"] = primary
+        if local:
+            merge_set["wati_local_id"] = local
+        if keeper.get("sender_name") in (None, "") and any(g.get("sender_name") for g in group):
+            merge_set["sender_name"] = next(g["sender_name"] for g in group if g.get("sender_name"))
+        if merge_set:
+            await db.whatsapp_messages.update_one({"id": keeper["id"]}, {"$set": merge_set})
+        used.add(keeper["id"])
+        for extra in group[1:]:
+            await db.whatsapp_messages.delete_one({"id": extra["id"]})
+            used.add(extra["id"])
+            deleted += 1
+    return deleted
+
+
+def _dedupe_history_messages(messages: list) -> list:
+    """
+    Collapse webhook+sync duplicates in API responses
+    (same direction/content within 30s — prefer wamid row).
+    """
+    if not messages:
+        return []
+    ranked = sorted(messages, key=_message_sort_ts)
+    kept = []
+    for msg in ranked:
+        if not isinstance(msg, dict):
+            continue
+        content = (msg.get("content") or "").strip()
+        direction = msg.get("direction")
+        ts = coerce_datetime(msg.get("created_at_dt") or msg.get("created_at"))
+        dup_idx = None
+        for i, prev in enumerate(kept):
+            if prev.get("direction") != direction:
+                continue
+            if (prev.get("content") or "").strip() != content:
+                continue
+            pts = coerce_datetime(prev.get("created_at_dt") or prev.get("created_at"))
+            if ts is None or pts is None:
+                continue
+            if abs((ts - pts).total_seconds()) > 30:
+                continue
+            dup_idx = i
+            break
+        if dup_idx is None:
+            kept.append(msg)
+            continue
+        prev = kept[dup_idx]
+        # Prefer WhatsApp wamid + richer metadata
+        prev_score = (
+            2 if _is_wamid(prev.get("wati_message_id")) else 0,
+            1 if prev.get("sender_name") else 0,
+            1 if (prev.get("status") or "").lower() == "received" else 0,
+        )
+        msg_score = (
+            2 if _is_wamid(msg.get("wati_message_id")) else 0,
+            1 if msg.get("sender_name") else 0,
+            1 if (msg.get("status") or "").lower() == "received" else 0,
+        )
+        if msg_score > prev_score:
+            kept[dup_idx] = msg
+    return kept
+
+
 def _decorate_history_messages(messages: list) -> list:
     """Humanize legacy content strings for API responses (no Mongo rewrite)."""
     out = []
-    for m in messages:
+    for m in _dedupe_history_messages(messages):
         if not isinstance(m, dict):
             continue
         row = dict(m)
@@ -1073,6 +1320,10 @@ async def sync_chat_history(phone: str, limit: int = 100) -> dict:
                 doc["destination"] = normalized
             await _upsert_whatsapp_message(doc)
             synced += 1
+
+        collapsed = await _collapse_near_duplicate_messages(normalized)
+        if collapsed:
+            logger.info(f"Collapsed {collapsed} duplicate WhatsApp rows for {normalized}")
 
     history = await get_chat_history(normalized, limit=limit)
     history["synced"] = synced

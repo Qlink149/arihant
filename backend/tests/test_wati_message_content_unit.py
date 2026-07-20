@@ -90,6 +90,43 @@ def test_is_wati_system_event_ticket():
     assert _is_wati_system_event({"eventType": "message", "text": "Pricing", "owner": False}) is False
 
 
+def test_pick_primary_prefers_wamid():
+    from crm.services.whatsapp_service import _pick_primary_and_local_wati_ids
+
+    primary, local = _pick_primary_and_local_wati_ids(
+        {"wati_message_id": "6a5e23bb7c133f561da48287"},
+        {"wati_message_id": "wamid.HBgMOTE5ABC"},
+    )
+    assert primary == "wamid.HBgMOTE5ABC"
+    assert local == "6a5e23bb7c133f561da48287"
+
+
+def test_dedupe_history_collapses_webhook_and_sync_twins():
+    from crm.services.whatsapp_service import _dedupe_history_messages
+
+    messages = [
+        {
+            "wati_message_id": "6a5e23bb7c133f561da48287",
+            "direction": "inbound",
+            "content": "Thanks",
+            "created_at": "2026-07-20T13:33:47.752000+00:00",
+            "status": "sent",
+        },
+        {
+            "wati_message_id": "wamid.HBgMOTE5ABC",
+            "direction": "inbound",
+            "content": "Thanks",
+            "created_at": "2026-07-20T13:33:47.752078+00:00",
+            "status": "received",
+            "sender_name": "Rajendra",
+        },
+    ]
+    out = _dedupe_history_messages(messages)
+    assert len(out) == 1
+    assert out[0]["wati_message_id"].startswith("wamid.")
+    assert out[0]["sender_name"] == "Rajendra"
+
+
 def test_humanize_legacy_template_prefix():
     assert _humanize_stored_content("Template: arihant_new_lead_ack_v1") == "New lead acknowledgment"
     assert _humanize_stored_content("Template: arihant_brochure_v1") == "Project brochure"
