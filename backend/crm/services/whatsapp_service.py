@@ -111,6 +111,11 @@ _TEMPLATE_DISPLAY_NAMES = {
 }
 
 _PLACEHOLDER_CONTENT_RE = re.compile(r"^\[(.+)\]$")
+# WATI broadcast rows: 'Broadcast message with using "arihant_pricing_v1" template was received …'
+_WATI_BROADCAST_TEMPLATE_RE = re.compile(
+    r'using\s+"([^"]+)"\s+template',
+    re.IGNORECASE,
+)
 
 
 def _friendly_template_label(template_name: str) -> str:
@@ -141,6 +146,41 @@ def _filename_from_url(url: str) -> str:
         return ""
 
 
+def _is_wati_system_event(m: dict) -> bool:
+    """
+    WATI getMessages mixes real chat with ticket lifecycle events
+    (chat initialized, status Open, expired, …). Those are not WhatsApp bubbles.
+    """
+    if not isinstance(m, dict):
+        return True
+    event_type = str(m.get("eventType") or "").strip().lower()
+    return event_type == "ticket"
+
+
+def _template_name_from_wati(m: dict):
+    """Resolve template name from explicit fields or broadcast eventDescription."""
+    if not isinstance(m, dict):
+        return None
+    for key in ("templateName", "template_name"):
+        val = m.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    tmpl = m.get("template")
+    if isinstance(tmpl, dict):
+        for key in ("elementName", "name", "templateName"):
+            val = tmpl.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    elif isinstance(tmpl, str) and tmpl.strip():
+        return tmpl.strip()
+    desc = m.get("eventDescription")
+    if isinstance(desc, str) and desc.strip():
+        match = _WATI_BROADCAST_TEMPLATE_RE.search(desc)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
 def _extract_wati_content(m: dict) -> str:
     """
     Build human-readable chat content from a WATI message/webhook payload.
@@ -152,6 +192,11 @@ def _extract_wati_content(m: dict) -> str:
     text = m.get("text")
     if isinstance(text, str) and text.strip():
         return text.strip()
+
+    # Template / broadcast rows from getMessages use finalText (not text)
+    final_text = m.get("finalText")
+    if isinstance(final_text, str) and final_text.strip():
+        return final_text.strip()
 
     for key in ("buttonReply", "interactiveButtonReply", "listReply"):
         reply = _reply_object_text(m.get(key))
@@ -170,6 +215,7 @@ def _extract_wati_content(m: dict) -> str:
 
     msg_type = m.get("type")
     type_str = str(msg_type).strip().lower() if msg_type is not None else ""
+    event_type = str(m.get("eventType") or "").strip().lower()
 
     data = m.get("data")
     filename = None
@@ -187,7 +233,12 @@ def _extract_wati_content(m: dict) -> str:
     elif isinstance(data, str) and data.strip() and not data.strip().startswith("http"):
         filename = data.strip()
 
-    source_url = m.get("sourceUrl") or m.get("headerLink") or ""
+    source_url = (
+        m.get("sourceUrl")
+        or m.get("headerLink")
+        or m.get("mediaHeaderLink")
+        or ""
+    )
     if not filename and isinstance(source_url, str):
         filename = _filename_from_url(source_url) or None
 
@@ -195,8 +246,9 @@ def _extract_wati_content(m: dict) -> str:
         label = _WATI_TYPE_LABELS.get(type_str, "Media")
         return f"{label}: {filename}" if filename else label
 
-    template_name = m.get("templateName") or m.get("template_name")
-    if type_str == "template" or template_name:
+    template_name = _template_name_from_wati(m)
+    if type_str == "template" or event_type == "broadcastmessage" or template_name:
+        # Prefer body text when present; otherwise friendly template label
         label = _friendly_template_label(template_name) if template_name else "Template message"
         return f"{label}: {filename}" if filename else label
 
@@ -305,10 +357,13 @@ def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
         }
 
     content = _extract_wati_content(m)
+    event_type = str(m.get("eventType") or "").strip().lower()
     msg_type = m.get("type", "text")
     type_str = str(msg_type).strip().lower() if msg_type is not None else "text"
     if type_str.isdigit() or isinstance(msg_type, int):
         type_str = "text"
+    if event_type == "broadcastmessage":
+        type_str = "template"
 
     reply_label = ""
     for key in ("buttonReply", "interactiveButtonReply", "listReply"):
@@ -330,7 +385,12 @@ def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
     elif isinstance(data, str) and data.strip() and not data.strip().startswith("http"):
         media_filename = data.strip()
 
-    media_url = m.get("sourceUrl") or m.get("headerLink") or None
+    media_url = (
+        m.get("sourceUrl")
+        or m.get("headerLink")
+        or m.get("mediaHeaderLink")
+        or None
+    )
     if isinstance(media_url, str):
         media_url = media_url.strip() or None
     else:
@@ -339,11 +399,7 @@ def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
     if not media_filename and media_url:
         media_filename = _filename_from_url(media_url) or None
 
-    template_name = m.get("templateName") or m.get("template_name")
-    if isinstance(template_name, str):
-        template_name = template_name.strip() or None
-    else:
-        template_name = None
+    template_name = _template_name_from_wati(m)
 
     created_raw = m.get("created") or m.get("timestamp")
     created_dt = coerce_datetime(created_raw)
@@ -357,7 +413,13 @@ def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
         created_dt = utc_now()
     created_iso = created_dt.isoformat()
 
-    owner = m.get("owner", True)
+    # Broadcasts omit owner; they are outbound template sends from WATI/CRM.
+    if event_type == "broadcastmessage":
+        owner = True
+    elif "owner" in m:
+        owner = bool(m.get("owner"))
+    else:
+        owner = True
     direction = "inbound" if not owner else "outbound"
     wati_id = m.get("whatsappMessageId") or m.get("id")
     wati_id = str(wati_id) if wati_id else None
@@ -638,6 +700,9 @@ async def _wati_get_history(phone: str, page_size: int = 50, max_pages: int = 5)
                 for m in raw_messages:
                     if not isinstance(m, dict):
                         continue
+                    # Skip ticket lifecycle noise (not real WhatsApp bubbles)
+                    if _is_wati_system_event(m):
+                        continue
                     doc = _normalize_wati_message(m, phone=phone)
                     wid = doc.get("wati_message_id")
                     if wid and wid in seen_ids:
@@ -647,8 +712,8 @@ async def _wati_get_history(phone: str, page_size: int = 50, max_pages: int = 5)
                     mapped.append(doc)
                     page_added += 1
 
-                # Last page if fewer items than requested
-                if page_added < page_size or len(raw_messages) < page_size:
+                # Advance while WATI still returns a full page (skip filters shrink page_added)
+                if len(raw_messages) < page_size:
                     break
 
         return mapped

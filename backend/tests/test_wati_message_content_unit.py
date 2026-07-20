@@ -48,9 +48,46 @@ def test_extract_never_shows_numeric_type_brackets():
     assert _extract_wati_content({"type": "message"}) == "Message"
 
 
+def test_extract_broadcast_final_text():
+    msg = {
+        "eventType": "broadcastMessage",
+        "eventDescription": 'Broadcast message with using "arihant_pricing_v1" template was received 20|07|2026',
+        "finalText": "Hi rajendra,\n\nPricing starts from ₹13,000/sq.ft.",
+        "statusString": "DELIVERED",
+    }
+    assert "Pricing starts from" in _extract_wati_content(msg)
+
+
 def test_extract_template_name_friendly():
     msg = {"type": "template", "templateName": "arihant_brochure_v1", "text": ""}
     assert _extract_wati_content(msg) == "Project brochure"
+
+
+def test_normalize_broadcast_message():
+    doc = _normalize_wati_message(
+        {
+            "id": "bcast1",
+            "eventType": "broadcastMessage",
+            "eventDescription": 'Broadcast message with using "arihant_new_lead_ack_v1" template was received 16|07|2026',
+            "finalText": "Hi rajendra,\n\nThank you for your interest.",
+            "statusString": "DELIVERED",
+            "created": "2026-07-16T08:39:24.591Z",
+        },
+        phone="919116914178",
+    )
+    assert doc["direction"] == "outbound"
+    assert doc["message_type"] == "template"
+    assert doc["template_name"] == "arihant_new_lead_ack_v1"
+    assert "Thank you for your interest" in doc["content"]
+    assert doc["wati_message_id"] == "bcast1"
+
+
+def test_is_wati_system_event_ticket():
+    from crm.services.whatsapp_service import _is_wati_system_event
+
+    assert _is_wati_system_event({"eventType": "ticket", "type": 0}) is True
+    assert _is_wati_system_event({"eventType": "broadcastMessage", "finalText": "Hi"}) is False
+    assert _is_wati_system_event({"eventType": "message", "text": "Pricing", "owner": False}) is False
 
 
 def test_humanize_legacy_template_prefix():

@@ -92,10 +92,11 @@ const MessageStatus = ({ status }) => {
 const ChatMessageBubble = ({ msg }) => {
   const outbound = msg.direction === 'outbound';
   const type = String(msg.message_type || '').toLowerCase();
+  // Only real media rows — do NOT match button text like "Get Brochure"
   const isDocument =
     type === 'document' ||
     Boolean(msg.media_filename) ||
-    (typeof msg.content === 'string' && /brochure|\.pdf/i.test(msg.content));
+    Boolean(msg.media_url);
   const isTemplate = type === 'template' || Boolean(msg.template_name);
 
   let body;
