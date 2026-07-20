@@ -554,9 +554,19 @@ async def mint_search_grant(lead_id: str, current_user: dict = Depends(get_curre
 
 
 @router.put("/leads/{lead_id}", response_model=LeadResponse)
-async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: dict = Depends(get_current_user)):
+async def update_lead(
+    lead_id: str,
+    lead_update: LeadUpdatePatch,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
     await resolve_lead_or_403(lead_id, current_user)
-    return await lead_service.update_lead(lead_id, lead_update, current_user)
+    patch = lead_update.model_dump(exclude_unset=True)
+    result = await lead_service.update_lead(lead_id, lead_update, current_user)
+    # Any lead overview / status edit appends timeline "updated" — refresh AI
+    if patch:
+        schedule_lead_ai_refresh(lead_id, background_tasks)
+    return result
 
 
 @router.post("/leads/upload-csv")

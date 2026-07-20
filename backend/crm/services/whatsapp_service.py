@@ -1425,6 +1425,9 @@ async def handle_wati_webhook(body: dict) -> None:
                     {"id": lead["id"]},
                     {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
                 )
+                from crm.services.ai_lead_regen import enqueue_lead_ai_refresh
+
+                enqueue_lead_ai_refresh(lead["id"])
 
     except Exception as e:
         logger.error(f"WATI webhook handler error: {e}")
@@ -1481,6 +1484,9 @@ async def send_to_lead(lead_id: str, message: WhatsAppMessage, current_user: dic
             {"id": lead_id},
             {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
         )
+        from crm.services.ai_lead_regen import enqueue_lead_ai_refresh
+
+        enqueue_lead_ai_refresh(lead_id)
 
     return result
 
@@ -1895,6 +1901,9 @@ async def handle_v3_webhook(body: dict):
                             {"id": lead["id"]},
                             {"$push": {"context_updates": context_update}, "$set": set_fields},
                         )
+                        from crm.services.ai_lead_regen import enqueue_lead_ai_refresh
+
+                        enqueue_lead_ai_refresh(lead["id"])
 
                 statuses = value.get("statuses", [])
                 for status_update in statuses:
@@ -1965,6 +1974,9 @@ async def handle_v2_webhook(body: dict):
                     {"id": lead["id"]},
                     {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
                 )
+                from crm.services.ai_lead_regen import enqueue_lead_ai_refresh
+
+                enqueue_lead_ai_refresh(lead["id"])
 
         elif event_type in ["message-event", "enqueued", "failed", "sent", "delivered", "read"]:
             message_id = body.get("messageId", body.get("payload", {}).get("gsId"))

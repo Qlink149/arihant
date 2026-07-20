@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from crm.services.dashboard_scope import resolve_lead_or_403, resolve_leads_base_filter
@@ -66,7 +66,12 @@ class StandaloneTaskCreate(BaseModel):
 
 
 @router.post("/leads/{lead_id}/context")
-async def add_context_update(lead_id: str, update: ContextUpdateCreate, current_user: dict = Depends(get_current_user)):
+async def add_context_update(
+    lead_id: str,
+    update: ContextUpdateCreate,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
     lead = await resolve_lead_or_403(lead_id, current_user)
 
     # Nurturing workflow rule: after transitioning into Nurturing, user must create a fresh task
@@ -123,6 +128,10 @@ async def add_context_update(lead_id: str, update: ContextUpdateCreate, current_
         actor_name=current_user.get("full_name"),
         payload={"update_type": update.update_type},
     )
+
+    from crm.services.ai_lead_regen import schedule_lead_ai_refresh
+
+    schedule_lead_ai_refresh(lead_id, background_tasks)
 
     return {"message": "Context updated", "context_entry": context_entry}
 

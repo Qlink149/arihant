@@ -575,6 +575,12 @@ const DigitalTwinPage = () => {
     }
   }, [leadId]);
 
+  const handleLeadUpdated = useCallback(async () => {
+    aiPollCount.current = 0;
+    await fetchLead();
+    fetchSuggestions();
+  }, [fetchLead, fetchSuggestions]);
+
   useEffect(() => {
     fetchLead();
     fetchSuggestions();
@@ -904,7 +910,8 @@ const DigitalTwinPage = () => {
       setContextNote('');
       setContextType('general_note');
       setShowContextModal(false);
-      fetchLead(); // Refresh to show new entry + updated AI summary
+      aiPollCount.current = 0;
+      await handleLeadUpdated(); // Refresh timeline + trigger AI poll / portfolio
     } catch (error) {
       const msg = error?.response?.data?.detail;
       if (error?.response?.status === 409 && msg) {
@@ -1021,7 +1028,7 @@ const DigitalTwinPage = () => {
             <LeadProfileHeader
               lead={lead}
               leadId={leadId}
-              onLeadUpdated={fetchLead}
+              onLeadUpdated={handleLeadUpdated}
               compact
               contactSlot={(
                 <>
@@ -1087,14 +1094,14 @@ const DigitalTwinPage = () => {
       <DataDnaGrid
         lead={lead}
         leadId={leadId}
-        onLeadUpdated={fetchLead}
+        onLeadUpdated={handleLeadUpdated}
         stickySummaryVisible={stickySummaryVisible}
       />
 
       {lead.ai_generation_pending && lead.ai_configured && (
         <div className="rounded-lg border border-[#C5A059]/40 bg-[#C5A059]/10 px-4 py-3 text-sm text-[#E5C079] flex items-center gap-2">
           <Sparkles size={16} className="shrink-0" />
-          AI insights are refreshing in the background from the latest notes and calls. This page will update automatically.
+          AI insights are refreshing from the latest WhatsApp, notes, and lead overview. This page will update automatically.
         </div>
       )}
 
