@@ -6,23 +6,16 @@ on:
 
 concurrency:
   group: deploy-do-prod
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Tune Docker for flaky DOCR uploads
-        run: |
-          # Concurrent chunked uploads often trigger DOCR "invalid content range".
-          echo '{"max-concurrent-uploads":1,"max-concurrent-downloads":3}' | sudo tee /etc/docker/daemon.json
-          sudo systemctl restart docker
-          docker info
 
       - name: Log in to DigitalOcean Container Registry
         uses: docker/login-action@v3
@@ -35,26 +28,9 @@ jobs:
         env:
           IMAGE: registry.digitalocean.com/qlink01/fastapi-backend
         run: |
-          set -euo pipefail
           docker build -t "$IMAGE:latest" -t "$IMAGE:${GITHUB_SHA}" backend/
-
-          push_once() {
-            local tag="$1"
-            echo "Pushing ${tag}..."
-            docker push "$tag"
-          }
-
-          # Two clean attempts only — avoid looking "stuck" on endless DOCR retries.
-          if ! push_once "$IMAGE:${GITHUB_SHA}"; then
-            echo "First SHA push failed; waiting 30s then retrying once..."
-            sleep 30
-            push_once "$IMAGE:${GITHUB_SHA}"
-          fi
-          if ! push_once "$IMAGE:latest"; then
-            echo "First latest push failed; waiting 30s then retrying once..."
-            sleep 30
-            push_once "$IMAGE:latest"
-          fi
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${GITHUB_SHA}"
 
       - name: Redeploy on Droplet
         uses: appleboy/ssh-action@v1.2.0
