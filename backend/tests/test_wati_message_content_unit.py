@@ -287,3 +287,49 @@ def test_wati_session_send_ok_and_id():
     assert _wati_session_send_message_id(result) == "wamid.ABC"
     assert _wati_session_send_ok(200, {"result": False, "info": "message text can not be empty"}) is False
     assert _wati_session_send_ok(404, {}) is False
+
+
+def test_infer_media_type_and_proxy_path():
+    from crm.services.whatsapp_service import (
+        _infer_media_type_from_path,
+        _is_wati_media_path,
+        _crm_media_proxy_path,
+        _media_display_name,
+        _normalize_wati_message,
+        _decorate_history_messages,
+    )
+
+    assert _is_wati_media_path("data/images/abc.jpg")
+    assert _infer_media_type_from_path("data/images/abc.jpg") == "image"
+    assert _infer_media_type_from_path("data/audio/x.ogg") == "audio"
+    assert _infer_media_type_from_path("data/document/x.pdf") == "document"
+    assert _media_display_name("data/images/18b8ac2b.jpg") == "18b8ac2b.jpg"
+    assert "fileName=" in _crm_media_proxy_path("data/images/abc.jpg")
+
+    doc = _normalize_wati_message(
+        {
+            "id": "img1",
+            "owner": False,
+            "type": "image",
+            "text": "",
+            "data": "data/images/18b8ac2b-f06f-4836-bfc8-b2ae1c996253.jpg",
+            "created": "2026-07-20T15:12:00Z",
+        },
+        phone="919116914178",
+    )
+    assert doc["message_type"] == "image"
+    assert doc["media_url"].startswith("/whatsapp/media?fileName=")
+
+    decorated = _decorate_history_messages(
+        [
+            {
+                "direction": "inbound",
+                "message_type": "document",
+                "content": "Image: data/images/x.jpg",
+                "media_filename": "data/images/x.jpg",
+                "created_at": "2026-07-20T15:12:00Z",
+            }
+        ]
+    )
+    assert decorated[0]["message_type"] == "image"
+    assert decorated[0]["media_url"].startswith("/whatsapp/media?fileName=")

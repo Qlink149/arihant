@@ -56,6 +56,8 @@ import {
   Loader2,
   RefreshCw,
   File,
+  Image as ImageIcon,
+  Headphones,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -88,36 +90,177 @@ const MessageStatus = ({ status }) => {
   return null;
 };
 
-/** Typed WhatsApp bubble — text / document / template (additive fields optional). */
+/** Load CRM-proxied WATI media with auth (img/audio can't send Bearer headers). */
+const WaAuthenticatedMedia = ({ mediaUrl, kind, alt }) => {
+  const [src, setSrc] = useState(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let objectUrl = null;
+    let cancelled = false;
+
+    const run = async () => {
+      setError(false);
+      setSrc(null);
+      if (!mediaUrl) {
+        setError(true);
+        return;
+      }
+      // Public HTTPS (e.g. our brochure CDN) — use directly
+      if (/^https?:\/\//i.test(mediaUrl) && !mediaUrl.includes('/whatsapp/media')) {
+        if (!cancelled) setSrc(mediaUrl);
+        return;
+      }
+      try {
+        let fileName = '';
+        try {
+          const u = new URL(mediaUrl, window.location.origin);
+          fileName = u.searchParams.get('fileName') || '';
+        } catch {
+          const m = /fileName=([^&]+)/.exec(mediaUrl);
+          fileName = m ? decodeURIComponent(m[1]) : '';
+        }
+        if (!fileName && mediaUrl.startsWith('data/')) {
+          fileName = mediaUrl;
+        }
+        if (!fileName) {
+          if (!cancelled) setError(true);
+          return;
+        }
+        const res = await whatsappAPI.getMediaBlob(fileName);
+        objectUrl = URL.createObjectURL(res.data);
+        if (!cancelled) setSrc(objectUrl);
+      } catch (e) {
+        console.warn('WhatsApp media load failed', e);
+        if (!cancelled) setError(true);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [mediaUrl]);
+
+  if (error) {
+    return <p className="text-xs opacity-80">Could not load media</p>;
+  }
+  if (!src) {
+    return (
+      <div className="flex items-center gap-2 text-xs opacity-80 py-2">
+        <Loader2 size={14} className="animate-spin" />
+        Loading…
+      </div>
+    );
+  }
+  if (kind === 'image') {
+    return (
+      <a href={src} target="_blank" rel="noopener noreferrer" className="block">
+        <img
+          src={src}
+          alt={alt || 'Image'}
+          className="max-w-full max-h-64 rounded-lg object-contain bg-black/20"
+        />
+      </a>
+    );
+  }
+  if (kind === 'audio') {
+    return <audio controls src={src} className="w-full max-w-[260px]" preload="metadata" />;
+  }
+  if (kind === 'video') {
+    return (
+      <video controls src={src} className="max-w-full max-h-64 rounded-lg" preload="metadata" />
+    );
+  }
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer" className="text-xs underline opacity-90">
+      Open file
+    </a>
+  );
+};
+
+/** Typed WhatsApp bubble — text / image / audio / document / template. */
 const ChatMessageBubble = ({ msg }) => {
   const outbound = msg.direction === 'outbound';
   const type = String(msg.message_type || '').toLowerCase();
-  // Only real media rows — do NOT match button text like "Get Brochure"
+  const fileHint = `${msg.media_filename || ''} ${msg.media_url || ''} ${msg.content || ''}`.toLowerCase();
+  const isImage =
+    type === 'image' ||
+    /\.(jpe?g|png|webp|gif|bmp)(\?|$)/i.test(fileHint) ||
+    /\/images\//i.test(fileHint);
+  const isAudio =
+    type === 'audio' ||
+    type === 'voice' ||
+    /\.(ogg|mp3|m4a|aac|opus|amr|wav)(\?|$)/i.test(fileHint) ||
+    /\/audio\//i.test(fileHint);
+  const isVideo =
+    type === 'video' ||
+    /\.(mp4|3gp|mov|webm)(\?|$)/i.test(fileHint) ||
+    /\/video\//i.test(fileHint);
   const isDocument =
-    type === 'document' ||
-    Boolean(msg.media_filename) ||
-    Boolean(msg.media_url);
+    !isImage &&
+    !isAudio &&
+    !isVideo &&
+    (type === 'document' ||
+      Boolean(msg.media_filename) ||
+      Boolean(msg.media_url) ||
+      /\.pdf(\?|$)/i.test(fileHint));
   const isTemplate = type === 'template' || Boolean(msg.template_name);
+  const displayName =
+    msg.media_display_name ||
+    (msg.media_filename || '').split(/[/\\]/).pop() ||
+    msg.content ||
+    'File';
 
   let body;
-  if (isDocument) {
-    const name = msg.media_filename || msg.content || 'Document';
+  if (isImage) {
+    body = (
+      <div className="wa-bubble-text text-sm space-y-1">
+        <div className="flex items-center gap-1.5 text-xs opacity-80 mb-1">
+          <ImageIcon size={12} />
+          <span>Image</span>
+        </div>
+        <WaAuthenticatedMedia
+          mediaUrl={msg.media_url || msg.media_filename}
+          kind="image"
+          alt={displayName}
+        />
+      </div>
+    );
+  } else if (isAudio) {
+    body = (
+      <div className="wa-bubble-text text-sm space-y-1">
+        <div className="flex items-center gap-1.5 text-xs opacity-80 mb-1">
+          <Headphones size={12} />
+          <span>Audio</span>
+        </div>
+        <WaAuthenticatedMedia mediaUrl={msg.media_url || msg.media_filename} kind="audio" />
+      </div>
+    );
+  } else if (isVideo) {
+    body = (
+      <div className="wa-bubble-text text-sm space-y-1">
+        <WaAuthenticatedMedia mediaUrl={msg.media_url || msg.media_filename} kind="video" />
+      </div>
+    );
+  } else if (isDocument) {
     body = (
       <div className="wa-bubble-text text-sm space-y-1">
         <div className="flex items-start gap-2">
           <File size={16} className="mt-0.5 shrink-0 opacity-90" />
           <div className="min-w-0">
-            <p className="font-medium truncate">{name}</p>
-            <p className="text-xs opacity-80">PDF document</p>
-            {msg.media_url ? (
-              <a
-                href={msg.media_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs underline opacity-90 hover:opacity-100"
-              >
-                Open file
-              </a>
+            <p className="font-medium truncate">{displayName}</p>
+            <p className="text-xs opacity-80">
+              {/\.pdf/i.test(displayName) ? 'PDF document' : 'Document'}
+            </p>
+            {msg.media_url || msg.media_filename ? (
+              <div className="mt-1">
+                <WaAuthenticatedMedia
+                  mediaUrl={msg.media_url || msg.media_filename}
+                  kind="document"
+                />
+              </div>
             ) : null}
           </div>
         </div>

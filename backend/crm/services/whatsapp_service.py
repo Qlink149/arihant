@@ -146,6 +146,41 @@ def _filename_from_url(url: str) -> str:
         return ""
 
 
+def _is_wati_media_path(path: str) -> bool:
+    """True for WATI relative media paths like data/images/….jpg."""
+    if not isinstance(path, str):
+        return False
+    p = path.strip().replace("\\", "/")
+    return p.startswith("data/") and "/" in p[5:]
+
+
+def _infer_media_type_from_path(path: str) -> str:
+    p = (path or "").strip().lower().replace("\\", "/")
+    if not p:
+        return ""
+    if "/images/" in p or p.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")):
+        return "image"
+    if "/audio/" in p or p.endswith((".ogg", ".mp3", ".m4a", ".aac", ".opus", ".amr", ".wav")):
+        return "audio"
+    if "/video/" in p or p.endswith((".mp4", ".3gp", ".mov", ".webm")):
+        return "video"
+    if "/document/" in p or p.endswith((".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx")):
+        return "document"
+    return ""
+
+
+def _media_display_name(path_or_name: str) -> str:
+    if not path_or_name:
+        return "File"
+    name = path_or_name.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    return unquote(name) or "File"
+
+
+def _crm_media_proxy_path(file_name: str) -> str:
+    """Relative API path the frontend loads via authenticated blob fetch."""
+    return f"/whatsapp/media?fileName={quote(file_name, safe='')}"
+
+
 def _is_wati_system_event(m: dict) -> bool:
     """
     WATI getMessages mixes real chat with ticket lifecycle events
@@ -398,6 +433,19 @@ def _normalize_wati_message(m: dict, *, phone: str = "") -> dict:
 
     if not media_filename and media_url:
         media_filename = _filename_from_url(media_url) or None
+
+    # WATI often stores relative paths in `data` without sourceUrl — proxy via CRM.
+    if not media_url and media_filename and _is_wati_media_path(media_filename):
+        media_url = _crm_media_proxy_path(media_filename)
+
+    # Prefer explicit WATI type; fall back to path inference (never treat jpg as document).
+    inferred = _infer_media_type_from_path(media_filename or media_url or "")
+    if type_str in ("text", "") and inferred:
+        type_str = inferred
+    elif type_str not in ("image", "audio", "video", "document", "voice", "sticker") and inferred:
+        type_str = inferred
+    if type_str == "voice":
+        type_str = "audio"
 
     template_name = _template_name_from_wati(m)
 
@@ -780,15 +828,57 @@ def _dedupe_history_messages(messages: list) -> list:
 
 
 def _decorate_history_messages(messages: list) -> list:
-    """Humanize legacy content strings for API responses (no Mongo rewrite)."""
+    """Humanize content and attach playable media proxy URLs for API responses."""
     out = []
     for m in _dedupe_history_messages(messages):
         if not isinstance(m, dict):
             continue
         row = dict(m)
         row["content"] = _humanize_stored_content(row.get("content"))
+        media_url = row.get("media_url")
+        media_filename = row.get("media_filename")
+        if isinstance(media_filename, str) and media_filename.strip():
+            # Prefer basename for display in clients that show media_filename
+            if _is_wati_media_path(media_filename) and not (
+                isinstance(media_url, str) and media_url.strip().startswith("http")
+            ):
+                row["media_url"] = _crm_media_proxy_path(media_filename.strip())
+            display = _media_display_name(media_filename)
+            row["media_display_name"] = display
+        # Fix legacy rows typed/labelled wrong
+        mtype = str(row.get("message_type") or "").lower()
+        inferred = _infer_media_type_from_path(
+            (media_filename or "") if isinstance(media_filename, str) else ""
+        )
+        if inferred and mtype in ("", "text", "document") and inferred != "document":
+            # Don't downgrade real PDFs; do upgrade image/audio paths mislabeled as document
+            if inferred in ("image", "audio", "video"):
+                row["message_type"] = inferred
         out.append(row)
     return out
+
+
+async def fetch_wati_media(file_name: str) -> tuple:
+    """
+    Download media from WATI v1 getMedia.
+    Returns (content_bytes, content_type) or raises ValueError/HTTP-ish errors.
+    """
+    name = (file_name or "").strip()
+    if not name or not _is_wati_media_path(name):
+        raise ValueError("Invalid media file name")
+    if not WATI_API_TOKEN:
+        raise RuntimeError("WATI not configured")
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.get(
+            f"{WATI_API_ENDPOINT}/api/v1/getMedia",
+            params={"fileName": name},
+            headers={"Authorization": f"Bearer {WATI_API_TOKEN}"},
+            timeout=60.0,
+        )
+    if resp.status_code != 200:
+        raise LookupError(f"Media not found ({resp.status_code})")
+    content_type = resp.headers.get("content-type") or "application/octet-stream"
+    return resp.content, content_type
 
 
 async def _preflight_public_url(url: str) -> tuple:

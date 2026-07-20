@@ -34,6 +34,27 @@ async def _verify_gupshup_signature(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
 
+@router.get("/whatsapp/media")
+async def get_whatsapp_media(fileName: str, current_user: dict = Depends(get_current_user)):
+    """Proxy WATI media (images/audio/docs) so the CRM can preview them with auth."""
+    from fastapi.responses import Response
+
+    try:
+        content, content_type = await whatsapp_service.fetch_wati_media(fileName)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"WhatsApp media proxy failed for {fileName}: {e}")
+        raise HTTPException(status_code=502, detail="Could not fetch media from WhatsApp")
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @router.get("/whatsapp/templates")
 async def get_whatsapp_templates(current_user: dict = Depends(get_current_user)):
     return await whatsapp_service.get_templates()

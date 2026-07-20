@@ -180,6 +180,12 @@ export const whatsappAPI = {
   getChatHistory: (phone) => api.get(`/whatsapp/chat-history/${phone}`),
   getLeadChat: (leadId) => api.get(`/whatsapp/lead-chat/${leadId}`),
   syncLeadChat: (leadId) => api.post(`/whatsapp/lead-chat/${leadId}/sync`),
+  /** Authenticated blob fetch for WATI media preview (image/audio/pdf). */
+  getMediaBlob: (fileName) =>
+    api.get('/whatsapp/media', {
+      params: { fileName },
+      responseType: 'blob',
+    }),
   sendBrochure: (leadId) => api.post(`/whatsapp/send-brochure/${leadId}`),
   sendPricing: (leadId) => api.post(`/whatsapp/send-pricing/${leadId}`),
   sendSiteVisitRequest: (leadId) => api.post(`/whatsapp/send-site-visit-request/${leadId}`),
