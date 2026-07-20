@@ -223,3 +223,24 @@ def test_friendly_wati_keeps_clear_text():
 
     msg = _friendly_wati_send_error(400, {"error": "Invalid template parameter"}, kind="template")
     assert "Invalid template parameter" in msg
+
+
+def test_wati_session_send_ok_and_id():
+    from crm.services.whatsapp_service import (
+        _wati_session_send_ok,
+        _wati_session_send_message_id,
+    )
+
+    result = {
+        "ok": True,
+        "result": "success",
+        "message": {
+            "whatsappMessageId": "wamid.ABC",
+            "localMessageId": "local-1",
+            "statusString": "SENT",
+        },
+    }
+    assert _wati_session_send_ok(200, result) is True
+    assert _wati_session_send_message_id(result) == "wamid.ABC"
+    assert _wati_session_send_ok(200, {"result": False, "info": "message text can not be empty"}) is False
+    assert _wati_session_send_ok(404, {}) is False

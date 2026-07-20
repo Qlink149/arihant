@@ -841,24 +841,60 @@ def _friendly_wati_send_error(status_code: int, result, *, kind: str = "message"
 
 async def _wati_send_text(phone: str, text: str):
     """
-    Send a session text message via WATI v3.
-    Only valid when a 24-hour session window is open (inbound from customer < 24h ago).
-    Retries with channel-scoped target on 404 (multi-channel tenants).
+    Send a session text message via WATI v1 sendSessionMessage.
+    messageText must be a query param (JSON body is ignored by WATI).
+    Only valid when a 24-hour session window is open.
     """
+    if not text or not str(text).strip():
+        return None
     last_resp = None
     async with httpx.AsyncClient() as client:
         for target in _wati_session_targets(phone):
             resp = await client.post(
-                f"{WATI_API_ENDPOINT}/api/ext/v3/conversations/messages/text",
+                f"{WATI_API_ENDPOINT}/api/v1/sendSessionMessage/{target}",
                 headers=_wati_headers(),
-                json={"target": target, "text": text},
+                params={"messageText": str(text).strip()},
                 timeout=30.0,
             )
             last_resp = resp
+            # v1 returns 200 even for business errors (result:false) — only retry transport 404
             if resp.status_code != 404:
                 return resp
-            logger.warning(f"WATI sendText 404 for target={target}; trying next target if any")
+            logger.warning(f"WATI sendSessionMessage 404 for target={target}; trying next if any")
     return last_resp
+
+
+def _wati_session_send_message_id(result: dict) -> str:
+    """Extract WhatsApp/local message id from v1 sendSessionMessage response."""
+    if not isinstance(result, dict):
+        return ""
+    msg = result.get("message")
+    if isinstance(msg, dict):
+        for key in ("whatsappMessageId", "localMessageId", "id"):
+            val = msg.get(key)
+            if val:
+                return str(val)
+    for key in ("whatsappMessageId", "localMessageId", "message_id", "id"):
+        val = result.get(key)
+        if val:
+            return str(val)
+    return ""
+
+
+def _wati_session_send_ok(resp_status: int, result: dict) -> bool:
+    """True when WATI accepted the session send."""
+    if not (200 <= int(resp_status or 0) < 300):
+        return False
+    if not isinstance(result, dict):
+        return False
+    if result.get("ok") is True:
+        return True
+    if result.get("result") in (True, "success"):
+        return True
+    if result.get("result") is False:
+        return False
+    # Some tenants only return the message object on success
+    return bool(_wati_session_send_message_id(result))
 
 
 async def _wati_send_template(
@@ -888,20 +924,42 @@ async def _wati_send_template(
 
 
 async def _wati_send_file_via_url(phone: str, file_url: str, filename: str = "document.pdf"):
-    """Send a file (brochure PDF) via URL to an active WATI session. Retries channel target on 404."""
+    """
+    Send a file to an active session.
+    Prefer WATI v1 sendSessionFile (multipart). v3 fileViaUrl 404s on this tenant.
+    """
+    if not file_url:
+        return None
+    filename = (filename or "document.pdf").strip() or "document.pdf"
     last_resp = None
-    async with httpx.AsyncClient() as client:
-        for target in _wati_session_targets(phone):
-            resp = await client.post(
-                f"{WATI_API_ENDPOINT}/api/ext/v3/conversations/messages/fileViaUrl",
-                headers=_wati_headers(),
-                json={"target": target, "url": file_url, "fileName": filename},
-                timeout=30.0,
-            )
-            last_resp = resp
-            if resp.status_code != 404:
-                return resp
-            logger.warning(f"WATI fileViaUrl 404 for target={target}; trying next target if any")
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            file_resp = await client.get(file_url, timeout=60.0)
+            if file_resp.status_code >= 400:
+                logger.warning(
+                    f"Brochure download failed {file_resp.status_code} for {file_url}"
+                )
+                return file_resp
+            content = file_resp.content
+            content_type = file_resp.headers.get("content-type") or "application/pdf"
+
+            for target in _wati_session_targets(phone):
+                resp = await client.post(
+                    f"{WATI_API_ENDPOINT}/api/v1/sendSessionFile/{target}",
+                    headers={"Authorization": f"Bearer {WATI_API_TOKEN}"},
+                    params={"caption": filename},
+                    files={"file": (filename, content, content_type)},
+                    timeout=60.0,
+                )
+                last_resp = resp
+                if resp.status_code != 404:
+                    return resp
+                logger.warning(
+                    f"WATI sendSessionFile 404 for target={target}; trying next if any"
+                )
+    except Exception as e:
+        logger.error(f"WATI sendSessionFile error for {phone}: {e}")
+        return last_resp
     return last_resp
 
 
@@ -1097,16 +1155,29 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
         if resp is None:
             return {
                 "success": False,
-                "error": _friendly_wati_send_error(404, {}, kind="message"),
-                "status_code": 404,
+                "error": "Message text is required for session messages",
             }
         try:
             result = resp.json()
         except Exception:
             result = {"raw": getattr(resp, "text", "")}
 
-        if 200 <= resp.status_code < 300:
-            wati_msg_id = result.get("message", {}).get("id", "")
+        if _wati_session_send_ok(resp.status_code, result if isinstance(result, dict) else {}):
+            msg_obj = result.get("message") if isinstance(result, dict) else {}
+            if not isinstance(msg_obj, dict):
+                msg_obj = {}
+            wati_msg_id = _wati_session_send_message_id(result if isinstance(result, dict) else {})
+            local_id = msg_obj.get("localMessageId")
+            status_val = (
+                msg_obj.get("statusString")
+                or msg_obj.get("status")
+                or result.get("status")
+                or "sent"
+            )
+            if isinstance(status_val, str):
+                status_val = status_val.lower()
+            else:
+                status_val = "sent"
             msg_doc = {
                 "id": str(uuid.uuid4()),
                 "wati_message_id": wati_msg_id or None,
@@ -1115,22 +1186,33 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
                 "destination": phone,
                 "message_type": "text",
                 "content": message.text,
-                "status": result.get("message", {}).get("status", "sent"),
+                "status": status_val,
                 "sent_by": current_user["id"],
                 "sent_by_user_id": current_user["id"],
                 "created_at": now_iso,
                 "created_at_dt": now_dt,
             }
+            if local_id and str(local_id) != str(wati_msg_id or ""):
+                msg_doc["wati_local_id"] = str(local_id)
             await _upsert_whatsapp_message(msg_doc)
             return {
                 "success": True,
-                "status": "sent",
+                "status": status_val,
                 "message_id": wati_msg_id,
                 "destination": phone,
             }
         else:
-            err = _friendly_wati_send_error(resp.status_code, result, kind="message")
-            logger.error(f"WATI sendText failed {phone}: {resp.status_code} {resp.text[:300]}")
+            info = ""
+            if isinstance(result, dict):
+                info = result.get("info") or result.get("error") or result.get("message") or ""
+                if isinstance(info, dict):
+                    info = info.get("message") or str(info)
+            err = _friendly_wati_send_error(
+                resp.status_code,
+                {"error": info} if info else result,
+                kind="message",
+            )
+            logger.error(f"WATI sendSessionMessage failed {phone}: {resp.status_code} {getattr(resp, 'text', '')[:300]}")
             return {"success": False, "error": err, "status_code": resp.status_code}
 
     except Exception as e:
