@@ -791,7 +791,7 @@ const WhatsAppInboxPage = () => {
 
               <div className="border-t border-crm-border p-3 space-y-2 shrink-0">
                 {!effectiveSessionOpen && (
-                  <div className="text-xs text-amber-300/90 bg-amber-900/20 border border-amber-500/20 rounded-lg px-3 py-2">
+                  <div className="wa-session-closed-banner text-xs rounded-lg px-3 py-2 border border-amber-500/40 bg-amber-500/15 text-amber-200">
                     Outside 24h window — send a template to message this customer.
                   </div>
                 )}

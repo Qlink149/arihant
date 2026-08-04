@@ -268,6 +268,13 @@
     color: #71717a !important;
 }
 
+/* WhatsApp 24h-closed banner — amber readable in light mode */
+.light-mode .wa-session-closed-banner {
+    color: #92400e !important;
+    background-color: rgba(245, 158, 11, 0.14) !important;
+    border-color: rgba(217, 119, 6, 0.45) !important;
+}
+
 /* Dashboard hero — always light text on dark imagery (both themes) */
 .dashboard-hero .hero-greeting {
     color: #ffffff;
