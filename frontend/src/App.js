@@ -21,6 +21,7 @@ const SalesDashboardPage = lazy(() => import('./pages/SalesDashboardPage'));
 const MyDashboardPage = lazy(() => import('./pages/MyDashboardPage'));
 const MarketingDashboardPage = lazy(() => import('./pages/MarketingDashboardPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const WhatsAppInboxPage = lazy(() => import('./pages/WhatsAppInboxPage'));
 const PlatformOpsPage = lazy(() => import('./pages/PlatformOpsPage'));
 const OpsActiveStatusPage = lazy(() => import('./pages/OpsActiveStatusPage'));
 
@@ -124,6 +125,7 @@ function AppRoutes() {
         <Route path="my-dashboard" element={<LazyPage><MyDashboardPage /></LazyPage>} />
         <Route path="marketing-dashboard" element={<AdminRoute><LazyPage><MarketingDashboardPage /></LazyPage></AdminRoute>} />
         <Route path="notifications" element={<LazyPage><NotificationsPage /></LazyPage>} />
+        <Route path="whatsapp" element={<LazyPage><WhatsAppInboxPage /></LazyPage>} />
         {user?.is_platform_operator && (
           <>
             <Route path="ops" element={<LazyPage><PlatformOpsPage /></LazyPage>} />

@@ -38,7 +38,9 @@ _FW_TO_CANONICAL: dict[str, Tuple[str, bool]] = {
     "won": ("Closed Won", False),
     "dropped": ("Closed Lost", False),
     "churned": ("Closed Lost", False),
-    "rental": ("Closed Lost", False),
+    # A rental enquiry is a product mismatch (we sell, they want to rent), not a
+    # lost sale -- keeps Closed Lost reporting to genuinely lost deals.
+    "rental": ("Unqualified", False),
     "junk": ("Junk", False),
     "unqualified": ("Unqualified", False),
     "lost": ("Closed Lost", False),

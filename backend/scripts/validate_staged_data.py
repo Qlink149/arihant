@@ -33,8 +33,16 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = SCRIPT_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+# Sibling scripts (extract_csv_data, import_leads_to_db) are importable when this file is
+# run directly, but not when it is imported from elsewhere -- add explicitly so both work.
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 import seed_db_v2 as sv2  # noqa: E402
+# Reuse the extractor's STRICT resolver, not sv2.find_csv: the latter's '_<name>' suffix
+# rule resolves 'Contacts.csv' to 'Account_contacts.csv' when both exist, which would have
+# this validator audit the staged data against the wrong source file.
+from extract_csv_data import find_csv, resolve_lead_source  # noqa: E402
 from import_leads_to_db import restore_datetimes  # noqa: E402  (pure function, no DB import-time side effects)
 from crm.models.schemas.lead_schemas import LeadResponse  # noqa: E402  (pure pydantic model)
 from crm.services.context_updates import dedupe_context_updates  # noqa: E402
@@ -87,7 +95,7 @@ def check_uniqueness(leads: List[Dict[str, Any]], f: Findings) -> None:
 # ─── 2. Field-level re-derivation against fresh Contacts.csv (100% coverage) ──
 
 def check_field_derivation(leads: List[Dict[str, Any]], csv_dir: str, f: Findings) -> None:
-    contacts_path = sv2.find_csv(csv_dir, "Contacts.csv")
+    contacts_path = find_csv(csv_dir, "Contacts.csv")
     fresh_rows = sv2.read_csv_file(contacts_path)
     fresh_by_id = {r.get("Id", ""): r for r in fresh_rows if r.get("Id")}
 
@@ -149,6 +157,16 @@ def check_field_derivation(leads: List[Dict[str, Any]], csv_dir: str, f: Finding
             f.error(f"external_id={cid}: original_source still empty despite lead_source present")
         if not lead.get("most_recent_source") and lead.get("lead_source"):
             f.error(f"external_id={cid}: most_recent_source still empty despite lead_source present")
+
+        # lead_source must be the REAL source, never seed_db_v2's lossy bucket. Guards the
+        # specific regression the client caught: 495 'Aurum Analytica' leads silently
+        # relabelled 'management reference', and unknown brokers defaulted to 'google'.
+        expected_source = resolve_lead_source(raw)
+        if lead.get("lead_source") != expected_source:
+            f.error(
+                f"external_id={cid}: lead_source={lead.get('lead_source')!r} != expected "
+                f"{expected_source!r} (re-derived from CSV Source/Original/Most recent)"
+            )
 
         # email sanity
         email = lead.get("email")
@@ -230,8 +248,8 @@ def check_linkage_coverage(leads: List[Dict[str, Any]], csv_dir: str, f: Finding
         }
 
     # Notes
-    note_tgt_path = sv2.find_csv(csv_dir, "Note_targetables.csv")
-    notes_path = sv2.find_csv(csv_dir, "Notes.csv")
+    note_tgt_path = find_csv(csv_dir, "Note_targetables.csv")
+    notes_path = find_csv(csv_dir, "Notes.csv")
     if note_tgt_path and notes_path:
         note_ids = {r["Id"] for r in sv2.read_csv_file(notes_path) if r.get("Id")}
         expect_notes = defaultdict(int)
@@ -255,8 +273,8 @@ def check_linkage_coverage(leads: List[Dict[str, Any]], csv_dir: str, f: Finding
         f.warn("Note_targetables.csv or Notes.csv missing -- notes linkage not checked")
 
     # Sales activities
-    sa_path = sv2.find_csv(csv_dir, "Sales_activities.csv")
-    sa_tgt_path = sv2.find_csv(csv_dir, "Salesactivity_targetables.csv")
+    sa_path = find_csv(csv_dir, "Sales_activities.csv")
+    sa_tgt_path = find_csv(csv_dir, "Salesactivity_targetables.csv")
     if sa_path and sa_tgt_path:
         sa_ids = {r["Id"] for r in sv2.read_csv_file(sa_path) if r.get("Id")}
         expect_sa = defaultdict(int)

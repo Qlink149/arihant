@@ -49,7 +49,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +66,91 @@ import seed_db_v2 as sv2  # noqa: E402  (read-only reuse of the production field
 
 DEFAULT_CSV_DIR = str(BACKEND_DIR / "csv")
 DEFAULT_OUT_DIR = str(SCRIPT_DIR / "static_data")
+
+# Holding owner for contacts with a blank Freshworks "Sales owner". Must match a
+# users.full_name in the live DB (import_leads_to_db resolves assignees by that field).
+UNOWNED_ASSIGNEE = "Admin"
+
+
+def resolve_lead_source(row: Dict[str, str]) -> Optional[str]:
+    """Freshworks Source -> app lead_source, preserving the real value.
+
+    Replaces seed_db_v2.clean_source(), which was written against an obsolete 11-value
+    source list and actively destroys attribution data two ways:
+      1. hard-collapsing distinct sources into others ("Aurum Analytica" and
+         "channel partner" both became "management reference"; "mcube" became
+         "direct-walkin"), and
+      2. defaulting EVERY unrecognised value -- including real broker names like
+         propleaf, JLL, proptiger -- to "google" via its final `return "google"`.
+    transform_to_lead then re-forces anything outside that old list to "google" again.
+
+    The app has since grown crm.constants.lead_picklists.CANONICAL_SOURCES (72 values,
+    including 'aurum analytica', 'mcube', 'channel partner', 'nobroker'), so these
+    sources are fully supported downstream -- only the importer was dropping them.
+
+    Values matching a canonical entry are normalised to it; anything else is preserved
+    verbatim rather than being bucketed, so attribution stays truthful. A contact with
+    no source at all returns None instead of being silently labelled "google".
+    """
+    from crm.constants.lead_picklists import CANONICAL_SOURCES
+
+    canon = {s.lower(): s for s in CANONICAL_SOURCES}
+    for col in ("Source", "Original source", "Most recent source"):
+        raw = (row.get(col) or "").strip()
+        if raw:
+            return canon.get(raw.lower(), raw)
+    return None
+
+
+# ─── Flexible CSV lookup ───────────────────────────────────────────────────
+
+# name-as-requested -> actual filename used, so a run can report exactly what fed it.
+RESOLVED_PATHS: Dict[str, str] = {}
+
+
+def find_csv(directory: str, name: str) -> Optional[str]:
+    """Locate an input CSV: exact filename, or the numeric suffix browsers add to
+    repeat downloads ('Contacts.csv' also matches 'Contacts (1).csv').
+
+    Deliberately STRICTER than seed_db_v2.find_csv, which also accepts any filename
+    ending in '_<name>' / '-<name>'. That fuzzy rule silently resolves 'Contacts.csv'
+    to 'Account_contacts.csv' when both are present (Account_contacts.csv ends with
+    '_contacts.csv') -- a real misresolution hit in this repo's own csv/ folder, which
+    would have staged zero leads off the wrong file. Substring-ish matching is not
+    worth that risk when every input here has a known exact name.
+
+    Most inputs are OPTIONAL, so an unmatched file drops a whole activity type from
+    every lead's timeline rather than failing loudly -- hence RESOLVED_PATHS, which
+    lets the run print exactly which file on disk fed each logical input. When several
+    suffixed copies exist, the highest number wins (most recent download).
+    """
+    d = Path(directory)
+    if not d.exists():
+        return None
+
+    lo = name.lower()
+    stem, ext = os.path.splitext(name)
+    suffixed = re.compile(rf"^{re.escape(stem)}\s*\((\d+)\){re.escape(ext)}$", re.IGNORECASE)
+
+    exact: Optional[Path] = None
+    best: Optional[tuple] = None
+    for f in d.iterdir():
+        if not f.is_file():
+            continue
+        if f.name.lower() == lo:
+            exact = f
+            break
+        m = suffixed.match(f.name)
+        if m:
+            n = int(m.group(1))
+            if best is None or n > best[0]:
+                best = (n, f)
+
+    chosen = exact or (best[1] if best else None)
+    if chosen is None:
+        return None
+    RESOLVED_PATHS[name] = chosen.name
+    return str(chosen)
 
 
 # ─── JSON-safety helpers ───────────────────────────────────────────────────
@@ -83,8 +170,8 @@ def json_safe(obj: Any) -> Any:
 
 def build_sales_activity_map(csv_dir: str) -> Dict[str, List[Dict[str, Any]]]:
     """Contact id -> Sales_activities.csv rows, linked via Salesactivity_targetables.csv."""
-    activities_path = sv2.find_csv(csv_dir, "Sales_activities.csv")
-    targetables_path = sv2.find_csv(csv_dir, "Salesactivity_targetables.csv")
+    activities_path = find_csv(csv_dir, "Sales_activities.csv")
+    targetables_path = find_csv(csv_dir, "Salesactivity_targetables.csv")
     if not activities_path or not targetables_path:
         return {}
     activities_by_id = {r["Id"]: r for r in sv2.read_csv_file(activities_path) if r.get("Id")}
@@ -134,7 +221,7 @@ def build_user_id_to_name(csv_dir: str) -> Dict[str, str]:
         ("Updated by id", "Updated by"),
     ]
     for fname in ("Contacts.csv", "Sales_activities.csv"):
-        path = sv2.find_csv(csv_dir, fname)
+        path = find_csv(csv_dir, fname)
         if not path:
             continue
         for row in sv2.read_csv_file(path):
@@ -149,7 +236,7 @@ def build_user_id_to_name(csv_dir: str) -> Dict[str, str]:
 def build_task_collaborators(csv_dir: str, user_id_to_name: Dict[str, str]) -> List[Dict[str, Any]]:
     """Stage Task_collaborators.csv for your own records (see module docstring for why
     this is not merged into leads_import.json)."""
-    path = sv2.find_csv(csv_dir, "Task_collaborators.csv")
+    path = find_csv(csv_dir, "Task_collaborators.csv")
     if not path:
         return []
     out: List[Dict[str, Any]] = []
@@ -172,13 +259,13 @@ def extract(csv_dir: str, *, limit: int = 0, include_import_marker: bool = False
     warnings: List[str] = []
 
     paths = {
-        "contacts": sv2.find_csv(csv_dir, "Contacts.csv"),
-        "notes": sv2.find_csv(csv_dir, "Notes.csv"),
-        "note_tgt": sv2.find_csv(csv_dir, "Note_targetables.csv"),
-        "tasks": sv2.find_csv(csv_dir, "Tasks.csv"),
-        "task_tgt": sv2.find_csv(csv_dir, "Task_targetables.csv"),
-        "calls": sv2.find_csv(csv_dir, "Call_logs.csv"),
-        "emails": sv2.find_csv(csv_dir, "Contact_emails.csv"),
+        "contacts": find_csv(csv_dir, "Contacts.csv"),
+        "notes": find_csv(csv_dir, "Notes.csv"),
+        "note_tgt": find_csv(csv_dir, "Note_targetables.csv"),
+        "tasks": find_csv(csv_dir, "Tasks.csv"),
+        "task_tgt": find_csv(csv_dir, "Task_targetables.csv"),
+        "calls": find_csv(csv_dir, "Call_logs.csv"),
+        "emails": find_csv(csv_dir, "Contact_emails.csv"),
     }
     if not paths["contacts"]:
         raise SystemExit(f"Contacts.csv not found under {csv_dir}")
@@ -241,6 +328,21 @@ def extract(csv_dir: str, *, limit: int = 0, include_import_marker: bool = False
         # Every imported lead remains sla_paused=True until a rep changes status.
         lead["sla_paused"] = True
         lead["import_provenance"] = "freshworks"
+
+        # Real lead_source, not seed_db_v2's lossy bucketing (see resolve_lead_source).
+        lead["lead_source"] = resolve_lead_source(cm.chosen)
+
+        # Never invent a rep for a lead nobody owns.
+        # seed_db_v2.transform_to_lead falls back to `reps[hash(phone) % len(reps)]` when the
+        # Freshworks "Sales owner" column is blank, which fabricates an owner and -- because
+        # Python randomizes str hashing per process -- picks a DIFFERENT rep on every run.
+        # Reps were being shown leads they never owned. Park these under Admin instead and
+        # flag them, so they are visibly pending redistribution rather than silently misfiled.
+        if not (cm.chosen.get("Sales owner") or "").strip():
+            lead["assigned_to"] = UNOWNED_ASSIGNEE
+            lead["assigned_to_name"] = UNOWNED_ASSIGNEE
+            lead["presales_agent"] = UNOWNED_ASSIGNEE
+            lead["unowned_in_source"] = True
 
         from crm.constants.import_status_map import fw_status_to_canonical
 
@@ -318,7 +420,7 @@ def verify_sample(
     budgets, rep assignment for leads with no CSV owner) are deliberately excluded --
     they are expected to differ across separate runs and are not a correctness signal.
     """
-    contacts_path = sv2.find_csv(csv_dir, "Contacts.csv")
+    contacts_path = find_csv(csv_dir, "Contacts.csv")
     fresh_rows = sv2.read_csv_file(contacts_path)
     fresh_by_id = {r.get("Id", ""): r for r in fresh_rows if r.get("Id")}
 
@@ -401,43 +503,75 @@ def main() -> None:
         action="store_true",
         help="Append a synthetic 'Imported via extract_csv_data' timeline entry (off by default)",
     )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Parse, transform and verify everything, but write NO output files. Use to test a new "
+        "CSV drop (filenames, headers, counts, status mapping) before overwriting staged JSON.",
+    )
     args = ap.parse_args()
 
     print("\n" + "=" * 72)
-    print("  extract_csv_data.py -- Phase 2/3: CSV -> staged JSON (no DB access)")
+    mode = "DRY RUN (no files written)" if args.dry_run else "WRITE staged JSON"
+    print(f"  extract_csv_data.py -- Phase 2/3: CSV -> staged JSON  [{mode}]")
     print("=" * 72)
     print(f"  CSV dir : {args.csv_dir}")
-    print(f"  Out dir : {args.out_dir}\n")
+    print(f"  Out dir : {args.out_dir}")
+    if args.limit:
+        print(f"  Limit   : first {args.limit:,} contacts only (sample run)")
+    print()
 
     out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
 
     print("--- Phase 2: extracting + staging ---\n")
     result = extract(args.csv_dir, limit=args.limit, include_import_marker=args.include_seed_marker)
     leads = result["leads"]
 
+    # Show exactly which file on disk fed each logical input -- filenames vary between
+    # exports ('Contacts.csv' vs 'Contacts (1).csv'), and a silently unmatched optional
+    # input would drop a whole activity type without failing.
+    print("  Input files resolved:")
+    for logical in ("Contacts.csv", "Notes.csv", "Note_targetables.csv", "Tasks.csv",
+                    "Task_targetables.csv", "Call_logs.csv", "Contact_emails.csv",
+                    "Sales_activities.csv", "Salesactivity_targetables.csv", "Task_collaborators.csv"):
+        actual = RESOLVED_PATHS.get(logical)
+        print(f"    {logical:<32} -> {actual if actual else '(not found -- skipped)'}")
+    print()
+
     for w in result["stats"]["warnings"]:
         print(f"  [WARN] {w}")
 
     leads_path = out_dir / "leads_import.json"
-    with open(leads_path, "w", encoding="utf-8") as f:
-        json.dump(json_safe(leads), f, indent=2, ensure_ascii=False)
-    print(f"  [OK] wrote {leads_path.name}  ({len(leads):,} leads)")
+    if args.dry_run:
+        print(f"  [DRY] would write leads_import.json       ({len(leads):,} leads)")
+        print(f"  [DRY] would write unlinked_notes.json      ({len(result['unlinked_notes']):,} rows)")
+        print(f"  [DRY] would write task_collaborators.json  ({len(result['task_collaborators']):,} rows)")
+    else:
+        with open(leads_path, "w", encoding="utf-8") as f:
+            json.dump(json_safe(leads), f, indent=2, ensure_ascii=False)
+        print(f"  [OK] wrote {leads_path.name}  ({len(leads):,} leads)")
 
-    notes_path = out_dir / "unlinked_notes.json"
-    with open(notes_path, "w", encoding="utf-8") as f:
-        json.dump(json_safe(result["unlinked_notes"]), f, indent=2, ensure_ascii=False)
-    print(f"  [OK] wrote {notes_path.name}  ({len(result['unlinked_notes']):,} rows)")
+        notes_path = out_dir / "unlinked_notes.json"
+        with open(notes_path, "w", encoding="utf-8") as f:
+            json.dump(json_safe(result["unlinked_notes"]), f, indent=2, ensure_ascii=False)
+        print(f"  [OK] wrote {notes_path.name}  ({len(result['unlinked_notes']):,} rows)")
 
-    collab_path = out_dir / "task_collaborators.json"
-    with open(collab_path, "w", encoding="utf-8") as f:
-        json.dump(json_safe(result["task_collaborators"]), f, indent=2, ensure_ascii=False)
-    print(f"  [OK] wrote {collab_path.name}  ({len(result['task_collaborators']):,} rows)")
+        collab_path = out_dir / "task_collaborators.json"
+        with open(collab_path, "w", encoding="utf-8") as f:
+            json.dump(json_safe(result["task_collaborators"]), f, indent=2, ensure_ascii=False)
+        print(f"  [OK] wrote {collab_path.name}  ({len(result['task_collaborators']):,} rows)")
 
     print("\n--- Phase 3: verifying staged JSON against source CSVs ---\n")
-    # Reload from disk so verification checks what was actually written, not just what's in memory.
-    with open(leads_path, "r", encoding="utf-8") as f:
-        reloaded = json.load(f)
+    if args.dry_run:
+        # Verify the in-memory result (round-tripped through json_safe so it matches
+        # exactly what would have been written to disk).
+        reloaded = json.loads(json.dumps(json_safe(leads)))
+    else:
+        # Reload from disk so verification checks what was actually written, not just what's in memory.
+        with open(leads_path, "r", encoding="utf-8") as f:
+            reloaded = json.load(f)
     verification = verify_sample(reloaded, args.csv_dir, sample_size=args.sample_size, seed=args.seed)
 
     for r in verification["results"]:
@@ -460,13 +594,20 @@ def main() -> None:
 
     result["stats"]["verification"] = verification
     report_path = out_dir / "extraction_report.json"
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(json_safe(result["stats"]), f, indent=2, ensure_ascii=False)
-    print(f"\n  [OK] wrote {report_path.name}")
+    if args.dry_run:
+        print(f"\n  [DRY] would write {report_path.name}")
+    else:
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(json_safe(result["stats"]), f, indent=2, ensure_ascii=False)
+        print(f"\n  [OK] wrote {report_path.name}")
 
     print("\n" + "=" * 72)
-    print("  Phase 2/3 complete. No database was touched.")
-    print("  Next: review the JSON above, then see scripts/import_leads_to_db.py")
+    if args.dry_run:
+        print("  DRY RUN complete -- no files written, no database touched.")
+        print("  Re-run without --dry-run to stage the JSON for import.")
+    else:
+        print("  Phase 2/3 complete. No database was touched.")
+        print("  Next: review the JSON above, then see scripts/import_leads_to_db.py")
     print("=" * 72 + "\n")
 
 

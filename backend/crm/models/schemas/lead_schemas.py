@@ -38,6 +38,12 @@ class LeadBase(BaseModel):
     site_visit_count: Optional[int] = 0
     meta_qualified: Optional[bool] = None
     temperature: Optional[str] = None
+    # Website / public intake fields
+    consent: Optional[bool] = None
+    schedule_visit: Optional[str] = None
+    intake_meta: Optional[Dict[str, Any]] = None
+    submission_count: Optional[int] = None
+    intake_spam: Optional[bool] = None
 
 
 class LeadCreate(LeadBase):
@@ -81,6 +87,11 @@ class LeadUpdatePatch(BaseModel):
     logged_outcome_reason: Optional[str] = None
     # Lost/Junk reason
     lost_reason: Optional[str] = None
+    consent: Optional[bool] = None
+    schedule_visit: Optional[str] = None
+    intake_meta: Optional[Dict[str, Any]] = None
+    submission_count: Optional[int] = None
+    intake_spam: Optional[bool] = None
 
 
 class LeadResponse(LeadBase):
@@ -121,6 +132,11 @@ class LeadResponse(LeadBase):
     ai_configured: Optional[bool] = None
     ai_stale: Optional[bool] = None
     ai_generation_pending: Optional[bool] = None
+    consent: Optional[bool] = None
+    schedule_visit: Optional[str] = None
+    intake_meta: Optional[Dict[str, Any]] = None
+    submission_count: Optional[int] = None
+    intake_spam: Optional[bool] = None
     context_updates: List[dict] = []
     created_at: datetime
     updated_at: datetime

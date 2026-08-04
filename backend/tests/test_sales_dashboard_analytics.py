@@ -13,13 +13,37 @@ from crm.services.sales_dashboard_filters import (
 
 
 def test_fw_status_to_canonical_migrated_labels():
+    # Mirrors the client-approved Freshworks -> canonical mapping table.
+    # Interested and Junk are canonical statuses in their own right (UI_LEAD_STATUSES),
+    # not folded into Nurturing / Closed Lost.
     assert fw_status_to_canonical("RNR 1") == ("RNR", True)
     assert fw_status_to_canonical("RNR 2") == ("RNR", True)
     assert fw_status_to_canonical("Follow Up 1") == ("Nurturing", False)
-    assert fw_status_to_canonical("Interested") == ("Nurturing", False)
+    assert fw_status_to_canonical("Follow Up 2") == ("Nurturing", False)
+    assert fw_status_to_canonical("Interested") == ("Interested", False)
     assert fw_status_to_canonical("Site Visit Completed") == ("Visit Completed", False)
+    assert fw_status_to_canonical("Office Visit Completed") == ("Visit Completed", False)
     assert fw_status_to_canonical("Advance Paid") == ("Closed Won", False)
-    assert fw_status_to_canonical("Junk") == ("Closed Lost", False)
+    assert fw_status_to_canonical("Awaiting Completion") == ("Closed Won", False)
+    assert fw_status_to_canonical("Junk") == ("Junk", False)
+    assert fw_status_to_canonical("Unqualified") == ("Unqualified", False)
+    assert fw_status_to_canonical("Dropped") == ("Closed Lost", False)
+    assert fw_status_to_canonical("Gone Cold") == ("Gone Cold", False)
+    assert fw_status_to_canonical("Project Unavailability - Future prospect") == (
+        "Future Prospect",
+        False,
+    )
+    assert fw_status_to_canonical("Future Prospect - Bangalore") == ("Future Prospect", False)
+    # Present in the export but absent from the client's table; resolved with them:
+    # a rental enquiry is a product mismatch, a churned customer is a lost deal.
+    assert fw_status_to_canonical("Rental") == ("Unqualified", False)
+    assert fw_status_to_canonical("Churned") == ("Closed Lost", False)
+
+
+def test_fw_status_unknown_label_falls_back_to_new():
+    assert fw_status_to_canonical("Some Brand New Label") == ("New", False)
+    assert fw_status_to_canonical("") == ("New", False)
+    assert fw_status_to_canonical(None) == ("New", False)
 
 
 def test_resolve_imported_lead_status_prefers_original_fw():

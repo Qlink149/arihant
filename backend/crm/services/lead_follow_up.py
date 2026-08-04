@@ -43,6 +43,70 @@ async def recompute_lead_next_action_date(lead_id: str) -> Optional[str]:
     return due
 
 
+async def complete_overdue_pending_tasks(lead_id: str, *, today_str: str, actor_name: str = "System") -> int:
+    """
+    Mark overdue pending tasks completed so Missed Follow-up can clear after
+    a rep logs follow-up activity (notes / context updates).
+    Returns number of tasks completed.
+    """
+    if not lead_id or not today_str:
+        return 0
+    now_iso = None
+    try:
+        from crm.utils.helpers import iso_utc_now, utc_now
+
+        now_dt = utc_now()
+        now_iso = iso_utc_now()
+    except Exception:
+        now_dt = None
+        now_iso = None
+
+    result = await db.tasks.update_many(
+        {
+            "lead_id": lead_id,
+            "status": {"$in": list(_PENDING_STATUSES)},
+            "due_date": {"$lt": today_str},
+        },
+        {
+            "$set": {
+                "status": "completed",
+                "completed_at": now_iso,
+                "completed_at_dt": now_dt,
+                "updated_at": now_iso,
+                "updated_at_dt": now_dt,
+                "completion_note": f"Auto-completed on follow-up note by {actor_name}",
+            }
+        },
+    )
+    return int(getattr(result, "modified_count", 0) or 0)
+
+
+async def clear_missed_follow_up_after_activity(
+    lead_id: str,
+    *,
+    today_str: str,
+    actor_name: str = "System",
+) -> dict:
+    """Complete overdue tasks and recompute next_action_date after follow-up activity."""
+    completed = await complete_overdue_pending_tasks(
+        lead_id, today_str=today_str, actor_name=actor_name
+    )
+    due = await recompute_lead_next_action_date(lead_id)
+    # If NAD is still stuck in the past with no pending tasks, force-clear it.
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0, "next_action_date": 1})
+    nad = _normalize_due_date((lead or {}).get("next_action_date"))
+    cleared_stale_nad = False
+    if nad and nad < today_str and not due:
+        await db.leads.update_one({"id": lead_id}, {"$unset": {"next_action_date": ""}})
+        cleared_stale_nad = True
+        nad = None
+    return {
+        "completed_tasks": completed,
+        "next_action_date": due or nad,
+        "cleared_stale_nad": cleared_stale_nad,
+    }
+
+
 async def pending_task_due_lead_ids(
     today_str: str,
     *,
@@ -110,7 +174,12 @@ def missed_follow_up_clause(ctx: dict, task_lead_ids: Optional[List[str]] = None
     today_str = ctx["today_str"]
     date_match: list[dict] = [
         {
-            "next_action_date": {"$exists": True, "$ne": None, "$lt": today_str},
+            # Exclude empty string — Mongo "" < "YYYY-MM-DD" would false-positive.
+            "next_action_date": {
+                "$exists": True,
+                "$nin": [None, ""],
+                "$lt": today_str,
+            },
         }
     ]
     if task_lead_ids:

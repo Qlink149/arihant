@@ -45,6 +45,10 @@ from crm.core.state import (
     logger,
 )
 from crm.models.schemas.whatsapp_schemas import WhatsAppMessage
+from crm.services.dashboard_scope import (
+    rep_lead_filter,
+    task_assignee_clause,
+)
 from crm.utils.helpers import (
     coerce_datetime,
     format_phone_for_gupshup,
@@ -52,6 +56,11 @@ from crm.utils.helpers import (
     normalize_phone,
     utc_now,
 )
+
+# Inbox list caps — keep query bounded for CRM scale.
+_INBOX_LEAD_CANDIDATE_CAP = 500
+_INBOX_DEFAULT_LIMIT = 50
+_INBOX_MAX_LIMIT = 100
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1569,6 +1578,196 @@ async def sync_lead_chat_history(lead_id: str) -> dict:
         return {"messages": [], "error": "Lead has no phone number", "synced": 0}
 
     return await sync_chat_history(phone)
+
+
+def _inbox_peer_phone(raw: str) -> str:
+    """Normalize customer phone for inbox join (WATI digits with country code)."""
+    if not raw:
+        return ""
+    if WHATSAPP_PROVIDER == "wati":
+        return _wati_phone(str(raw))
+    return format_phone_for_gupshup(str(raw))
+
+
+def _lead_display_name(lead: dict) -> str:
+    first = (lead.get("first_name") or "").strip()
+    last = (lead.get("last_name") or "").strip()
+    name = f"{first} {last}".strip()
+    if name:
+        return name
+    return (lead.get("name") or lead.get("phone") or "Unknown").strip()
+
+
+def _inbox_preview_text(msg: dict, max_len: int = 120) -> str:
+    if not isinstance(msg, dict):
+        return ""
+    raw = msg.get("reply_label") or msg.get("content") or ""
+    text = _humanize_stored_content(raw)
+    text = " ".join(str(text).split())
+    if len(text) > max_len:
+        return text[: max_len - 1] + "…"
+    return text
+
+
+async def _inbox_lead_scope_filter(current_user: dict) -> dict:
+    """
+    Leads visible in WhatsApp inbox.
+    Admin/manager: org-wide. Rep: owned leads OR leads with a task assigned to them.
+    View grants are intentionally excluded from the list (ephemeral).
+    """
+    if current_user.get("role") in ("admin", "manager"):
+        return {}
+    uid = current_user.get("id") or ""
+    name = current_user.get("full_name") or ""
+    owned = rep_lead_filter(uid, name)
+    task_filter = task_assignee_clause(uid, name)
+    lead_ids: list[str] = []
+    cursor = db.tasks.find(task_filter, {"_id": 0, "lead_id": 1})
+    async for t in cursor:
+        lid = t.get("lead_id")
+        if lid and lid not in lead_ids:
+            lead_ids.append(lid)
+    if lead_ids:
+        return {"$or": [owned, {"id": {"$in": lead_ids}}]}
+    return owned
+
+
+async def get_whatsapp_inbox(
+    current_user: dict,
+    *,
+    limit: int = _INBOX_DEFAULT_LIMIT,
+    skip: int = 0,
+) -> dict:
+    """
+    Cross-lead WhatsApp conversation list for the left-nav inbox.
+
+    Joins scoped leads → phone → last whatsapp_messages row.
+    One phone maps to one in-scope lead (first wins); same as webhook matching.
+    """
+    try:
+        limit = max(1, min(int(limit or _INBOX_DEFAULT_LIMIT), _INBOX_MAX_LIMIT))
+    except (TypeError, ValueError):
+        limit = _INBOX_DEFAULT_LIMIT
+    try:
+        skip = max(0, int(skip or 0))
+    except (TypeError, ValueError):
+        skip = 0
+
+    scope = await _inbox_lead_scope_filter(current_user)
+    phone_clause = {
+        "$or": [
+            {"phone": {"$exists": True, "$nin": [None, ""]}},
+            {"normalized_phone": {"$exists": True, "$nin": [None, ""]}},
+        ]
+    }
+    lead_query = {"$and": [scope, phone_clause]} if scope else phone_clause
+
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "first_name": 1,
+        "last_name": 1,
+        "name": 1,
+        "phone": 1,
+        "normalized_phone": 1,
+        "project": 1,
+        "assigned_to": 1,
+        "assigned_to_name": 1,
+        "status": 1,
+        "pipeline_status": 1,
+        "budget": 1,
+        "configuration": 1,
+    }
+    candidates = (
+        await db.leads.find(lead_query, projection)
+        .limit(_INBOX_LEAD_CANDIDATE_CAP)
+        .to_list(_INBOX_LEAD_CANDIDATE_CAP)
+    )
+
+    # phone (WATI form) -> lead; first in-scope lead wins on duplicate phones
+    phone_to_lead: dict[str, dict] = {}
+    for lead in candidates:
+        peer = _inbox_peer_phone(lead.get("phone") or lead.get("normalized_phone") or "")
+        if not peer or peer in phone_to_lead:
+            continue
+        phone_to_lead[peer] = lead
+
+    phones = list(phone_to_lead.keys())
+    if not phones:
+        return {"conversations": [], "count": 0, "limit": limit, "skip": skip}
+
+    pipeline = [
+        {
+            "$match": {
+                "$or": [
+                    {"destination": {"$in": phones}},
+                    {"source": {"$in": phones}},
+                ]
+            }
+        },
+        {
+            "$addFields": {
+                "_peer": {
+                    "$cond": [
+                        {"$in": ["$destination", phones]},
+                        "$destination",
+                        "$source",
+                    ]
+                },
+                "_sort_dt": {"$ifNull": ["$created_at_dt", "$created_at"]},
+            }
+        },
+        {"$sort": {"_sort_dt": -1}},
+        {
+            "$group": {
+                "_id": "$_peer",
+                "last": {"$first": "$$ROOT"},
+            }
+        },
+    ]
+
+    last_by_phone: dict[str, dict] = {}
+    async for row in db.whatsapp_messages.aggregate(pipeline):
+        peer = row.get("_id")
+        last = row.get("last") or {}
+        if peer and isinstance(last, dict):
+            last_by_phone[str(peer)] = last
+
+    rows: list[dict] = []
+    for peer, lead in phone_to_lead.items():
+        last = last_by_phone.get(peer)
+        if not last:
+            continue
+        last_at = last.get("created_at") or last.get("created_at_dt")
+        if hasattr(last_at, "isoformat"):
+            last_at = last_at.isoformat()
+        rows.append(
+            {
+                "lead_id": lead.get("id"),
+                "display_name": _lead_display_name(lead),
+                "phone": lead.get("phone") or peer,
+                "normalized_phone": lead.get("normalized_phone") or normalize_phone(peer),
+                "project": lead.get("project"),
+                "assigned_to": lead.get("assigned_to"),
+                "assigned_to_name": lead.get("assigned_to_name"),
+                "status": lead.get("status") or lead.get("pipeline_status"),
+                "budget": lead.get("budget"),
+                "configuration": lead.get("configuration"),
+                "last_message_preview": _inbox_preview_text(last),
+                "last_message_at": last_at,
+                "last_direction": last.get("direction"),
+                "last_message_type": last.get("message_type"),
+            }
+        )
+
+    rows.sort(key=lambda r: _message_sort_ts({"created_at": r.get("last_message_at")}), reverse=True)
+    page = rows[skip : skip + limit]
+    return {
+        "conversations": page,
+        "count": len(rows),
+        "limit": limit,
+        "skip": skip,
+    }
 
 
 async def send_lead_ack(lead_id: str, lead: dict) -> dict:

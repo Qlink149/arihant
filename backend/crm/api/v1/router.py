@@ -12,7 +12,10 @@ from crm.api.v1.endpoints import (
     inventory,
     settings,
     leads,
+    lead_intake,
     marketing,
+    meta_capi,
+    meta_leads_webhook,
     misc,
     my_dashboard,
     notifications,
@@ -33,6 +36,7 @@ for r in [
     projects.router,
     inventory.router,
     leads.router,
+    lead_intake.router,
     analytics.router,
     campaigns.router,
     call_summary.router,
@@ -51,6 +55,8 @@ for r in [
     reminders.router,
     cron.router,
     settings.router,
+    meta_capi.router,
+    meta_leads_webhook.router,
     misc.router,
 ]:
     api_router.include_router(r)

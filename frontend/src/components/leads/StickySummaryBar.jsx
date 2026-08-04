@@ -23,7 +23,7 @@ export const StickySummaryBar = memo(function StickySummaryBar({
 
   return (
     <div
-      className="sticky-summary-bar sticky top-12 z-20 flex items-center gap-3 px-3 py-2 min-h-[var(--header-height-compact)] max-h-[90px] backdrop-blur-md"
+      className="sticky-summary-bar sticky top-[6.5rem] z-20 flex items-center gap-3 px-3 py-2 min-h-[var(--header-height-compact)] max-h-[90px] backdrop-blur-md"
       data-testid="lead-sticky-summary-bar"
     >
       <LeadAvatar lead={lead} size="sm" />

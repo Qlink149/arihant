@@ -84,6 +84,47 @@ WATI_BASE_URL = os.environ.get("WATI_BASE_URL", "").rstrip("/")
 # Legacy single-URL var — kept for backward compat, no longer used by send_brochure
 WATI_BROCHURE_PDF_URL = os.environ.get("WATI_BROCHURE_PDF_URL", "")
 
+# Meta Conversions API (CAPI) — QualifiedLead events
+# Leave META_TEST_EVENT_CODE empty in production; set it only for Events Manager → Test Events.
+META_DATASET_ID = os.environ.get("META_DATASET_ID", "")
+META_ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
+META_API_VERSION = os.environ.get("META_API_VERSION", "v21.0")
+META_TEST_EVENT_CODE = os.environ.get("META_TEST_EVENT_CODE", "")
+
+# Meta Lead Ads webhook (inbound Instant Forms → CRM)
+# Page token is NOT the same as META_ACCESS_TOKEN (CAPI).
+META_APP_ID = os.environ.get("META_APP_ID", "")
+META_APP_SECRET = os.environ.get("META_APP_SECRET", "")
+META_PAGE_ID = os.environ.get("META_PAGE_ID", "")
+META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "")
+META_LEAD_VERIFY_TOKEN = os.environ.get("META_LEAD_VERIFY_TOKEN", "")
+
+_DEFAULT_META_LEAD_FORM_PROJECT_MAP = {
+    "2124096745052549": "reserve-16",
+    "1874174036585908": "mira",
+    "4309061012643289": "melange",
+    "28059295887006740": "krsna",
+    "1858929181319661": "vivriti",
+}
+
+
+def _parse_meta_lead_form_project_map() -> dict:
+    import json as _json
+
+    raw = (os.environ.get("META_LEAD_FORM_PROJECT_MAP") or "").strip()
+    if not raw:
+        return dict(_DEFAULT_META_LEAD_FORM_PROJECT_MAP)
+    try:
+        data = _json.loads(raw)
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items()}
+    except Exception:
+        pass
+    return dict(_DEFAULT_META_LEAD_FORM_PROJECT_MAP)
+
+
+META_LEAD_FORM_PROJECT_MAP: dict = _parse_meta_lead_form_project_map()
+
 # ── Project → Brochure PDF filename mapping ─────────────────────────────────
 # Keys must match project names/IDs stored on leads (case-insensitive lookup).
 # Filenames must match files in backend/static/.
@@ -125,18 +166,21 @@ _PROJECT_KEY_TOKENS: list = [
     ("krsna",      "krsna"),
     ("abhiramapuram", "krsna"),  # Krsna's location (brochure cover: 'Krsna — Abhiramapuram')
     ("abiramapuram",  "krsna"),  # common typo variant seen in DB
+    ("mira",       "mira"),
+    ("vipassanā",  "vipassana"),
+    ("vipassana",  "vipassana"),
 ]
 
 
 def resolve_lead_project_key(lead: dict) -> str:
     """
-    Canonical project key ('melange' | 'reserve-16' | 'vivriti' | 'krsna') for a lead.
+    Canonical project key for a lead (includes mira, vipassana).
 
     Prefers the already-canonical lead.project_id; falls back to scanning the
     lead.project display string. Returns '' when no known project matches.
     """
     pid = (lead.get("project_id") or "").strip().lower()
-    if pid in ("melange", "reserve-16", "vivriti", "krsna"):
+    if pid in ("melange", "reserve-16", "vivriti", "krsna", "mira", "vipassana"):
         return pid
     text = (lead.get("project") or "").lower()
     if not text:
@@ -167,6 +211,8 @@ PROJECT_REGISTRY = [
     {"id": "krsna", "name": "Krsna"},
     {"id": "vivriti", "name": "Vivriti"},
     {"id": "melange", "name": "Mélange"},
+    {"id": "mira", "name": "Mira"},
+    {"id": "vipassana", "name": "Vipassanā"},
 ]
 
 
@@ -350,6 +396,71 @@ async def ensure_db_indexes():
             unique=True,
             sparse=True,
             name="app_settings_key",
+        )
+
+        # meta_capi_logs — CAPI send audit (no raw PII)
+        await db.meta_capi_logs.create_index(
+            [("lead_id", 1), ("created_at_dt", -1)],
+            name="meta_capi_logs_lead_createdAtDt",
+        )
+        await db.meta_capi_logs.create_index(
+            [("event_id", 1)],
+            name="meta_capi_logs_eventId",
+        )
+
+        # meta_lead_ads_logs — inbound Lead Ads webhook audit
+        await db.meta_lead_ads_logs.create_index(
+            [("leadgen_id", 1)],
+            unique=True,
+            name="meta_lead_ads_logs_leadgen_id_uq",
+        )
+        await db.meta_lead_ads_logs.create_index(
+            [("created_at_dt", -1)],
+            name="meta_lead_ads_logs_createdAtDt",
+        )
+
+        # api_keys — multi-tenant public lead intake
+        await db.api_keys.create_index(
+            [("id", 1)],
+            unique=True,
+            name="api_keys_id_uq",
+        )
+        await db.api_keys.create_index(
+            [("key_hash", 1)],
+            unique=True,
+            name="api_keys_key_hash_uq",
+        )
+        await db.api_keys.create_index(
+            [("is_active", 1), ("project_id", 1)],
+            name="api_keys_active_project",
+        )
+
+        # lead_intake_logs — public intake audit
+        await db.lead_intake_logs.create_index(
+            [("created_at_dt", -1)],
+            name="lead_intake_logs_createdAtDt",
+        )
+        await db.lead_intake_logs.create_index(
+            [("api_key_id", 1), ("created_at_dt", -1)],
+            name="lead_intake_logs_key_createdAtDt",
+        )
+        await db.lead_intake_logs.create_index(
+            [("project_id", 1), ("created_at_dt", -1)],
+            name="lead_intake_logs_project_createdAtDt",
+        )
+        await db.lead_intake_logs.create_index(
+            [("lead_id", 1), ("created_at_dt", -1)],
+            name="lead_intake_logs_lead_createdAtDt",
+        )
+
+        # Intake soft-dedupe helpers
+        await db.leads.create_index(
+            [("project_id", 1), ("email", 1), ("created_at_dt", -1)],
+            name="leads_project_email_createdAtDt",
+        )
+        await db.leads.create_index(
+            [("project_id", 1), ("normalized_phone", 1), ("created_at_dt", -1)],
+            name="leads_project_normPhone_createdAtDt",
         )
 
         logger.info("DB indexes ensured")

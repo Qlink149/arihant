@@ -180,6 +180,7 @@ export const whatsappAPI = {
   getChatHistory: (phone) => api.get(`/whatsapp/chat-history/${phone}`),
   getLeadChat: (leadId) => api.get(`/whatsapp/lead-chat/${leadId}`),
   syncLeadChat: (leadId) => api.post(`/whatsapp/lead-chat/${leadId}/sync`),
+  getInbox: (params = {}) => api.get('/whatsapp/inbox', { params }),
   /** Authenticated blob fetch for WATI media preview (image/audio/pdf). */
   getMediaBlob: (fileName) =>
     api.get('/whatsapp/media', {

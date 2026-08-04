@@ -657,6 +657,13 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     await db.leads.update_one({"id": lead_id}, {"$set": patch})
 
+    # After stage change cancels SLA tasks, sync next_action_date unless this
+    # transition explicitly set a new follow-up date (Visit Completed / Interested / SV).
+    if status_changed and "next_action_date" not in patch:
+        from crm.services.lead_follow_up import recompute_lead_next_action_date
+
+        await recompute_lead_next_action_date(lead_id)
+
     if is_sla_activation:
         lead_name = f"{existing.get('first_name', '')} {existing.get('last_name', '')}".strip()
         assignee_name = (

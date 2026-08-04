@@ -117,6 +117,21 @@ async def sync_lead_chat_history(lead_id: str, current_user: dict = Depends(get_
     return await whatsapp_service.sync_lead_chat_history(lead_id)
 
 
+@router.get("/whatsapp/inbox")
+async def get_whatsapp_inbox(
+    current_user: dict = Depends(get_current_user),
+    limit: int = 50,
+    skip: int = 0,
+):
+    """
+    Access-scoped WhatsApp conversation list for the left-nav Team Inbox.
+    Admins/managers: all WA-active leads. Reps: owned leads or task-assignee leads.
+    """
+    return await whatsapp_service.get_whatsapp_inbox(
+        current_user, limit=limit, skip=skip
+    )
+
+
 # ─── Gupshup integration stubs (deprecated) ───────────────────────────────────
 # These routes are left in place so any stale frontend/scripts don't 404.
 # They return a deprecation notice and are not actively used.

@@ -592,9 +592,10 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
     }
   };
 
+  // Header (~3rem) + sticky Back bar (~2.5rem) + optional compact summary
   const stickyTopClass = stickySummaryVisible
-    ? 'top-[calc(3rem+var(--header-height-compact))]'
-    : 'top-12';
+    ? 'top-[calc(3rem+2.5rem+var(--header-height-compact))]'
+    : 'top-[calc(3rem+2.5rem)]';
 
   const collapsedPreview = useMemo(() => {
     const parts = [

@@ -121,6 +121,17 @@ async def add_context_update(
         },
     )
 
+    # Logging a follow-up note clears overdue Missed Follow-up debt for this lead.
+    from crm.services.lead_follow_up import clear_missed_follow_up_after_activity
+    from crm.services.lead_overview_service import ist_day_window
+
+    today_str, _, _ = ist_day_window()
+    await clear_missed_follow_up_after_activity(
+        lead_id,
+        today_str=today_str,
+        actor_name=current_user.get("full_name") or "User",
+    )
+
     await log_lead_event(
         "note_added",
         lead_id=lead_id,
@@ -204,6 +215,19 @@ async def add_task(lead_id: str, task: TaskCreate, current_user: dict = Depends(
     }
 
     await db.leads.update_one({"id": lead_id}, {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}})
+
+    # Scheduling a new follow-up clears older overdue task debt from Missed Follow-up.
+    from crm.services.lead_follow_up import complete_overdue_pending_tasks
+    from crm.services.lead_overview_service import ist_day_window
+
+    today_str, _, _ = ist_day_window()
+    new_due = (task.due_date or "")[:10]
+    if new_due and new_due >= today_str:
+        await complete_overdue_pending_tasks(
+            lead_id,
+            today_str=today_str,
+            actor_name=current_user.get("full_name") or "User",
+        )
     await recompute_lead_next_action_date(lead_id)
 
     await create_notification(

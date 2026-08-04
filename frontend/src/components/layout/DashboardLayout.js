@@ -32,6 +32,7 @@ import {
   Shield,
   RefreshCw,
   Activity,
+  MessageCircle,
 } from 'lucide-react';
 import {
   getNotificationUrgencyLabel,
@@ -78,6 +79,7 @@ const DashboardLayout = () => {
       { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { path: '/my-dashboard', icon: UserCircle, label: 'My Dashboard' },
       { path: '/virtual-customer', icon: Users, label: 'Virtual Customer' },
+      { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp' },
       { path: '/notifications', icon: Bell, label: 'Notifications' },
       { path: '/sales-dashboard', icon: BarChart3, label: 'Sales Dashboard' },
       { path: '/marketing-dashboard', icon: TrendingUp, label: 'Marketing' },

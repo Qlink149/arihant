@@ -26,7 +26,6 @@ from crm.core.state import db, logger
 from crm.services.assignment_router import reassign_new_lead
 from crm.services.lead_sla_utils import is_booking_progress_status
 from crm.services.notifications_stream import notifications_stream
-from crm.services.sla_helpers import assign_lead_to_admin
 from crm.utils.business_time import business_seconds_elapsed, is_business_hours_ist as _bh_ist
 from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now
 
