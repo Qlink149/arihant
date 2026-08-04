@@ -138,7 +138,7 @@ const EscalationQueuePage = () => {
                           <Button
                             type="button"
                             size="sm"
-                            className="h-8 bg-[#C5A059]/15 text-[#C5A059] hover:bg-[#C5A059]/25 border border-[#C5A059]/30"
+                            className="h-8 bg-[#C5A059] hover:bg-[#B8914A] text-white text-on-brand border-0"
                             onClick={() => navigate(`/lead/${row.lead_id}`)}
                           >
                             <ExternalLink size={12} className="mr-1" />
@@ -150,7 +150,7 @@ const EscalationQueuePage = () => {
                             type="button"
                             size="sm"
                             variant="outline"
-                            className="h-8 border-crm-border text-crm-fg-secondary"
+                            className="h-8 border-crm-border bg-crm-muted text-crm-fg hover:bg-crm-elevated"
                             disabled={busyId === row.id}
                             onClick={() => markResolved(row.id)}
                           >

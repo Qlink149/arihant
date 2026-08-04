@@ -585,10 +585,10 @@ const WhatsAppInboxPage = () => {
                   key={f.id}
                   type="button"
                   onClick={() => setListFilter(f.id)}
-                  className={`flex-1 h-8 rounded-md text-xs transition-colors ${
+                      className={`flex-1 h-8 rounded-md text-xs transition-colors ${
                     listFilter === f.id
-                      ? 'bg-green-600/20 text-green-400 border border-green-500/40'
-                      : 'text-crm-fg-secondary border border-crm-border hover:bg-white/5'
+                      ? 'bg-green-600 text-white text-on-brand border border-green-600'
+                      : 'text-crm-fg-secondary border border-crm-border hover:bg-crm-muted'
                   }`}
                 >
                   {f.label}
@@ -635,7 +635,7 @@ const WhatsAppInboxPage = () => {
                           <div
                             className={`h-10 w-10 rounded-full flex items-center justify-center text-xs font-semibold ${
                               c.is_unmatched
-                                ? 'bg-amber-600/20 text-amber-300'
+                                ? 'wa-unknown-avatar bg-amber-600/20 text-amber-300'
                                 : 'bg-green-600/20 text-green-400'
                             }`}
                           >
@@ -722,7 +722,7 @@ const WhatsAppInboxPage = () => {
                     <Button
                       type="button"
                       size="sm"
-                      className="h-8 bg-amber-600/20 text-amber-300 hover:bg-amber-600/30 border border-amber-500/30"
+                      className="h-8 bg-[#C5A059] hover:bg-[#B8914A] text-white text-on-brand border-0"
                       onClick={openCreateLead}
                     >
                       <UserPlus size={14} className="mr-1" />
@@ -922,7 +922,7 @@ const WhatsAppInboxPage = () => {
             ) : selected?.is_unmatched ? (
               <>
                 <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded-full bg-amber-600/20 text-amber-300 flex items-center justify-center text-sm font-semibold">
+                  <div className="h-12 w-12 rounded-full wa-unknown-avatar bg-amber-600/20 text-amber-300 flex items-center justify-center text-sm font-semibold">
                     ?
                   </div>
                   <div className="min-w-0">
@@ -935,7 +935,7 @@ const WhatsAppInboxPage = () => {
                 </div>
                 <Button
                   type="button"
-                  className="w-full bg-amber-600/20 text-amber-200 hover:bg-amber-600/30 border border-amber-500/30"
+                  className="w-full bg-[#C5A059] hover:bg-[#B8914A] text-white text-on-brand border-0"
                   onClick={openCreateLead}
                 >
                   <Plus size={14} className="mr-2" />
@@ -1012,7 +1012,7 @@ const WhatsAppInboxPage = () => {
                   <div className="space-y-2 mt-2">
                     <Button
                       type="button"
-                      className="w-full bg-[#C5A059]/15 text-[#C5A059] hover:bg-[#C5A059]/25 border border-[#C5A059]/30"
+                      className="w-full bg-[#C5A059] hover:bg-[#B8914A] text-white text-on-brand border-0"
                       onClick={() => navigate(`/lead/${selected.lead_id}#lead-overview`)}
                     >
                       <ExternalLink size={14} className="mr-2" />
@@ -1021,7 +1021,7 @@ const WhatsAppInboxPage = () => {
                     <Button
                       type="button"
                       variant="outline"
-                      className="w-full border-crm-border text-crm-fg-secondary hover:text-crm-fg hover:bg-white/5"
+                      className="w-full border-crm-border text-crm-fg-secondary hover:text-crm-fg hover:bg-crm-muted"
                       onClick={() => navigate(`/lead/${selected.lead_id}`)}
                     >
                       <ExternalLink size={14} className="mr-2" />

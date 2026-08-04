@@ -275,6 +275,30 @@
     border-color: rgba(217, 119, 6, 0.45) !important;
 }
 
+/* Unknown / unmatched WhatsApp avatar */
+.light-mode .wa-unknown-avatar {
+    color: #92400e !important;
+    background-color: #fef3c7 !important;
+}
+
+/* Light-mode amber/gold chip text that was tuned for dark UI */
+.light-mode .text-amber-200,
+.light-mode .text-amber-300,
+.light-mode .text-amber-400 {
+    color: #b45309 !important;
+}
+.light-mode .bg-amber-600\/20,
+.light-mode .bg-amber-500\/20,
+.light-mode .bg-amber-500\/15 {
+    background-color: #fef3c7 !important;
+}
+.light-mode .text-green-400 {
+    color: #15803d !important;
+}
+.light-mode .bg-green-600\/20 {
+    background-color: rgba(22, 163, 74, 0.14) !important;
+}
+
 /* Dashboard hero — always light text on dark imagery (both themes) */
 .dashboard-hero .hero-greeting {
     color: #ffffff;
