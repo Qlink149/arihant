@@ -77,6 +77,31 @@ def created_range_filter(created_from: Optional[str], created_to: Optional[str])
     return merge_query(*clauses)
 
 
+def updated_range_filter(updated_from: Optional[str], updated_to: Optional[str]) -> dict:
+    """Cohort updated-date window — IST calendar day, same semantics as created_range_filter."""
+    start = _parse_ymd_boundary(updated_from, end_of_day=False)
+    end = _parse_ymd_boundary(updated_to, end_of_day=True)
+    if not start and not end:
+        return {}
+
+    dt_clause: Dict[str, Any] = {}
+    legacy_clause: Dict[str, Any] = {}
+    if start:
+        dt_clause["$gte"] = start
+        legacy_clause["$gte"] = start.isoformat().replace("+00:00", "Z")
+    if end:
+        dt_clause["$lte"] = end
+        legacy_clause["$lte"] = end.isoformat().replace("+00:00", "Z")
+
+    no_dt = {"$or": [{"updated_at_dt": {"$exists": False}}, {"updated_at_dt": None}]}
+    return {
+        "$or": [
+            {"updated_at_dt": dt_clause},
+            {"$and": [no_dt, {"updated_at": legacy_clause}]},
+        ]
+    }
+
+
 _QUARTER_START_MONTH = {1: 1, 2: 4, 3: 7, 4: 10}
 _QUARTER_END_MONTH = {1: 3, 2: 6, 3: 9, 4: 12}
 _QUARTER_LABEL_SUFFIX = {1: "Jan–Mar", 2: "Apr–Jun", 3: "Jul–Sep", 4: "Oct–Dec"}

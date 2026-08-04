@@ -90,7 +90,7 @@ const LEAD_CRITERIA = {
   rnr: {
     title: 'RNR queue',
     rules: [
-      'is_rnr flag or RNR-like text on lead_status / original_fw_status.',
+      'Current lead_status is RNR (or is_rnr). Excludes Junk, Unqualified, and other terminal/closed statuses. Does not include leads that only used to be RNR historically.',
       'Snapshot scope: project filter only.',
     ],
   },
@@ -281,6 +281,21 @@ const DashboardPage = () => {
     const suffix = qs.toString();
     navigate(suffix ? `/virtual-customer?${suffix}` : '/virtual-customer');
   };
+
+  const handleStatusClick = useCallback(
+    (statusName) => {
+      if (!statusName) return;
+      const params = buildDashboardAnalyticsParams(dashboardFilterState);
+      const qs = new URLSearchParams();
+      qs.set('statuses', statusName);
+      if (params.project) qs.set('project', params.project);
+      if (params.days) qs.set('days', String(params.days));
+      if (params.created_from) qs.set('created_from', params.created_from);
+      if (params.created_to) qs.set('created_to', params.created_to);
+      navigate(`/virtual-customer?${qs.toString()}`);
+    },
+    [navigate, dashboardFilterState]
+  );
 
   const { topProjects, otherProjects, otherTotal, maxProjectCount } = useMemo(() => {
     const all = analytics?.projects || [];
@@ -665,9 +680,16 @@ const DashboardPage = () => {
                   outerRadius={100}
                   paddingAngle={5}
                   dataKey="value"
+                  style={{ cursor: 'pointer' }}
+                  onClick={(slice) => handleStatusClick(slice?.name)}
                 >
                   {statusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={entry.color}
+                      cursor="pointer"
+                      onClick={() => handleStatusClick(entry.name)}
+                    />
                   ))}
                 </Pie>
                 <Tooltip
@@ -689,13 +711,21 @@ const DashboardPage = () => {
           {/* Legend */}
           <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-4">
             {statusData.map((item) => (
-              <div key={item.name} className="flex items-center gap-2">
+              <button
+                key={item.name}
+                type="button"
+                onClick={() => handleStatusClick(item.name)}
+                className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
+                title={`View ${item.name} leads`}
+              >
                 <div
                   className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ backgroundColor: item.color }}
                 />
-                <span className="text-[#A1A1AA] text-xs whitespace-nowrap">{item.name} ({item.value})</span>
-              </div>
+                <span className="text-[#A1A1AA] text-xs whitespace-nowrap hover:text-white">
+                  {item.name} ({item.value})
+                </span>
+              </button>
             ))}
           </div>
         </motion.div>

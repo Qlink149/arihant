@@ -211,6 +211,9 @@ You MUST respond with a single JSON object only (no markdown fences), matching t
   }
 }
 
+## Glossary
+- RNR means Ring No Response / Ringing No Response (call went unanswered). Never interpret RNR as Ready to Negotiate, Ready to Rent, or similar.
+
 ## How to use inputs
 - CRM hints = CURRENT lead profile (authoritative for present state: project, budget, configuration, location, status).
 - Interaction transcript = history of WhatsApp, notes, calls, and field updates over time.

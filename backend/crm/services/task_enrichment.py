@@ -12,7 +12,8 @@ LEAD_PROJECTION = TASK_ENRICHMENT_LEAD_PROJECTION
 REASON_MAX_LEN = 160
 
 SLA_REASON_BY_KEY: Dict[tuple, str] = {
-    ("new", "30m"): "New lead has not been contacted within 30 minutes.",
+    ("new", "1h"): "New lead has not been contacted within 1 hour.",
+    ("new", "30m"): "New lead has not been contacted within 1 hour.",
     ("new", "2h"): "New lead requires admin attention (2+ hours without contact).",
     ("rnr", "24h"): "RNR lead unchanged for 24+ hours — Admin review required.",
     ("rnr", "48h"): "RNR lead unchanged for 48+ hours — Admin review required.",

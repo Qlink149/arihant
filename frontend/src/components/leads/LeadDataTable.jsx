@@ -19,6 +19,7 @@ import {
   getOwnerDisplay,
   getRecentNote,
 } from '../../utils/leadTable';
+import { formatDateIST } from '../../utils/datetime';
 import { CrmBadge } from '../ui/CrmBadge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import {
@@ -26,9 +27,10 @@ import {
   getVirtualRowEstimate,
 } from '../../constants/performanceFlags';
 
-const COLUMN_COUNT = 9;
+const COLUMN_COUNT = 11;
 
-const LEAD_TABLE_COLUMNS = [200, 160, 148, 100, 160, 140, 120, 280, 88];
+// Name, Phone, Status, Follow-up, Tasks, Project, Source, Recent note, Sales owner, Updated, Actions
+const LEAD_TABLE_COLUMNS = [200, 130, 160, 148, 100, 160, 120, 280, 140, 100, 88];
 
 function LeadTableColGroup() {
   return (
@@ -40,8 +42,12 @@ function LeadTableColGroup() {
   );
 }
 
-const TABLE_LAYOUT_CLASS = 'table-fixed min-w-[1388px] w-full caption-bottom text-sm';
+const TABLE_LAYOUT_CLASS = 'table-fixed min-w-[1626px] w-full caption-bottom text-sm';
 
+function formatLeadUpdatedAt(lead) {
+  const raw = lead?.updated_at ?? lead?.updated_at_dt;
+  return formatDateIST(raw) || '—';
+}
 const RecentNoteCell = memo(function RecentNoteCell({ note, leadId, onResize }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -123,6 +129,7 @@ const LeadTableRow = memo(function LeadTableRow({
       className={`border-white/5 cursor-pointer ${tint || 'hover:bg-white/5'}`}
       onClick={() => onRowClick(lead.id)}
       data-testid={`lead-row-${lead.id}`}
+      data-lead-row-id={lead.id}
     >
       <TableCell className={`${cellPy} w-[200px] max-w-[200px] overflow-hidden`}>
         <div className={`flex items-center ${density === 'compact' ? 'gap-2' : 'gap-3'} min-w-0 w-full overflow-hidden`}>
@@ -143,6 +150,15 @@ const LeadTableRow = memo(function LeadTableRow({
             </div>
           </div>
         </div>
+      </TableCell>
+      <TableCell className={`${cellPy} w-[130px] max-w-[130px] min-w-0 overflow-hidden`}>
+        <span
+          className={`text-white font-semibold ${textSize} truncate block`}
+          title={lead.phone || undefined}
+          data-testid={`lead-phone-${lead.id}`}
+        >
+          {lead.phone || '—'}
+        </span>
       </TableCell>
       <TableCell className={`${cellPy} w-[160px] max-w-[160px] min-w-0 overflow-hidden`}>
         <div className="min-w-0 max-w-full">
@@ -193,6 +209,14 @@ const LeadTableRow = memo(function LeadTableRow({
           {lead.project || '—'}
         </span>
       </TableCell>
+      <TableCell className={`${cellPy} max-w-[140px]`}>
+        <span className={`text-[#52525B] ${textSize} truncate block`} title={lead.lead_source || ''}>
+          {lead.lead_source || '—'}
+        </span>
+      </TableCell>
+      <TableCell className={`${cellPy} overflow-hidden`}>
+        <RecentNoteCell note={recentNote} leadId={lead.id} onResize={handleNoteResize} />
+      </TableCell>
       <TableCell className={cellPy}>
         <div className="flex items-center gap-2 min-w-0">
           {owner !== '—' && (
@@ -203,13 +227,14 @@ const LeadTableRow = memo(function LeadTableRow({
           </span>
         </div>
       </TableCell>
-      <TableCell className={`${cellPy} max-w-[140px]`}>
-        <span className={`text-[#52525B] ${textSize} truncate block`} title={lead.lead_source || ''}>
-          {lead.lead_source || '—'}
+      <TableCell className={`${cellPy} max-w-[100px]`}>
+        <span
+          className={`text-[#A1A1AA] ${textSize} truncate block`}
+          title={formatLeadUpdatedAt(lead)}
+          data-testid={`lead-updated-${lead.id}`}
+        >
+          {formatLeadUpdatedAt(lead)}
         </span>
-      </TableCell>
-      <TableCell className={`${cellPy} overflow-hidden`}>
-        <RecentNoteCell note={recentNote} leadId={lead.id} onResize={handleNoteResize} />
       </TableCell>
       <TableCell className={cellPy}>
         <LeadRowActions leadId={lead.id} onNote={onNote} />
@@ -217,13 +242,15 @@ const LeadTableRow = memo(function LeadTableRow({
     </TableRow>
   );
 });
-
 function LeadTableHeader() {
   return (
     <TableHeader>
       <TableRow className="border-white/10 hover:bg-transparent">
         <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[200px]">
           Name
+        </TableHead>
+        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[130px] w-[130px]">
+          Phone
         </TableHead>
         <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[160px] w-[160px]">
           Status
@@ -249,14 +276,17 @@ function LeadTableHeader() {
         <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[160px]">
           Project
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[140px]">
-          Sales owner
-        </TableHead>
         <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[120px]">
           Source
         </TableHead>
         <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[220px] max-w-[320px]">
           Recent note
+        </TableHead>
+        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[140px]">
+          Sales owner
+        </TableHead>
+        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[100px] w-[100px]">
+          Updated
         </TableHead>
         <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider w-[88px] text-right">
           Actions
@@ -265,7 +295,6 @@ function LeadTableHeader() {
     </TableHeader>
   );
 }
-
 function renderLeadRows(rows, handlers, density) {
   return rows.map((row) => (
     <LeadTableRow

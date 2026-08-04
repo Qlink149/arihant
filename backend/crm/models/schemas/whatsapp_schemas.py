@@ -29,3 +29,8 @@ class WhatsAppMessageResponse(BaseModel):
     status: str
     message_id: Optional[str] = None
     error: Optional[str] = None
+
+
+class WhatsAppInboxReadRequest(BaseModel):
+    peer_phone: Optional[str] = None
+    lead_id: Optional[str] = None

@@ -82,6 +82,8 @@ class LeadUpdatePatch(BaseModel):
     site_visit_count: Optional[int] = None
     meta_qualified: Optional[bool] = None
     temperature: Optional[str] = None
+    vip: Optional[bool] = None
+    vip_manual: Optional[bool] = None
     # Outcome logging (Contacted stage SLA suppression; validated in service layer)
     logged_outcome: Optional[str] = None
     logged_outcome_reason: Optional[str] = None
@@ -103,6 +105,7 @@ class LeadResponse(LeadBase):
     temperature: Optional[str] = None
     intent: str = "Unknown"
     vip: bool = False
+    vip_manual: Optional[bool] = None
     assigned_to: Optional[str] = None
     nurture_entered_at_dt: Optional[datetime] = None
     interested_entered_at_dt: Optional[datetime] = None

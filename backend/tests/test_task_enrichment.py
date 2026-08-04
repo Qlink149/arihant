@@ -6,9 +6,9 @@ import pytest
 from crm.services.task_enrichment import enrich_task_dict, sla_task_reason
 
 
-def test_sla_task_reason_new_30m():
-    reason = sla_task_reason({"sla_rule": "new", "sla_threshold": "30m", "source": "sla"})
-    assert "30 minutes" in reason
+def test_sla_task_reason_new_1h():
+    reason = sla_task_reason({"sla_rule": "new", "sla_threshold": "1h", "source": "sla"})
+    assert "1 hour" in reason
 
 
 def test_enrich_task_dict_from_lead():
@@ -18,7 +18,7 @@ def test_enrich_task_dict_from_lead():
         "description": "Reassign Lead",
         "source": "sla",
         "sla_rule": "new",
-        "sla_threshold": "30m",
+        "sla_threshold": "1h",
     }
     lead = {
         "id": "l1",
@@ -37,4 +37,4 @@ def test_enrich_task_dict_from_lead():
     assert out["lead_name"] == "Rajesh Kumar"
     assert out["project"] == "ECR Reserve 16"
     assert out["task_reason"]
-    assert "30 minutes" in out["task_reason"] or "brochure" in (out.get("latest_note") or "")
+    assert "1 hour" in out["task_reason"] or "brochure" in (out.get("latest_note") or "")

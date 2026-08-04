@@ -22,6 +22,7 @@ const MyDashboardPage = lazy(() => import('./pages/MyDashboardPage'));
 const MarketingDashboardPage = lazy(() => import('./pages/MarketingDashboardPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const WhatsAppInboxPage = lazy(() => import('./pages/WhatsAppInboxPage'));
+const EscalationQueuePage = lazy(() => import('./pages/EscalationQueuePage'));
 const PlatformOpsPage = lazy(() => import('./pages/PlatformOpsPage'));
 const OpsActiveStatusPage = lazy(() => import('./pages/OpsActiveStatusPage'));
 
@@ -64,6 +65,30 @@ const AdminRoute = ({ children }) => {
   }
 
   if (user?.role !== 'admin') {
+    return <Navigate to="/my-dashboard" replace />;
+  }
+
+  return children;
+};
+
+/** Admin or manager — Escalation Queue (matches GET /escalations). */
+const AdminOrManagerRoute = ({ children }) => {
+  const { isAuthenticated, loading, user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+        <div className="text-[#C5A059] animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const role = (user?.role || '').toLowerCase();
+  if (role !== 'admin' && role !== 'manager') {
     return <Navigate to="/my-dashboard" replace />;
   }
 
@@ -126,6 +151,16 @@ function AppRoutes() {
         <Route path="marketing-dashboard" element={<AdminRoute><LazyPage><MarketingDashboardPage /></LazyPage></AdminRoute>} />
         <Route path="notifications" element={<LazyPage><NotificationsPage /></LazyPage>} />
         <Route path="whatsapp" element={<LazyPage><WhatsAppInboxPage /></LazyPage>} />
+        <Route
+          path="escalation-queue"
+          element={
+            <AdminOrManagerRoute>
+              <LazyPage>
+                <EscalationQueuePage />
+              </LazyPage>
+            </AdminOrManagerRoute>
+          }
+        />
         {user?.is_platform_operator && (
           <>
             <Route path="ops" element={<LazyPage><PlatformOpsPage /></LazyPage>} />

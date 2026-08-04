@@ -2,12 +2,13 @@ import hashlib
 import hmac
 import json
 import os
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 
 from crm.core.state import get_current_user, logger, WHATSAPP_PROVIDER
 from crm.services.dashboard_scope import resolve_lead_or_403
-from crm.models.schemas.whatsapp_schemas import WhatsAppMessage
+from crm.models.schemas.whatsapp_schemas import WhatsAppInboxReadRequest, WhatsAppMessage
 from crm.services import whatsapp_service
 
 router = APIRouter()
@@ -72,10 +73,14 @@ async def send_whatsapp_to_lead(lead_id: str, message: WhatsAppMessage, current_
 
 
 @router.post("/whatsapp/send-brochure/{lead_id}")
-async def send_brochure_to_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
+async def send_brochure_to_lead(
+    lead_id: str,
+    project: Optional[str] = Query(None, description="Optional project override for brochure PDF"),
+    current_user: dict = Depends(get_current_user),
+):
     """Send the project brochure (template + PDF) to the lead via WATI."""
     await resolve_lead_or_403(lead_id, current_user)
-    return await whatsapp_service.send_brochure(lead_id, current_user)
+    return await whatsapp_service.send_brochure(lead_id, current_user, project=project)
 
 
 @router.post("/whatsapp/send-pricing/{lead_id}")
@@ -104,6 +109,12 @@ async def get_chat_history(phone: str, current_user: dict = Depends(get_current_
     return await whatsapp_service.get_chat_history(phone, limit=limit)
 
 
+@router.post("/whatsapp/chat-history/{phone}/sync")
+async def sync_chat_history(phone: str, current_user: dict = Depends(get_current_user), limit: int = 100):
+    """Pull gaps from WATI into Mongo for a peer phone (unmatched / start-chat)."""
+    return await whatsapp_service.sync_chat_history(phone, limit=limit)
+
+
 @router.get("/whatsapp/lead-chat/{lead_id}")
 async def get_lead_chat_history(lead_id: str, current_user: dict = Depends(get_current_user)):
     await resolve_lead_or_403(lead_id, current_user)
@@ -122,13 +133,27 @@ async def get_whatsapp_inbox(
     current_user: dict = Depends(get_current_user),
     limit: int = 50,
     skip: int = 0,
+    filter: str = "all",
+    q: str = "",
 ):
     """
-    Access-scoped WhatsApp conversation list for the left-nav Team Inbox.
-    Admins/managers: all WA-active leads. Reps: owned leads or task-assignee leads.
+    Peer-first WhatsApp Team Inbox.
+    Admins/managers: all peers (matched + unmatched). Reps: in-scope matched + unmatched.
+    filter: all | unread | mine. q: optional name/phone/preview substring.
     """
     return await whatsapp_service.get_whatsapp_inbox(
-        current_user, limit=limit, skip=skip
+        current_user, limit=limit, skip=skip, filter_mode=filter, q=q or None
+    )
+
+
+@router.post("/whatsapp/inbox/read")
+async def mark_whatsapp_inbox_read(
+    body: WhatsAppInboxReadRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Mark a conversation as read for the current user (clears unread badge)."""
+    return await whatsapp_service.mark_whatsapp_inbox_read(
+        current_user, peer_phone=body.peer_phone, lead_id=body.lead_id
     )
 
 

@@ -72,6 +72,8 @@ const DashboardLayout = () => {
   });
 
   const isAdmin = user?.role === 'admin';
+  const isManager = (user?.role || '').toLowerCase() === 'manager';
+  const canSeeEscalations = isAdmin || isManager;
 
   const navItems = useMemo(() => {
     const adminOnlyPaths = ['/sales-dashboard', '/marketing-dashboard', '/settings'];
@@ -80,12 +82,19 @@ const DashboardLayout = () => {
       { path: '/my-dashboard', icon: UserCircle, label: 'My Dashboard' },
       { path: '/virtual-customer', icon: Users, label: 'Virtual Customer' },
       { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp' },
+      { path: '/escalation-queue', icon: AlertTriangle, label: 'Escalations' },
       { path: '/notifications', icon: Bell, label: 'Notifications' },
       { path: '/sales-dashboard', icon: BarChart3, label: 'Sales Dashboard' },
       { path: '/marketing-dashboard', icon: TrendingUp, label: 'Marketing' },
       { path: '/settings', icon: Settings, label: 'Settings' },
     ];
-    let items = isAdmin ? all : all.filter((item) => !adminOnlyPaths.includes(item.path));
+    let items = isAdmin
+      ? all
+      : all.filter((item) => {
+          if (adminOnlyPaths.includes(item.path)) return false;
+          if (item.path === '/escalation-queue') return canSeeEscalations;
+          return true;
+        });
     if (user?.is_platform_operator && !isImpersonating) {
       items = [
         ...items,
@@ -94,7 +103,7 @@ const DashboardLayout = () => {
       ];
     }
     return items;
-  }, [isAdmin, user?.is_platform_operator, isImpersonating]);
+  }, [isAdmin, canSeeEscalations, user?.is_platform_operator, isImpersonating]);
 
   const fetchNotifications = useCallback(async () => {
     try {

@@ -10,12 +10,12 @@ def _ist(y, m, d, h, mi=0):
     return datetime(y, m, d, h, mi, tzinfo=IST).astimezone(timezone.utc)
 
 
-def test_lead_at_1720_30m_new_fires_next_day_1020():
-    start = _ist(2026, 6, 2, 17, 20)  # Monday
-    end = business_deadline(start, 1800)
+def test_lead_at_1720_1h_new_fires_next_day_1050():
+    start = _ist(2026, 6, 2, 17, 20)  # Monday — ~10m left before end of business day
+    end = business_deadline(start, 3600)
     end_ist = end.astimezone(IST)
     assert end_ist.hour == 10
-    assert end_ist.minute == 20
+    assert end_ist.minute == 50
     assert end_ist.day == 3
 
 

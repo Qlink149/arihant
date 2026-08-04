@@ -53,6 +53,7 @@ import {
   Search,
   Loader2,
   RefreshCw,
+  Pencil,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -295,6 +296,9 @@ const DigitalTwinPage = () => {
   const [contextNote, setContextNote] = useState('');
   const [contextType, setContextType] = useState('general_note');
   const [savingContext, setSavingContext] = useState(false);
+  const [editingContextIndex, setEditingContextIndex] = useState(null);
+  const [editContextNote, setEditContextNote] = useState('');
+  const [savingEditContext, setSavingEditContext] = useState(false);
   const [waTemplates, setWaTemplates] = useState([]);
   const [waTemplatesLoaded, setWaTemplatesLoaded] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
@@ -577,13 +581,15 @@ const DigitalTwinPage = () => {
     }
   };
 
-  // Send brochure PDF
-  const handleSendBrochure = async () => {
+  // Send brochure PDF (optional project key override)
+  const handleSendBrochure = async (projectKey) => {
     setSendingBrochure(true);
     try {
-      const res = await whatsappAPI.sendBrochure(leadId);
+      const res = await whatsappAPI.sendBrochure(leadId, projectKey || undefined);
       if (res.data.success) {
-        toast.success('Brochure sent!', { description: 'PDF delivered to ' + lead.first_name });
+        toast.success('Brochure sent!', {
+          description: `${projectKey || 'Project'} PDF delivered to ${lead.first_name}`,
+        });
         await fetchChatHistory(false);
         fetchLead();
       } else {
@@ -692,6 +698,31 @@ const DigitalTwinPage = () => {
         toast.error('Failed to save context update');
       }
     } finally { setSavingContext(false); }
+  };
+
+  const isEditableTimelineNote = (update) => {
+    const t = String(update?.type || update?.update_type || '').toLowerCase();
+    return ['note', 'call', 'site_visit', 'whatsapp', 'email', 'meeting', 'general_note'].includes(t)
+      || t.includes('note');
+  };
+
+  const handleSaveEditContext = async () => {
+    if (editingContextIndex == null || !editContextNote.trim()) {
+      toast.error('Please enter a note');
+      return;
+    }
+    setSavingEditContext(true);
+    try {
+      await leadsAPI.updateContext(leadId, editingContextIndex, { note: editContextNote.trim() });
+      toast.success('Note updated');
+      setEditingContextIndex(null);
+      setEditContextNote('');
+      await handleLeadUpdated();
+    } catch {
+      toast.error('Failed to update note');
+    } finally {
+      setSavingEditContext(false);
+    }
   };
 
   const handleSaveTask = async () => {
@@ -805,7 +836,7 @@ const DigitalTwinPage = () => {
               contactSlot={(
                 <>
                   {lead.phone && (
-                    <span className="text-[#52525B] text-xs flex items-center gap-1">
+                    <span className="text-white text-xs font-semibold flex items-center gap-1">
                       <Phone size={12} />
                       {lead.phone}
                     </span>
@@ -1096,8 +1127,52 @@ const DigitalTwinPage = () => {
                         <p className="text-[#52525B] text-xs mt-2">{update.description}</p>
                       )}
                     </div>
+                  ) : editingContextIndex === update._source_index ? (
+                    <div className="mt-2 space-y-2">
+                      <textarea
+                        value={editContextNote}
+                        onChange={(e) => setEditContextNote(e.target.value)}
+                        className="w-full min-h-[72px] px-3 py-2 rounded-lg bg-black/50 border border-white/10 text-sm text-white"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-[#C5A059] text-black"
+                          disabled={savingEditContext || !editContextNote.trim()}
+                          onClick={handleSaveEditContext}
+                        >
+                          {savingEditContext ? 'Saving…' : 'Save'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs border-white/10"
+                          onClick={() => {
+                            setEditingContextIndex(null);
+                            setEditContextNote('');
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
                   ) : (
-                    <p className="text-white mt-2">{update.description}</p>
+                    <div className="mt-2 group/note relative">
+                      <p className="text-white pr-8">{update.description}</p>
+                      {isEditableTimelineNote(update) && typeof update._source_index === 'number' && (
+                        <button
+                          type="button"
+                          className="absolute top-0 right-0 p-1 rounded text-[#52525B] hover:text-[#C5A059] opacity-70 hover:opacity-100"
+                          title="Edit note"
+                          onClick={() => {
+                            setEditingContextIndex(update._source_index);
+                            setEditContextNote(update.description || '');
+                          }}
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      )}
+                    </div>
                   )}
                   
                   {/* Call specific details */}
@@ -1399,32 +1474,31 @@ const DigitalTwinPage = () => {
               </Button>
             </div>
 
-            {/* Send Brochure — enabled when PDF URL is configured on server */}
-            <div className="border-t border-white/10 pt-3">
-              <Button
-                onClick={handleSendBrochure}
-                disabled={sendingBrochure}
-                variant="outline"
-                className="w-full border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50"
-                data-testid="send-brochure-btn"
-              >
-                {sendingBrochure ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Sending Brochure...
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <Paperclip size={15} />
-                    Send Brochure PDF
-                  </span>
-                )}
-              </Button>
-              <p className="text-[#52525B] text-xs text-center mt-1">
-                Requires active session · PDF URL configured on server
+            {/* Per-project brochure buttons */}
+            <div className="border-t border-white/10 pt-3 space-y-2">
+              <p className="text-[#52525B] text-xs uppercase tracking-wider">Send project brochure</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: 'melange', label: 'Mélange' },
+                  { key: 'reserve-16', label: 'Reserve 16' },
+                  { key: 'krsna', label: 'Krsna' },
+                  { key: 'vivriti', label: 'Vivriti' },
+                ].map((p) => (
+                  <Button
+                    key={p.key}
+                    onClick={() => handleSendBrochure(p.key)}
+                    disabled={sendingBrochure}
+                    variant="outline"
+                    className="border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50 h-9 text-xs"
+                    data-testid={`send-brochure-${p.key}`}
+                  >
+                    <Paperclip size={13} className="mr-1.5" />
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-[#52525B] text-xs text-center">
+                Requires active session · PDF configured on server
               </p>
             </div>
             

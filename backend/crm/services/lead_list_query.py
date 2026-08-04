@@ -10,6 +10,7 @@ from crm.services.lead_analytics_queries import (
     build_created_cohort_filter,
     build_dashboard_snapshot_query,
     dormant_leads_query,
+    updated_range_filter,
 )
 from crm.services.lead_overview_service import (
     build_metric_context,
@@ -54,8 +55,13 @@ def parse_created_date_boundary(value: Optional[str], *, end_of_day: bool = Fals
 
 
 def parse_updated_date_boundary(value: Optional[str], *, end_of_day: bool = False) -> Optional[str]:
-    """Parse YYYY-MM-DD into inclusive UTC ISO boundary for updated_at filtering."""
-    return parse_created_date_boundary(value, end_of_day=end_of_day)
+    """Parse YYYY-MM-DD as IST calendar day boundary, returned as UTC ISO (legacy callers)."""
+    from crm.services.lead_analytics_queries import _parse_ymd_boundary
+
+    dt = _parse_ymd_boundary(value, end_of_day=end_of_day)
+    if not dt:
+        return None
+    return dt.isoformat().replace("+00:00", "Z")
 
 
 def build_metric_snapshot_filter(
@@ -162,9 +168,6 @@ def compose_leads_list_query(
     site_visit_max: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build the full MongoDB query for lead list/export endpoints."""
-    updated_at_from_iso = parse_updated_date_boundary(updated_from, end_of_day=False)
-    updated_at_to_iso = parse_updated_date_boundary(updated_to, end_of_day=True)
-
     query = build_leads_list_query(
         query_base,
         temperature=temperature,
@@ -180,8 +183,6 @@ def compose_leads_list_query(
         vip=vip,
         status=status,
         statuses=statuses,
-        updated_at_from_iso=updated_at_from_iso,
-        updated_at_to_iso=updated_at_to_iso,
         sources=sources,
         source=source,
         sales_owners=sales_owners,
@@ -198,4 +199,8 @@ def compose_leads_list_query(
     )
     if created_cohort:
         query = merge_query(query, created_cohort)
+
+    updated_cohort = updated_range_filter(updated_from, updated_to)
+    if updated_cohort:
+        query = merge_query(query, updated_cohort)
     return query

@@ -105,7 +105,7 @@ async def route_new_lead(lead_id: str) -> dict:
 
 
 async def reassign_new_lead(lead_id: str) -> dict:
-    """30m SLA: round-robin to active agents; Admin only when none eligible."""
+    """1h SLA: round-robin to active agents; Admin only when none eligible."""
     eligible = await list_routing_eligible_agents()
     if eligible:
         agent = eligible[0]
@@ -113,7 +113,7 @@ async def reassign_new_lead(lead_id: str) -> dict:
             lead_id,
             agent["id"],
             agent.get("full_name") or "",
-            reason="sla_30m_reroute",
+            reason="sla_1h_reroute",
         )
         await log_lead_event(
             "sla_action",
@@ -121,7 +121,7 @@ async def reassign_new_lead(lead_id: str) -> dict:
             actor_name="SLA Engine",
             payload={
                 "action": "reassign_active_agent",
-                "reason": "sla_30m_reroute",
+                "reason": "sla_1h_reroute",
                 "assigned_user_id": agent["id"],
                 "assigned_to": agent.get("full_name"),
             },
@@ -134,14 +134,14 @@ async def reassign_new_lead(lead_id: str) -> dict:
     )
     if not admin:
         return {"ok": False, "reason": "no_admin"}
-    await _assign_lead(lead_id, admin["id"], admin.get("full_name") or "", reason="sla_30m_admin_fallback")
+    await _assign_lead(lead_id, admin["id"], admin.get("full_name") or "", reason="sla_1h_admin_fallback")
     await log_lead_event(
         "sla_action",
         lead_id=lead_id,
         actor_name="SLA Engine",
         payload={
             "action": "reassign_admin_fallback",
-            "reason": "sla_30m_admin_fallback",
+            "reason": "sla_1h_admin_fallback",
             "admin_id": admin["id"],
         },
     )
@@ -177,6 +177,20 @@ async def _assign_lead(lead_id: str, user_id: str, full_name: str, reason: str) 
                     "agent": "System",
                 }
             },
+        },
+    )
+    await db.tasks.update_many(
+        {
+            "lead_id": lead_id,
+            "status": {"$nin": ["completed", "cancelled", "done"]},
+        },
+        {
+            "$set": {
+                "assigned_to": full_name,
+                "assigned_user_id": user_id,
+                "updated_at": now_iso,
+                "updated_at_dt": now_dt,
+            }
         },
     )
     await create_notification(

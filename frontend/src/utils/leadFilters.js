@@ -2,6 +2,8 @@
  * Virtual Customer lead filter state, URL sync, and API param helpers.
  */
 
+import { addIstDays, formatIstYmd } from './datetime';
+
 const MULTI_FILTER_KEYS = ['budgets', 'locations', 'projects', 'statuses', 'sources', 'sales_owners'];
 
 const parseCommaList = (value) => {
@@ -23,6 +25,8 @@ const parseMetaQualified = (value) => {
   return null;
 };
 
+const normalizeDateField = (value) => (value === 'updated' ? 'updated' : 'created');
+
 export const emptyLeadFilters = () => ({
   budgets: [],
   locations: [],
@@ -36,6 +40,9 @@ export const emptyLeadFilters = () => ({
   days: '',
   created_from: '',
   created_to: '',
+  updated_from: '',
+  updated_to: '',
+  date_field: 'created', // 'created' | 'updated' for VC date filter mode
   meta_qualified: null,
   metric: '',
   dormant: false,
@@ -60,6 +67,14 @@ export const filtersFromSearchParams = (searchParams) => {
   if (vipRaw === '1' || vipRaw === 'true') vip = true;
   if (vipRaw === '0' || vipRaw === 'false') vip = false;
 
+  const updated_from = searchParams.get('updated_from') || '';
+  const updated_to = searchParams.get('updated_to') || '';
+  const dateFieldRaw = searchParams.get('date_field');
+  let date_field = normalizeDateField(dateFieldRaw);
+  if (!dateFieldRaw && (updated_from || updated_to)) {
+    date_field = 'updated';
+  }
+
   return {
     ...base,
     budgets,
@@ -74,6 +89,9 @@ export const filtersFromSearchParams = (searchParams) => {
     days: searchParams.get('days') || '',
     created_from: searchParams.get('created_from') || '',
     created_to: searchParams.get('created_to') || '',
+    updated_from,
+    updated_to,
+    date_field,
     meta_qualified: parseMetaQualified(searchParams.get('meta_qualified')),
     metric: searchParams.get('metric') || '',
     dormant: searchParams.get('dormant') === '1' || searchParams.get('dormant') === 'true',
@@ -83,6 +101,7 @@ export const filtersFromSearchParams = (searchParams) => {
 
 export const filtersToSearchParams = (filters, agentQuery) => {
   const params = new URLSearchParams();
+  const dateField = normalizeDateField(filters.date_field);
 
   const budgets = encodeCommaList(filters.budgets);
   const locations = encodeCommaList(filters.locations);
@@ -103,8 +122,16 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   if (filters.vip === false) params.set('vip', '0');
   if (filters.temperature) params.set('temperature', filters.temperature);
   if (filters.days) params.set('days', String(filters.days));
-  if (filters.created_from) params.set('created_from', filters.created_from);
-  if (filters.created_to) params.set('created_to', filters.created_to);
+
+  if (dateField === 'updated') {
+    params.set('date_field', 'updated');
+    if (filters.updated_from) params.set('updated_from', filters.updated_from);
+    if (filters.updated_to) params.set('updated_to', filters.updated_to);
+  } else {
+    if (filters.created_from) params.set('created_from', filters.created_from);
+    if (filters.created_to) params.set('created_to', filters.created_to);
+  }
+
   if (filters.meta_qualified === true) params.set('meta_qualified', '1');
   if (filters.meta_qualified === false) params.set('meta_qualified', '0');
   if (filters.metric) params.set('metric', filters.metric);
@@ -118,6 +145,7 @@ export const filtersToSearchParams = (filters, agentQuery) => {
 
 export const buildLeadListParams = (filters, search = '') => {
   const params = {};
+  const dateField = normalizeDateField(filters.date_field);
 
   const budgets = encodeCommaList(filters.budgets);
   const locations = encodeCommaList(filters.locations);
@@ -138,7 +166,19 @@ export const buildLeadListParams = (filters, search = '') => {
   if (filters.temperature) params.temperature = filters.temperature;
   if (filters.dormant) params.dormant = true;
 
-  if (filters.days) {
+  if (dateField === 'updated') {
+    // Backend `days` is created_at-only; map updated presets to updated_from/to.
+    if (filters.updated_from || filters.updated_to) {
+      if (filters.updated_from) params.updated_from = filters.updated_from;
+      if (filters.updated_to) params.updated_to = filters.updated_to;
+    } else if (filters.days) {
+      const d = parseInt(filters.days, 10);
+      if (Number.isFinite(d) && d > 0) {
+        params.updated_from = addIstDays(-d);
+        params.updated_to = formatIstYmd();
+      }
+    }
+  } else if (filters.days) {
     const d = parseInt(filters.days, 10);
     if (Number.isFinite(d) && d > 0) params.days = d;
   } else {
@@ -165,7 +205,15 @@ export const countActiveFilters = (filters, { includeDuplicates = false } = {}) 
   if (filters.intent) count += 1;
   if (filters.vip !== null && filters.vip !== undefined) count += 1;
   if (filters.temperature) count += 1;
-  if (filters.days || filters.created_from || filters.created_to) count += 1;
+  if (
+    filters.days
+    || filters.created_from
+    || filters.created_to
+    || filters.updated_from
+    || filters.updated_to
+  ) {
+    count += 1;
+  }
   if (filters.meta_qualified === true || filters.meta_qualified === false) count += 1;
   if (filters.metric) count += 1;
   if (filters.dormant) count += 1;
@@ -187,9 +235,13 @@ const normalizeFilterSnapshot = (filters = {}) => ({
   days: filters.days || '',
   created_from: filters.created_from || '',
   created_to: filters.created_to || '',
+  updated_from: filters.updated_from || '',
+  updated_to: filters.updated_to || '',
+  date_field: normalizeDateField(filters.date_field),
   meta_qualified: filters.meta_qualified ?? null,
   metric: filters.metric || '',
   dormant: Boolean(filters.dormant),
+  mine: Boolean(filters.mine),
   search: (filters.search || '').trim(),
 });
 
@@ -232,9 +284,13 @@ export const snapshotFiltersForView = (filters, search) => ({
   days: filters.days || '',
   created_from: filters.created_from || '',
   created_to: filters.created_to || '',
+  updated_from: filters.updated_from || '',
+  updated_to: filters.updated_to || '',
+  date_field: normalizeDateField(filters.date_field),
   meta_qualified: filters.meta_qualified ?? null,
   metric: filters.metric || '',
   dormant: Boolean(filters.dormant),
+  mine: Boolean(filters.mine),
   search: (search || '').trim(),
 });
 
@@ -253,9 +309,13 @@ export const applyViewFiltersToState = (viewFilters) => {
     days: viewFilters.days || '',
     created_from: viewFilters.created_from || '',
     created_to: viewFilters.created_to || '',
+    updated_from: viewFilters.updated_from || '',
+    updated_to: viewFilters.updated_to || '',
+    date_field: normalizeDateField(viewFilters.date_field),
     meta_qualified: viewFilters.meta_qualified ?? null,
     metric: viewFilters.metric || '',
     dormant: Boolean(viewFilters.dormant),
+    mine: Boolean(viewFilters.mine),
   };
   const search = (viewFilters.search || '').trim();
   return { filters, search };

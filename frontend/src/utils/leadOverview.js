@@ -46,6 +46,8 @@ export const METRIC_LABELS = {
 
   junk: 'Junk',
 
+  unqualified: 'Unqualified',
+
   gone_cold: 'Gone cold',
 
   re_engaged: 'Re-engaged',
@@ -113,6 +115,8 @@ const KEY_ICON_FALLBACK = {
   sv_conducted: CheckCircle2,
 
   junk: Trash2,
+
+  unqualified: Trash2,
 
   gone_cold: Snowflake,
 

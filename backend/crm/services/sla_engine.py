@@ -26,8 +26,9 @@ from crm.core.state import db, logger
 from crm.services.assignment_router import reassign_new_lead
 from crm.services.lead_sla_utils import is_booking_progress_status
 from crm.services.notifications_stream import notifications_stream
+from crm.services.sla_helpers import assign_lead_to_admin
 from crm.utils.business_time import business_seconds_elapsed, is_business_hours_ist as _bh_ist
-from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now
+from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now, ist_wall_to_utc_dt
 
 IST = ZoneInfo("Asia/Kolkata")
 _CRON_LOCK_JOB = "process_slas"
@@ -169,7 +170,7 @@ def build_task_doc(
         return None
 
     due_date = due_date or now_dt.strftime("%Y-%m-%d")
-    due_at_dt = datetime.fromisoformat(f"{due_date}T{due_time}:00").replace(tzinfo=timezone.utc)
+    due_at_dt = ist_wall_to_utc_dt(due_date, due_time or "09:00")
     lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
 
     doc = {
@@ -441,10 +442,12 @@ class SLAEngineService:
         admin = await db.users.find_one(
             {"role": {"$regex": r"^\s*admin\s*$", "$options": "i"}},
             {"_id": 0, "id": 1, "full_name": 1, "role": 1},
+            sort=[("id", 1)],
         )
         manager = await db.users.find_one(
             {"role": {"$regex": r"^\s*manager\s*$", "$options": "i"}},
             {"_id": 0, "id": 1, "full_name": 1, "role": 1},
+            sort=[("id", 1)],
         )
         out: Dict[str, dict] = {}
         if admin and admin.get("id"):
@@ -457,24 +460,29 @@ class SLAEngineService:
         base = _new_lead_filter()
 
         if is_business_hours_ist(now_dt):
-            query_30m = self._rule_query(
-                {**base, **_flag_not_set("sla_flags.new.reassign_30m_at_dt")}
+            # Prefer 1h flag; also treat legacy 30m flag as already processed (no double-reassign).
+            query_1h = self._rule_query(
+                {
+                    **base,
+                    **_flag_not_set("sla_flags.new.reassign_1h_at_dt"),
+                    **_flag_not_set("sla_flags.new.reassign_30m_at_dt"),
+                }
             )
-            async for batch in _paginate_leads(db.leads, query_30m):
+            async for batch in _paginate_leads(db.leads, query_1h):
                 for lead in batch:
                     created = coerce_datetime(lead.get("created_at_dt")) or now_dt
                     if created.tzinfo is None:
                         created = created.replace(tzinfo=timezone.utc)
-                    if business_seconds_elapsed(created, now_dt) < 1800:
+                    if business_seconds_elapsed(created, now_dt) < 3600:
                         continue
                     await reassign_new_lead(lead["id"])
                     self._queue_lead_mutation(
                         lead["id"],
                         {},
-                        "sla_flags.new.reassign_30m_at_dt",
+                        "sla_flags.new.reassign_1h_at_dt",
                         now_dt,
                         now_iso,
-                        "mutation:new:auto_reassign_30m",
+                        "mutation:new:auto_reassign_1h",
                     )
 
         cutoff_2h = now_dt - timedelta(hours=2)
@@ -584,6 +592,18 @@ class SLAEngineService:
                         sla_rule="rnr",
                         sla_threshold=threshold,
                     )
+                    if threshold in ("48h", "15d"):
+                        try:
+                            await assign_lead_to_admin(
+                                lead["id"], reason=f"rnr_escalate_{threshold}"
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "RNR admin ownership transfer failed for lead %s (%s): %s",
+                                lead.get("id"),
+                                threshold,
+                                e,
+                            )
 
     async def _process_rule_contacted(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         for hours, threshold, desc, priority, target in (

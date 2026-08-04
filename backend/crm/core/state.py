@@ -323,6 +323,17 @@ async def ensure_db_indexes():
             [("source", 1), ("created_at_dt", -1)],
             name="whatsapp_messages_source_createdAtDt",
         )
+        await db.whatsapp_messages.create_index(
+            [("direction", 1), ("source", 1), ("created_at_dt", -1)],
+            name="whatsapp_messages_dir_source_createdAtDt",
+        )
+
+        # Per-user WhatsApp inbox read receipts (unread badges)
+        await db.whatsapp_thread_reads.create_index(
+            [("user_id", 1), ("peer_phone", 1)],
+            unique=True,
+            name="whatsapp_thread_reads_user_peer_uq",
+        )
 
         # lead_transfers
         await db.lead_transfers.create_index([("id", 1)], unique=True, name="lead_transfers_id_uq")

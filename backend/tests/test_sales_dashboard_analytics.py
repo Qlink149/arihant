@@ -58,7 +58,12 @@ def test_resolve_imported_lead_status_prefers_original_fw():
 
 def test_sales_metric_filter_rnr_and_contacted():
     rnr = build_sales_metric_filter("rnr")
-    assert "$or" in rnr
+    # Current-status RNR queue: nested $or under $and + terminal exclusion
+    assert "$and" in rnr
+    assert any("$or" in clause for clause in rnr["$and"] if isinstance(clause, dict))
+    blob = str(rnr)
+    assert "is_rnr" in blob
+    assert "original_fw_status" not in blob
     contacted = build_sales_metric_filter("contacted")
     assert contacted["lead_status"]["$regex"] == r"^contacted$"
 

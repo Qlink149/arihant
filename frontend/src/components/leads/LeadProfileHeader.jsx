@@ -478,9 +478,32 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
         )}
         {lead.vip && (
           <span className={`rounded-full font-medium bg-purple-500/20 text-purple-400 ${compact ? 'text-[10px] px-1.5 py-0' : 'px-3 py-1 text-sm'}`}>
-            VIP
+            VIP{lead.vip_manual != null ? ' · manual' : ''}
           </span>
         )}
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={savingStatus}
+          className={`h-7 px-2 text-xs ${lead.vip ? 'text-purple-300 hover:text-purple-200' : 'text-[#A1A1AA] hover:text-white'} hover:bg-white/5`}
+          data-testid="toggle-vip"
+          onClick={async () => {
+            setSavingStatus(true);
+            try {
+              const next = !lead.vip;
+              await leadsAPI.update(leadId, { vip: next, vip_manual: next });
+              toast.success(next ? 'VIP tag set' : 'VIP tag cleared');
+              await onLeadUpdated?.();
+            } catch {
+              toast.error('Failed to update VIP');
+            } finally {
+              setSavingStatus(false);
+            }
+          }}
+        >
+          {lead.vip ? 'Clear VIP' : 'Mark VIP'}
+        </Button>
         {lead.lost_reason && showLostReasonField && (
           <CrmBadge variant="neutral" size={compact ? 'xs' : 'sm'} data-testid="lost-reason-chip">
             Lost: {lead.lost_reason}

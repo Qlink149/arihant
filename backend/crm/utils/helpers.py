@@ -1,6 +1,9 @@
 import re
 from datetime import datetime, timezone
 from typing import Optional, Union
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def utc_now() -> datetime:
@@ -10,6 +13,21 @@ def utc_now() -> datetime:
 def iso_utc_now() -> str:
     # Keep legacy ISO string format for backwards compatibility in existing queries.
     return utc_now().isoformat()
+
+
+def ist_wall_to_utc_dt(due_date: str, due_time: Optional[str] = None) -> datetime:
+    """
+    Interpret due_date (YYYY-MM-DD) + due_time (HH:MM) as Asia/Kolkata wall clock,
+    return timezone-aware UTC datetime for due_at_dt storage/sorting.
+    """
+    date_part = (due_date or "").strip()[:10]
+    time_part = (due_time or "09:00").strip()
+    if len(time_part) == 5:
+        time_part = f"{time_part}:00"
+    elif len(time_part) == 4 and ":" not in time_part:
+        time_part = f"{time_part[:2]}:{time_part[2:]}:00"
+    local = datetime.fromisoformat(f"{date_part}T{time_part}").replace(tzinfo=IST)
+    return local.astimezone(timezone.utc)
 
 
 def coerce_datetime(value: Union[None, str, datetime]) -> Optional[datetime]:

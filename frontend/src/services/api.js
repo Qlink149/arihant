@@ -119,6 +119,8 @@ export const leadsAPI = {
   merge: (primaryId, duplicateId) => api.post(`/leads/${primaryId}/merge/${duplicateId}`),
   addCallSummary: (id, data) => api.post(`/leads/${id}/call-summary`, data),
   addContext: (id, data) => api.post(`/leads/${id}/context`, data),
+  updateContext: (id, entryIndex, data) =>
+    api.patch(`/leads/${id}/context/${entryIndex}`, data),
   addTask: (id, data) => api.post(`/leads/${id}/tasks`, data),
   getSuggestions: (id) => api.get(`/leads/${id}/suggestions`),
   grantSearchAccess: (id) => api.post(`/leads/${id}/grant`, {}, { skipGlobalErrorToast: true }),
@@ -144,6 +146,7 @@ export const settingsAPI = {
 
 export const notificationsAPI = {
   getAll: (params) => api.get('/notifications', { params: { unread_only: true, ...params } }),
+  getEscalations: (params = {}) => api.get('/escalations', { params }),
   markRead: (id) => api.put(`/notifications/${id}/read`),
   markAllRead: () => api.put('/notifications/read-all'),
   getPreferences: () => api.get('/notifications/preferences'),
@@ -177,17 +180,23 @@ export const whatsappAPI = {
   getTemplates: () => api.get('/whatsapp/templates'),
   sendMessage: (data) => api.post('/whatsapp/send', data),
   sendToLead: (leadId, data) => api.post(`/whatsapp/send-to-lead/${leadId}`, data),
-  getChatHistory: (phone) => api.get(`/whatsapp/chat-history/${phone}`),
+  getChatHistory: (phone) => api.get(`/whatsapp/chat-history/${encodeURIComponent(phone)}`),
+  syncChatHistory: (phone) =>
+    api.post(`/whatsapp/chat-history/${encodeURIComponent(phone)}/sync`),
   getLeadChat: (leadId) => api.get(`/whatsapp/lead-chat/${leadId}`),
   syncLeadChat: (leadId) => api.post(`/whatsapp/lead-chat/${leadId}/sync`),
   getInbox: (params = {}) => api.get('/whatsapp/inbox', { params }),
+  markInboxRead: (data) => api.post('/whatsapp/inbox/read', data),
   /** Authenticated blob fetch for WATI media preview (image/audio/pdf). */
   getMediaBlob: (fileName) =>
     api.get('/whatsapp/media', {
       params: { fileName },
       responseType: 'blob',
     }),
-  sendBrochure: (leadId) => api.post(`/whatsapp/send-brochure/${leadId}`),
+  sendBrochure: (leadId, project) =>
+    api.post(`/whatsapp/send-brochure/${leadId}`, null, {
+      params: project ? { project } : undefined,
+    }),
   sendPricing: (leadId) => api.post(`/whatsapp/send-pricing/${leadId}`),
   sendSiteVisitRequest: (leadId) => api.post(`/whatsapp/send-site-visit-request/${leadId}`),
   sendSiteVisitDone: (leadId) => api.post(`/whatsapp/send-site-visit-done/${leadId}`),

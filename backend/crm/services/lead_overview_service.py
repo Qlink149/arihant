@@ -7,13 +7,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from crm.constants.lead_kpi import RNR_STATUS_REGEX, SITE_VISIT_STATUS_REGEX
+from crm.constants.lead_kpi import SITE_VISIT_STATUS_REGEX
 from crm.constants.lead_status import (
     CLOSED_LEAD_STATUS_REGEX,
     SV_FOLLOWUP_1_STATUS_QUERY,
     SV_FOLLOWUP_2_STATUS_QUERY,
     SV_FOLLOWUP_STATUS_QUERY,
 )
+from crm.services.sales_dashboard_filters import rnr_metric_clause
 from crm.core.state import db
 from crm.services.lead_analytics_queries import active_pipeline_filter
 from crm.services.lead_follow_up import (
@@ -27,6 +28,7 @@ from crm.services.transfer_queries import incoming_transfer_filter, outgoing_tra
 IST = ZoneInfo("Asia/Kolkata")
 
 _RE_JUNK = {"$regex": r"junk", "$options": "i"}
+_RE_UNQUALIFIED = {"$regex": r"unqualified", "$options": "i"}
 _RE_GONE_COLD = {"$regex": r"gone\s*cold", "$options": "i"}
 _RE_RE_ENGAGED_STATUS = {"$regex": r"re[\s\-]*engag", "$options": "i"}
 _RE_SV_VISIT_COMPLETED = {
@@ -92,13 +94,8 @@ def _active_pipeline_clause() -> dict:
 
 
 def _rnr_clause() -> dict:
-    return {
-        "$or": [
-            {"is_rnr": True},
-            {"lead_status": {"$regex": RNR_STATUS_REGEX}},
-            {"original_fw_status": {"$regex": RNR_STATUS_REGEX}},
-        ]
-    }
+    """Delegate to shared current-status RNR clause (no historical FW-only match)."""
+    return rnr_metric_clause()
 
 
 def _created_today_clause(day_start_utc: datetime, day_end_utc: datetime) -> dict:
@@ -273,6 +270,23 @@ METRIC_SPECS: List[Dict[str, Any]] = [
                 "$or": [
                     {"lead_status": _RE_JUNK},
                     {"original_fw_status": _RE_JUNK},
+                ]
+            },
+        ),
+        "collection": "leads",
+    },
+    {
+        "key": "unqualified",
+        "label": "Unqualified",
+        "subtitle": "Not qualified",
+        "accent": "slate",
+        "drill_down": {"type": "virtual_customer", "params": {"metric": "unqualified"}},
+        "build_filter": lambda ctx: merge_query(
+            ctx["base_filter"],
+            {
+                "$or": [
+                    {"lead_status": _RE_UNQUALIFIED},
+                    {"original_fw_status": _RE_UNQUALIFIED},
                 ]
             },
         ),

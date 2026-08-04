@@ -18,6 +18,7 @@ import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Optional
 from urllib.parse import quote, unquote, urlparse
 
 import httpx
@@ -33,6 +34,7 @@ from crm.core.state import (
     PROJECT_BROCHURE_MAP,
     PROJECT_PRICING_MAP,
     resolve_lead_project_key,
+    resolve_user_id_by_full_name,
 
     # Gupshup (legacy dead-code)
     GUPSHUP_API_KEY,
@@ -44,6 +46,7 @@ from crm.core.state import (
     db,
     logger,
 )
+from crm.services.notification_service import create_notification
 from crm.models.schemas.whatsapp_schemas import WhatsAppMessage
 from crm.services.dashboard_scope import (
     rep_lead_filter,
@@ -58,9 +61,10 @@ from crm.utils.helpers import (
 )
 
 # Inbox list caps — keep query bounded for CRM scale.
-_INBOX_LEAD_CANDIDATE_CAP = 500
+_INBOX_PEER_CANDIDATE_CAP = 500
 _INBOX_DEFAULT_LIMIT = 50
 _INBOX_MAX_LIMIT = 100
+_INBOX_FILTERS = frozenset({"all", "unread", "mine"})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1438,6 +1442,38 @@ async def handle_wati_webhook(body: dict) -> None:
 
                 enqueue_lead_ai_refresh(lead["id"])
 
+                # Notify assigned rep of inbound WhatsApp reply (deduped by WATI message id)
+                try:
+                    assignee_id = (lead.get("assigned_user_id") or "").strip()
+                    assignee_name = (
+                        lead.get("assigned_to")
+                        or lead.get("assigned_to_name")
+                        or ""
+                    ).strip()
+                    if not assignee_id and assignee_name:
+                        assignee_id = (await resolve_user_id_by_full_name(assignee_name) or "").strip()
+                    if assignee_id:
+                        lead_name = (
+                            f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
+                            or lead.get("name")
+                            or "Lead"
+                        )
+                        msg_key = wati_msg_id or msg_doc.get("wati_message_id") or msg_doc.get("id") or ""
+                        await create_notification(
+                            recipient_user_id=assignee_id,
+                            recipient_name=assignee_name,
+                            title="WhatsApp reply",
+                            message=f"{lead_name} replied on WhatsApp",
+                            notification_type="whatsapp_reply",
+                            lead_id=lead["id"],
+                            lead_name=lead_name,
+                            severity="medium",
+                            urgency="action_needed",
+                            dedupe_key=f"whatsapp_reply:{msg_key}" if msg_key else None,
+                        )
+                except Exception as notif_err:
+                    logger.warning(f"WhatsApp reply notification failed for lead {lead.get('id')}: {notif_err}")
+
     except Exception as e:
         logger.error(f"WATI webhook handler error: {e}")
 
@@ -1494,8 +1530,23 @@ async def send_to_lead(lead_id: str, message: WhatsAppMessage, current_user: dic
             {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
         )
         from crm.services.ai_lead_regen import enqueue_lead_ai_refresh
+        from crm.services.lead_follow_up import clear_missed_follow_up_after_activity
+        from crm.services.lead_overview_service import ist_day_window
 
         enqueue_lead_ai_refresh(lead_id)
+        try:
+            today_str, _, _ = ist_day_window()
+            await clear_missed_follow_up_after_activity(
+                lead_id,
+                today_str=today_str,
+                actor_name=current_user.get("full_name") or "User",
+            )
+        except Exception as clear_err:
+            logger.warning(
+                "clear_missed_follow_up after WhatsApp send failed for %s: %s",
+                lead_id,
+                clear_err,
+            )
 
     return result
 
@@ -1519,7 +1570,13 @@ async def get_chat_history(phone: str, limit: int = 50) -> dict:
 
     db_messages.sort(key=_message_sort_ts, reverse=True)
     sliced = _decorate_history_messages(db_messages[:limit])
-    return {"phone": normalized, "messages": sliced, "count": len(sliced)}
+    session_open = await _is_session_open(normalized)
+    return {
+        "phone": normalized,
+        "messages": sliced,
+        "count": len(sliced),
+        "session_open": session_open,
+    }
 
 
 async def sync_chat_history(phone: str, limit: int = 100) -> dict:
@@ -1563,7 +1620,7 @@ async def get_lead_chat_history(lead_id: str) -> dict:
 
     phone = lead.get("phone", "")
     if not phone:
-        return {"messages": [], "error": "Lead has no phone number"}
+        return {"messages": [], "error": "Lead has no phone number", "session_open": False}
 
     return await get_chat_history(phone)
 
@@ -1609,6 +1666,39 @@ def _inbox_preview_text(msg: dict, max_len: int = 120) -> str:
     return text
 
 
+def _inbox_conversation_key(*, lead_id: str | None, peer: str) -> str:
+    if lead_id:
+        return f"lead:{lead_id}"
+    return f"peer:{peer}"
+
+
+def _is_mine_lead(lead: dict, current_user: dict) -> bool:
+    """True if lead is assigned to the current user (id or name)."""
+    if not lead:
+        return False
+    uid = current_user.get("id") or ""
+    name = (current_user.get("full_name") or "").strip().lower()
+    if uid and lead.get("assigned_user_id") == uid:
+        return True
+    if name:
+        for field in ("assigned_to_name", "assigned_to", "presales_agent"):
+            if (lead.get(field) or "").strip().lower() == name:
+                return True
+    return False
+
+
+def _inbox_our_channel_phones() -> set[str]:
+    phones: set[str] = set()
+    if WATI_CHANNEL_PHONE:
+        try:
+            peer = _inbox_peer_phone(WATI_CHANNEL_PHONE)
+            if peer:
+                phones.add(peer)
+        except Exception:
+            pass
+    return phones
+
+
 async def _inbox_lead_scope_filter(current_user: dict) -> dict:
     """
     Leads visible in WhatsApp inbox.
@@ -1632,36 +1722,55 @@ async def _inbox_lead_scope_filter(current_user: dict) -> dict:
     return owned
 
 
-async def get_whatsapp_inbox(
-    current_user: dict,
-    *,
-    limit: int = _INBOX_DEFAULT_LIMIT,
-    skip: int = 0,
-) -> dict:
+async def _inbox_aggregate_peers(cap: int = _INBOX_PEER_CANDIDATE_CAP) -> list[tuple[str, dict]]:
     """
-    Cross-lead WhatsApp conversation list for the left-nav inbox.
-
-    Joins scoped leads → phone → last whatsapp_messages row.
-    One phone maps to one in-scope lead (first wins); same as webhook matching.
+    Distinct customer peers from whatsapp_messages with their latest message.
+    Newest-first; capped for CRM scale.
     """
-    try:
-        limit = max(1, min(int(limit or _INBOX_DEFAULT_LIMIT), _INBOX_MAX_LIMIT))
-    except (TypeError, ValueError):
-        limit = _INBOX_DEFAULT_LIMIT
-    try:
-        skip = max(0, int(skip or 0))
-    except (TypeError, ValueError):
-        skip = 0
+    our = list(_inbox_our_channel_phones())
+    pipeline: list[dict] = [
+        {
+            "$addFields": {
+                "_peer": {
+                    "$cond": [
+                        {"$eq": ["$direction", "inbound"]},
+                        "$source",
+                        "$destination",
+                    ]
+                },
+                "_sort_dt": {"$ifNull": ["$created_at_dt", "$created_at"]},
+            }
+        },
+        {
+            "$match": {
+                "_peer": {"$nin": [None, "", *our]},
+            }
+        },
+        {"$sort": {"_sort_dt": -1}},
+        {
+            "$group": {
+                "_id": "$_peer",
+                "last": {"$first": "$$ROOT"},
+            }
+        },
+        {"$sort": {"last._sort_dt": -1}},
+        {"$limit": cap},
+    ]
 
-    scope = await _inbox_lead_scope_filter(current_user)
-    phone_clause = {
-        "$or": [
-            {"phone": {"$exists": True, "$nin": [None, ""]}},
-            {"normalized_phone": {"$exists": True, "$nin": [None, ""]}},
-        ]
-    }
-    lead_query = {"$and": [scope, phone_clause]} if scope else phone_clause
+    out: list[tuple[str, dict]] = []
+    async for row in db.whatsapp_messages.aggregate(pipeline):
+        peer = row.get("_id")
+        last = row.get("last") or {}
+        if peer and isinstance(last, dict):
+            out.append((str(peer), last))
+    return out
 
+
+async def _resolve_leads_for_peers(peers: list[str]) -> dict[str, dict]:
+    """Map WATI peer phone → lead (first wins on duplicate phones)."""
+    if not peers:
+        return {}
+    norms = list({n for p in peers if (n := normalize_phone(p))})
     projection = {
         "_id": 0,
         "id": 1,
@@ -1673,100 +1782,251 @@ async def get_whatsapp_inbox(
         "project": 1,
         "assigned_to": 1,
         "assigned_to_name": 1,
+        "assigned_user_id": 1,
+        "presales_agent": 1,
+        "lead_status": 1,
         "status": 1,
         "pipeline_status": 1,
         "budget": 1,
         "configuration": 1,
     }
-    candidates = (
-        await db.leads.find(lead_query, projection)
-        .limit(_INBOX_LEAD_CANDIDATE_CAP)
-        .to_list(_INBOX_LEAD_CANDIDATE_CAP)
-    )
+    or_clauses: list[dict] = []
+    if norms:
+        or_clauses.append({"normalized_phone": {"$in": norms}})
+    or_clauses.append({"phone": {"$in": peers}})
+    leads = await db.leads.find({"$or": or_clauses}, projection).to_list(max(2000, len(peers) * 3))
 
-    # phone (WATI form) -> lead; first in-scope lead wins on duplicate phones
     phone_to_lead: dict[str, dict] = {}
-    for lead in candidates:
+    peer_set = set(peers)
+    for lead in leads:
         peer = _inbox_peer_phone(lead.get("phone") or lead.get("normalized_phone") or "")
-        if not peer or peer in phone_to_lead:
+        if peer and peer in peer_set and peer not in phone_to_lead:
+            phone_to_lead[peer] = lead
             continue
-        phone_to_lead[peer] = lead
+        lead_norm = lead.get("normalized_phone") or normalize_phone(lead.get("phone") or "")
+        if not lead_norm:
+            continue
+        for p in peers:
+            if p in phone_to_lead:
+                continue
+            if normalize_phone(p) == lead_norm:
+                phone_to_lead[p] = lead
+    return phone_to_lead
 
-    phones = list(phone_to_lead.keys())
-    if not phones:
-        return {"conversations": [], "count": 0, "limit": limit, "skip": skip}
 
-    pipeline = [
+async def _inbox_in_scope_lead_ids(lead_ids: list[str], scope: dict) -> set[str]:
+    if not lead_ids:
+        return set()
+    if not scope:
+        return set(lead_ids)
+    query = {"$and": [scope, {"id": {"$in": lead_ids}}]}
+    found: set[str] = set()
+    async for doc in db.leads.find(query, {"_id": 0, "id": 1}):
+        lid = doc.get("id")
+        if lid:
+            found.add(lid)
+    return found
+
+
+async def _inbox_unread_counts(
+    user_id: str, peers: list[str]
+) -> dict[str, int]:
+    """Count inbound messages per peer newer than the user's last_read_at."""
+    if not peers or not user_id:
+        return {p: 0 for p in peers}
+
+    reads: dict[str, datetime] = {}
+    cursor = db.whatsapp_thread_reads.find(
+        {"user_id": user_id, "peer_phone": {"$in": peers}},
+        {"_id": 0, "peer_phone": 1, "last_read_at": 1},
+    )
+    async for row in cursor:
+        peer = row.get("peer_phone")
+        ts = coerce_datetime(row.get("last_read_at"))
+        if peer and ts:
+            reads[str(peer)] = ts
+
+    counts: dict[str, int] = {p: 0 for p in peers}
+    async for msg in db.whatsapp_messages.find(
+        {"direction": "inbound", "source": {"$in": peers}},
+        {"_id": 0, "source": 1, "created_at_dt": 1, "created_at": 1},
+    ):
+        peer = str(msg.get("source") or "")
+        if peer not in counts:
+            continue
+        msg_dt = coerce_datetime(msg.get("created_at_dt") or msg.get("created_at"))
+        last_read = reads.get(peer)
+        if last_read is None or (msg_dt and msg_dt > last_read):
+            counts[peer] += 1
+    return counts
+
+
+async def mark_whatsapp_inbox_read(
+    current_user: dict,
+    *,
+    peer_phone: str | None = None,
+    lead_id: str | None = None,
+) -> dict:
+    """Upsert last_read_at for the current user on a WA peer thread."""
+    peer = _inbox_peer_phone(peer_phone or "")
+    if not peer and lead_id:
+        lead = await db.leads.find_one({"id": lead_id}, {"_id": 0, "phone": 1, "normalized_phone": 1})
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        peer = _inbox_peer_phone(lead.get("phone") or lead.get("normalized_phone") or "")
+    if not peer:
+        raise HTTPException(status_code=400, detail="peer_phone or lead_id with phone required")
+
+    uid = current_user.get("id") or ""
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    now = utc_now()
+    await db.whatsapp_thread_reads.update_one(
+        {"user_id": uid, "peer_phone": peer},
         {
-            "$match": {
-                "$or": [
-                    {"destination": {"$in": phones}},
-                    {"source": {"$in": phones}},
-                ]
+            "$set": {
+                "user_id": uid,
+                "peer_phone": peer,
+                "last_read_at": now,
+                "updated_at": now,
             }
         },
-        {
-            "$addFields": {
-                "_peer": {
-                    "$cond": [
-                        {"$in": ["$destination", phones]},
-                        "$destination",
-                        "$source",
-                    ]
-                },
-                "_sort_dt": {"$ifNull": ["$created_at_dt", "$created_at"]},
-            }
-        },
-        {"$sort": {"_sort_dt": -1}},
-        {
-            "$group": {
-                "_id": "$_peer",
-                "last": {"$first": "$$ROOT"},
-            }
-        },
-    ]
+        upsert=True,
+    )
+    return {
+        "success": True,
+        "peer_phone": peer,
+        "last_read_at": now.isoformat(),
+    }
 
-    last_by_phone: dict[str, dict] = {}
-    async for row in db.whatsapp_messages.aggregate(pipeline):
-        peer = row.get("_id")
-        last = row.get("last") or {}
-        if peer and isinstance(last, dict):
-            last_by_phone[str(peer)] = last
+
+async def get_whatsapp_inbox(
+    current_user: dict,
+    *,
+    limit: int = _INBOX_DEFAULT_LIMIT,
+    skip: int = 0,
+    filter_mode: str = "all",
+    q: str | None = None,
+) -> dict:
+    """
+    Peer-first WhatsApp conversation list for the Team Inbox.
+
+    Starts from whatsapp_messages peers, left-joins CRM leads.
+    Unmatched numbers appear as Unknown. Matched leads respect assignee scope
+    for reps; unmatched threads are always team-visible.
+    """
+    try:
+        limit = max(1, min(int(limit or _INBOX_DEFAULT_LIMIT), _INBOX_MAX_LIMIT))
+    except (TypeError, ValueError):
+        limit = _INBOX_DEFAULT_LIMIT
+    try:
+        skip = max(0, int(skip or 0))
+    except (TypeError, ValueError):
+        skip = 0
+
+    mode = (filter_mode or "all").strip().lower()
+    if mode not in _INBOX_FILTERS:
+        mode = "all"
+    query_text = (q or "").strip().lower()
+
+    peer_rows = await _inbox_aggregate_peers(_INBOX_PEER_CANDIDATE_CAP)
+    if not peer_rows:
+        return {
+            "conversations": [],
+            "count": 0,
+            "limit": limit,
+            "skip": skip,
+            "has_more": False,
+            "filter": mode,
+        }
+
+    peers = [p for p, _ in peer_rows]
+    phone_to_lead = await _resolve_leads_for_peers(peers)
+    scope = await _inbox_lead_scope_filter(current_user)
+    matched_ids = [lead["id"] for lead in phone_to_lead.values() if lead.get("id")]
+    in_scope_ids = await _inbox_in_scope_lead_ids(matched_ids, scope)
+    uid = current_user.get("id") or ""
+    unread_map = await _inbox_unread_counts(uid, peers)
 
     rows: list[dict] = []
-    for peer, lead in phone_to_lead.items():
-        last = last_by_phone.get(peer)
-        if not last:
+    for peer, last in peer_rows:
+        lead = phone_to_lead.get(peer)
+        is_unmatched = lead is None
+        if lead and lead.get("id") not in in_scope_ids:
+            # Rep cannot see other reps' matched threads
             continue
+
+        if mode == "mine" and (is_unmatched or not _is_mine_lead(lead or {}, current_user)):
+            continue
+
+        unread = int(unread_map.get(peer) or 0)
+        if mode == "unread" and unread <= 0:
+            continue
+
         last_at = last.get("created_at") or last.get("created_at_dt")
         if hasattr(last_at, "isoformat"):
             last_at = last_at.isoformat()
+        preview = _inbox_preview_text(last)
+        display_name = _lead_display_name(lead) if lead else "Unknown"
+        phone_display = (lead.get("phone") if lead else None) or peer
+        project = lead.get("project") if lead else None
+
+        if query_text:
+            hay = f"{display_name} {phone_display} {project or ''} {preview}".lower()
+            if query_text not in hay:
+                continue
+
+        lead_id = lead.get("id") if lead else None
+        session_open = False
+        # Session is computed for the page after filter; mark None here and fill for page slice.
         rows.append(
             {
-                "lead_id": lead.get("id"),
-                "display_name": _lead_display_name(lead),
-                "phone": lead.get("phone") or peer,
-                "normalized_phone": lead.get("normalized_phone") or normalize_phone(peer),
-                "project": lead.get("project"),
-                "assigned_to": lead.get("assigned_to"),
-                "assigned_to_name": lead.get("assigned_to_name"),
-                "status": lead.get("status") or lead.get("pipeline_status"),
-                "budget": lead.get("budget"),
-                "configuration": lead.get("configuration"),
-                "last_message_preview": _inbox_preview_text(last),
+                "conversation_key": _inbox_conversation_key(lead_id=lead_id, peer=peer),
+                "lead_id": lead_id,
+                "is_unmatched": is_unmatched,
+                "peer_phone": peer,
+                "display_name": display_name,
+                "phone": phone_display,
+                "normalized_phone": (
+                    (lead.get("normalized_phone") if lead else None) or normalize_phone(peer)
+                ),
+                "project": project,
+                "assigned_to": lead.get("assigned_to") if lead else None,
+                "assigned_to_name": lead.get("assigned_to_name") if lead else None,
+                "assigned_user_id": lead.get("assigned_user_id") if lead else None,
+                "status": (
+                    (lead.get("lead_status") or lead.get("status") or lead.get("pipeline_status"))
+                    if lead
+                    else None
+                ),
+                "budget": lead.get("budget") if lead else None,
+                "configuration": lead.get("configuration") if lead else None,
+                "last_message_preview": preview,
                 "last_message_at": last_at,
                 "last_direction": last.get("direction"),
                 "last_message_type": last.get("message_type"),
+                "unread_count": unread,
+                "session_open": session_open,
             }
         )
 
-    rows.sort(key=lambda r: _message_sort_ts({"created_at": r.get("last_message_at")}), reverse=True)
+    total = len(rows)
     page = rows[skip : skip + limit]
+    # Cheap session flags for visible page only
+    for row in page:
+        try:
+            row["session_open"] = await _is_session_open(row["peer_phone"])
+        except Exception:
+            row["session_open"] = False
+
     return {
         "conversations": page,
-        "count": len(rows),
+        "count": total,
         "limit": limit,
         "skip": skip,
+        "has_more": skip + limit < total,
+        "filter": mode,
     }
 
 
@@ -1825,13 +2085,15 @@ async def send_pricing(lead_id: str, current_user: dict) -> dict:
     return await send_to_lead(lead_id, msg, current_user)
 
 
-async def send_brochure(lead_id: str, current_user: dict) -> dict:
+async def send_brochure(lead_id: str, current_user: dict, project: Optional[str] = None) -> dict:
     """
     Template 3: Brochure (arihant_brochure_v1).
 
     Primary path: template with dynamic {{pdfLink}} header (works with no open session).
     Fallback (session open only): if WATI rejects the media/header params (common 400),
     deliver the correct project PDF via fileViaUrl so live users still get the brochure.
+
+    Optional ``project`` overrides the lead's project when resolving PROJECT_BROCHURE_MAP.
     """
     if WHATSAPP_PROVIDER != "wati":
         return {"success": False, "error": "WhatsApp is not enabled on this server"}
@@ -1847,10 +2109,15 @@ async def send_brochure(lead_id: str, current_user: dict) -> dict:
     if not phone:
         return {"success": False, "error": "Lead has no phone number"}
 
-    project_key = resolve_lead_project_key(lead)
+    project_override = (project or "").strip()
+    if project_override:
+        project_key = resolve_lead_project_key({"project": project_override, "project_id": project_override})
+    else:
+        project_key = resolve_lead_project_key(lead)
     pdf_filename = PROJECT_BROCHURE_MAP.get(project_key)
     if not pdf_filename:
-        return {"success": False, "error": f"No brochure PDF configured for project: {lead.get('project') or 'not set'}"}
+        label = project_override or lead.get("project") or "not set"
+        return {"success": False, "error": f"No brochure PDF configured for project: {label}"}
 
     static_path = Path(__file__).resolve().parents[2] / "static" / pdf_filename
     if not static_path.is_file():

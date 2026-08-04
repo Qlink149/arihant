@@ -47,7 +47,11 @@ export function dedupeContextUpdates(updates) {
  * Do not reverse this list — index 0 is the latest activity.
  */
 export function getTimelineForDisplay(updates) {
-  return dedupeContextUpdates(updates);
+  if (!updates?.length) return [];
+  const withIndex = updates.map((entry, index) =>
+    entry && typeof entry === 'object' ? { ...entry, _source_index: index } : entry
+  );
+  return dedupeContextUpdates(withIndex);
 }
 
 export function formatTimelineAttribution(update) {

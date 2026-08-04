@@ -69,7 +69,10 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { isOtherModeWithEmptyText } from '../utils/selectWithOther';
-import { TABLE_DENSITY_STORAGE_KEY } from '../constants/performanceFlags';
+import {
+  TABLE_DENSITY_STORAGE_KEY,
+  getVirtualRowEstimate,
+} from '../constants/performanceFlags';
 import { Calendar as CalendarUI } from '../components/ui/calendar';
 import {
   BUDGET_RANGES,
@@ -126,17 +129,26 @@ const getDateFilterLabel = (filters) => {
     const n = parseInt(filters.days, 10);
     if (Number.isFinite(n) && n > 0) return `Last ${n} days`;
   }
-  if (filters.created_from || filters.created_to) {
-    const from = filters.created_from || '…';
-    const to = filters.created_to || '…';
-    if (from === to) return from;
-    return `${from} – ${to}`;
+  const dateField = filters.date_field === 'updated' ? 'updated' : 'created';
+  const from = dateField === 'updated' ? filters.updated_from : filters.created_from;
+  const to = dateField === 'updated' ? filters.updated_to : filters.created_to;
+  if (from || to) {
+    const a = from || '…';
+    const b = to || '…';
+    if (a === b) return a;
+    return `${a} – ${b}`;
   }
   return 'Date';
 };
 
 const isDateFilterActive = (filters) =>
-  Boolean(filters.days || filters.created_from || filters.created_to);
+  Boolean(
+    filters.days
+    || filters.created_from
+    || filters.created_to
+    || filters.updated_from
+    || filters.updated_to
+  );
 
 const getMetaQualifiedLabel = (filters) => {
   if (filters.meta_qualified === true) return 'Meta: Yes';
@@ -195,6 +207,8 @@ const VirtualCustomerPage = () => {
   const leadsFetchGeneration = useRef(0);
   const lastFetchedLeadsKey = useRef('');
   const prevShowDuplicates = useRef(false);
+  /** Pending VC list position restore after Digital Twin (survives remount). */
+  const vcRestorePending = useRef(null);
   const [duplicateGroups, setDuplicateGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchInputValue, setSearchInputValue] = useState(() => searchParams.get('agent') || '');
@@ -294,14 +308,17 @@ const VirtualCustomerPage = () => {
   }, []);
 
   useEffect(() => {
-    if (filters.created_from || filters.created_to) {
-      const from = parseYmd(filters.created_from);
-      const to = parseYmd(filters.created_to) || from;
+    const dateField = filters.date_field === 'updated' ? 'updated' : 'created';
+    const fromStr = dateField === 'updated' ? filters.updated_from : filters.created_from;
+    const toStr = dateField === 'updated' ? filters.updated_to : filters.created_to;
+    if (fromStr || toStr) {
+      const from = parseYmd(fromStr);
+      const to = parseYmd(toStr) || from;
       if (from) setCustomDateRange({ from, to: to || from });
     } else {
       setCustomDateRange(null);
     }
-  }, [filters.created_from, filters.created_to]);
+  }, [filters.date_field, filters.created_from, filters.created_to, filters.updated_from, filters.updated_to]);
 
   useEffect(() => {
     const fromUrl = filtersFromSearchParams(searchParams);
@@ -694,7 +711,13 @@ const VirtualCustomerPage = () => {
     setActiveFilterViewId(null);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const clearDateFields = { days: '', created_from: '', created_to: '' };
+    const clearDateFields = {
+      days: '',
+      created_from: '',
+      created_to: '',
+      updated_from: '',
+      updated_to: '',
+    };
 
     setDateMenuMode('presets');
 
@@ -715,7 +738,16 @@ const VirtualCustomerPage = () => {
     if (preset === 'yesterday') target = addDays(today, -1);
     if (preset === 'day_before') target = addDays(today, -2);
     const ymd = formatLocalDate(target);
-    setFilters((prev) => ({ ...prev, ...clearDateFields, created_from: ymd, created_to: ymd }));
+    setFilters((prev) => {
+      const useUpdated = prev.date_field === 'updated';
+      return {
+        ...prev,
+        ...clearDateFields,
+        ...(useUpdated
+          ? { updated_from: ymd, updated_to: ymd }
+          : { created_from: ymd, created_to: ymd }),
+      };
+    });
   };
 
   const handleCustomRangeSelect = (range) => {
@@ -725,20 +757,111 @@ const VirtualCustomerPage = () => {
 
     const from = formatLocalDate(range.from);
     const to = range.to ? formatLocalDate(range.to) : from;
-    setFilters((prev) => ({
-      ...prev,
-      days: '',
-      created_from: from,
-      created_to: to,
-    }));
-
+    setFilters((prev) => {
+      const useUpdated = prev.date_field === 'updated';
+      return {
+        ...prev,
+        days: '',
+        created_from: useUpdated ? '' : from,
+        created_to: useUpdated ? '' : to,
+        updated_from: useUpdated ? from : '',
+        updated_to: useUpdated ? to : '',
+      };
+    });
     if (range.to) {
       setDateMenuMode('presets');
       setDateDropdownOpen(false);
     }
   };
 
-  const handleViewLead = useCallback((id) => navigate(`/lead/${id}`), [navigate]);
+  const handleViewLead = useCallback((id) => {
+    try {
+      sessionStorage.setItem(
+        'vc_list_restore',
+        JSON.stringify({
+          scrollY: window.scrollY,
+          leadId: id,
+          loadedCount: leadsLengthRef.current || 0,
+          at: Date.now(),
+        })
+      );
+    } catch {
+      /* ignore */
+    }
+    navigate(`/lead/${id}`);
+  }, [navigate]);
+
+  // Hydrate restore payload once after remount
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('vc_list_restore');
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (!data?.at || Date.now() - data.at > 30 * 60 * 1000) {
+        sessionStorage.removeItem('vc_list_restore');
+        return;
+      }
+      vcRestorePending.current = data;
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Restore infinite-scroll depth + focus lead (works with window virtualizer)
+  useEffect(() => {
+    const data = vcRestorePending.current;
+    if (!data || loading || !leads.length) return undefined;
+
+    const leadId = data.leadId;
+    const targetCount = Math.max(0, Number(data.loadedCount) || 0);
+    const found = Boolean(leadId && leads.some((l) => l.id === leadId));
+
+    // Reload enough pages so the opened lead (or prior scroll depth) is in memory
+    if (!found && targetCount > leads.length && hasMoreLeads && !loadingMore && !leadsFetchBusy.current) {
+      appendLeadsPage();
+      return undefined;
+    }
+
+    if (loadingMore) return undefined;
+
+    const clearRestore = () => {
+      vcRestorePending.current = null;
+      try {
+        sessionStorage.removeItem('vc_list_restore');
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const t = window.setTimeout(() => {
+      const idx = leadId ? leads.findIndex((l) => l.id === leadId) : -1;
+      if (idx >= 0) {
+        const el = document.querySelector(`[data-lead-row-id="${leadId}"]`);
+        if (el) {
+          el.scrollIntoView({ block: 'center' });
+          clearRestore();
+          return;
+        }
+        // Virtualized rows: scroll near estimated offset so the row mounts, then center it
+        const table = document.querySelector('[data-testid="lead-data-table"]');
+        const rowH = getVirtualRowEstimate(tableDensity);
+        const tableTop = table
+          ? table.getBoundingClientRect().top + window.scrollY
+          : 0;
+        window.scrollTo(0, Math.max(0, tableTop + idx * rowH - 120));
+        window.setTimeout(() => {
+          const el2 = document.querySelector(`[data-lead-row-id="${leadId}"]`);
+          if (el2) el2.scrollIntoView({ block: 'center' });
+          else window.scrollTo(0, Number(data.scrollY) || 0);
+          clearRestore();
+        }, 120);
+        return;
+      }
+      window.scrollTo(0, Number(data.scrollY) || 0);
+      clearRestore();
+    }, 80);
+    return () => clearTimeout(t);
+  }, [loading, leads, hasMoreLeads, loadingMore, appendLeadsPage, tableDensity]);
 
   const handleOpenNote = useCallback((id) => {
     setNoteLeadId(id);
@@ -791,8 +914,20 @@ const VirtualCustomerPage = () => {
       toast.success('Note added');
       setNoteLeadId(null);
       setQuickNote('');
-      await Promise.all([fetchLeads(), fetchPendingTasks()]);
-    } catch {
+      // Soft refresh: re-fetch current first page without jumping UX harder than needed
+      await Promise.all([resetAndFetchLeads(), fetchPendingTasks()]);
+      // Restore approximate scroll after list rebuild
+      try {
+        const raw = sessionStorage.getItem('vc_list_restore');
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (data?.scrollY != null) {
+            requestAnimationFrame(() => window.scrollTo(0, Number(data.scrollY) || 0));
+          }
+        }
+      } catch {
+        /* ignore */
+      }    } catch {
       toast.error('Failed to save note');
     } finally {
       setSavingQuickNote(false);
@@ -1145,7 +1280,28 @@ const VirtualCustomerPage = () => {
               >
                 {dateMenuMode === 'presets' ? (
                   <>
-                    <DropdownMenuLabel className="text-[#A1A1AA]">Created date</DropdownMenuLabel>
+                    <DropdownMenuLabel className="text-[#A1A1AA]">
+                    {filters.date_field === 'updated' ? 'Updated date' : 'Created date'}
+                  </DropdownMenuLabel>
+                  <div className="px-2 pb-2 flex gap-1">
+                    {['created', 'updated'].map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`flex-1 h-7 rounded text-[10px] uppercase tracking-wide ${
+                          (filters.date_field || 'created') === mode
+                            ? 'bg-[#C5A059]/20 text-[#C5A059] border border-[#C5A059]/40'
+                            : 'text-[#A1A1AA] border border-white/10'
+                        }`}
+                        onClick={() => {
+                          setActiveFilterViewId(null);
+                          setFilters((prev) => ({ ...prev, date_field: mode }));
+                        }}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
                     <DropdownMenuSeparator className="bg-white/10" />
                     <DropdownMenuItem
                       onClick={() => applyDatePreset('today')}

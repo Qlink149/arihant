@@ -121,11 +121,24 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                 "rnr": {
                     "$cond": [
                         {
-                            "$or": [
-                                {"$eq": ["$is_rnr", True]},
-                                {"$regexMatch": {"input": "$ls", "regex": RNR_STATUS_REGEX}},
-                                {"$regexMatch": {"input": "$ofs", "regex": RNR_STATUS_REGEX}},
-                                {"$eq": ["$ls", "rnr"]},
+                            "$and": [
+                                {
+                                    "$or": [
+                                        {"$eq": ["$is_rnr", True]},
+                                        {"$regexMatch": {"input": "$ls", "regex": RNR_STATUS_REGEX}},
+                                        {"$eq": ["$ls", "rnr"]},
+                                    ]
+                                },
+                                {
+                                    "$not": [
+                                        {
+                                            "$regexMatch": {
+                                                "input": "$ls",
+                                                "regex": CLOSED_LEAD_STATUS_REGEX.pattern,
+                                            }
+                                        }
+                                    ]
+                                },
                             ]
                         },
                         1,

@@ -42,7 +42,7 @@ def test_rnr_auto_notification_query_uses_broad_status_regex():
 
 
 async def _rnr_auto_notification_query_uses_broad_status_regex():
-    sentinel = "__RNR_BROAD_REGEX_SENTINEL__"
+    sentinel_clause = {"__rnr_metric_clause__": True}
     captured_queries = []
     now = datetime(2026, 6, 17, 12, 0, tzinfo=timezone.utc)
 
@@ -56,14 +56,14 @@ async def _rnr_auto_notification_query_uses_broad_status_regex():
     with patch("crm.api.v1.endpoints.notifications.db") as mock_db, patch(
         "crm.api.v1.endpoints.notifications.utc_now", return_value=now
     ), patch("crm.api.v1.endpoints.notifications.iso_utc_now", return_value=now.isoformat()), patch(
-        "crm.api.v1.endpoints.notifications.RNR_STATUS_REGEX", sentinel
+        "crm.api.v1.endpoints.notifications.rnr_metric_clause", return_value=sentinel_clause
     ):
         mock_db.leads.find = fake_find
         await _build_auto_notifications({"id": "admin", "role": "admin"})
 
     query_blob = str(captured_queries)
-    assert "is_rnr" in query_blob
-    assert sentinel in query_blob
+    assert "is_rnr" in query_blob or "__rnr_metric_clause__" in query_blob
+    assert sentinel_clause in captured_queries[0].get("$and", [])
 
 
 def test_filter_redundant_auto_alerts_drops_task_overdue_and_covered_leads():

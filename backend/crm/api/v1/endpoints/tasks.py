@@ -13,6 +13,7 @@ from crm.services.notification_service import create_notification
 from crm.constants.task import TASK_REMINDER_METHOD_DEFAULT
 from crm.services.lead_follow_up import recompute_lead_next_action_date
 from crm.services.task_enrichment import enrich_tasks
+from crm.utils.helpers import ist_wall_to_utc_dt
 
 
 router = APIRouter()
@@ -21,6 +22,10 @@ router = APIRouter()
 class ContextUpdateCreate(BaseModel):
     note: str
     update_type: str = "general_note"
+
+
+class ContextUpdatePatch(BaseModel):
+    note: str
 
 
 class TaskCreate(BaseModel):
@@ -147,6 +152,74 @@ async def add_context_update(
     return {"message": "Context updated", "context_entry": context_entry}
 
 
+@router.patch("/leads/{lead_id}/context/{entry_index}")
+async def patch_context_update(
+    lead_id: str,
+    entry_index: int,
+    update: ContextUpdatePatch,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """Edit an existing timeline note/comment by index in context_updates."""
+    await resolve_lead_or_403(lead_id, current_user)
+    note = (update.note or "").strip()
+    if not note:
+        raise HTTPException(status_code=400, detail="Note cannot be empty")
+    if entry_index < 0:
+        raise HTTPException(status_code=400, detail="Invalid context entry index")
+
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0, "context_updates": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    updates = list(lead.get("context_updates") or [])
+    if entry_index >= len(updates):
+        raise HTTPException(status_code=404, detail="Context entry not found")
+
+    entry = updates[entry_index]
+    if not isinstance(entry, dict):
+        raise HTTPException(status_code=400, detail="Invalid context entry")
+
+    editable_types = {"note", "call", "site_visit", "whatsapp", "email", "meeting", "general_note"}
+    etype = (entry.get("type") or entry.get("update_type") or "").strip().lower()
+    if etype and etype not in editable_types and "note" not in etype:
+        raise HTTPException(status_code=400, detail="Only notes/comments can be edited")
+
+    now_dt = utc_now()
+    now_iso = iso_utc_now()
+    entry = {
+        **entry,
+        "description": note,
+        "edited_at": now_iso,
+        "edited_at_dt": now_dt,
+        "edited_by": current_user.get("full_name"),
+        "edited_by_user_id": current_user.get("id"),
+    }
+    updates[entry_index] = entry
+
+    set_fields = {
+        "context_updates": updates,
+        "updated_at": now_iso,
+        "updated_at_dt": now_dt,
+    }
+    # Keep stored recent_note in sync only when editing the newest timeline entry
+    if entry_index == len(updates) - 1:
+        set_fields["recent_note"] = note
+
+    await db.leads.update_one({"id": lead_id}, {"$set": set_fields})
+    await log_lead_event(
+        "note_edited",
+        lead_id=lead_id,
+        actor_user_id=current_user.get("id"),
+        actor_name=current_user.get("full_name"),
+        payload={"entry_index": entry_index},
+    )
+
+    from crm.services.ai_lead_regen import schedule_lead_ai_refresh
+
+    schedule_lead_ai_refresh(lead_id, background_tasks)
+    return {"message": "Context entry updated", "context_entry": entry, "entry_index": entry_index}
+
+
 @router.post("/leads/{lead_id}/tasks")
 async def add_task(lead_id: str, task: TaskCreate, current_user: dict = Depends(get_current_user)):
     lead = await resolve_lead_or_403(lead_id, current_user)
@@ -170,7 +243,7 @@ async def add_task(lead_id: str, task: TaskCreate, current_user: dict = Depends(
         "description": task.description,
         "due_date": task.due_date,
         "due_time": task.due_time,
-        "due_at_dt": datetime.fromisoformat(f"{task.due_date}T{task.due_time or '09:00'}:00").replace(tzinfo=timezone.utc),
+        "due_at_dt": ist_wall_to_utc_dt(task.due_date, task.due_time or "09:00"),
         "priority": task.priority,
         "reminder_method": task.reminder_method,
         "assigned_to": assigned,
@@ -272,7 +345,7 @@ async def create_standalone_task(task: StandaloneTaskCreate, current_user: dict 
         "description": task.description,
         "due_date": task.due_date,
         "due_time": task.due_time,
-        "due_at_dt": datetime.fromisoformat(f"{task.due_date}T{task.due_time or '09:00'}:00").replace(tzinfo=timezone.utc),
+        "due_at_dt": ist_wall_to_utc_dt(task.due_date, task.due_time or "09:00"),
         "priority": task.priority,
         "reminder_method": TASK_REMINDER_METHOD_DEFAULT,
         "assigned_to": assigned,
@@ -393,6 +466,12 @@ async def update_task(task_id: str, update: TaskUpdatePatch, current_user: dict 
     patch["updated_at"] = now_iso
     patch["updated_at_dt"] = now_dt
 
+    if "due_date" in patch or "due_time" in patch:
+        next_date = patch.get("due_date", task.get("due_date"))
+        next_time = patch.get("due_time", task.get("due_time")) or "09:00"
+        if next_date:
+            patch["due_at_dt"] = ist_wall_to_utc_dt(str(next_date)[:10], next_time)
+
     terminal = {"done", "completed", "cancelled"}
     completing = "status" in patch and patch["status"] in terminal
     if completing:
@@ -474,7 +553,18 @@ async def update_task(task_id: str, update: TaskUpdatePatch, current_user: dict 
         or "due_date" in patch
         or patch.get("status") == "pending"
     ):
-        await recompute_lead_next_action_date(lead_id)
+        if completing:
+            from crm.services.lead_follow_up import clear_missed_follow_up_after_activity
+            from crm.services.lead_overview_service import ist_day_window
+
+            today_str, _, _ = ist_day_window()
+            await clear_missed_follow_up_after_activity(
+                lead_id,
+                today_str=today_str,
+                actor_name=current_user.get("full_name") or "User",
+            )
+        else:
+            await recompute_lead_next_action_date(lead_id)
 
     if new_status:
         await log_lead_event(

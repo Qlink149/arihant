@@ -12,7 +12,7 @@ from crm.utils.helpers import coerce_datetime
 
 # SLA window in seconds for overdue badge (calendar unless noted)
 SLA_OVERDUE_WINDOWS = {
-    "new": {"30m": 30 * 60, "2h": 2 * 3600},
+    "new": {"1h": 3600, "30m": 30 * 60, "2h": 2 * 3600},
     "rnr": {"24h": 24 * 3600, "48h": 48 * 3600},
     "contacted": {"48h": 48 * 3600, "72h": 72 * 3600},
     "visit_completed": {"3d": 3 * 24 * 3600},
@@ -29,6 +29,7 @@ SLA_PAUSED_ALLOWED_TYPES = frozenset({
     "new_lead_assigned",
     "lead_transferred",
     "lead_status_changed",
+    "whatsapp_reply",
 })
 
 

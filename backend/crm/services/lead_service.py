@@ -201,9 +201,13 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     lead_dict["updated_at"] = coerce_datetime(lead_dict["updated_at"]) or utc_now()
     normalize_lead_for_response(lead_dict)
     
-    # Template 1: Auto-ack WhatsApp (fire and forget)
-    from crm.services.whatsapp_service import send_lead_ack
-    asyncio.create_task(send_lead_ack(lead_id, lead_dict))
+    # Template 1: Auto-ack WhatsApp only for New leads (fire and forget).
+    # Blank status is treated as New — same default routing uses.
+    status_norm = (lead_dict.get("lead_status") or "New").strip().lower()
+    if status_norm == "new":
+        from crm.services.whatsapp_service import send_lead_ack
+
+        asyncio.create_task(send_lead_ack(lead_id, lead_dict))
     
     return LeadResponse(**lead_dict)
 
@@ -484,6 +488,7 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                     "$unset": {
                         "sla_flags.new.alert_admin_2h_at_dt": "",
                         "sla_flags.new.reassign_30m_at_dt": "",
+                        "sla_flags.new.reassign_1h_at_dt": "",
                     }
                 },
             )
@@ -621,7 +626,20 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     apply_nurture_temperature_rules(existing, patch)
     merged = {**existing, **patch}
     patch["intent"] = determine_lead_intent(merged)
-    patch["vip"] = is_vip_lead(merged)
+
+    # VIP: manual override wins; otherwise keep budget heuristic.
+    if "vip_manual" in patch:
+        if patch["vip_manual"] is None:
+            patch["vip"] = is_vip_lead(merged)
+        else:
+            patch["vip"] = bool(patch["vip_manual"])
+    elif "vip" in patch and patch.get("vip") is not None:
+        # Explicit vip toggle from UI also sets manual override
+        patch["vip_manual"] = bool(patch["vip"])
+    elif existing.get("vip_manual") is not None:
+        patch["vip"] = bool(existing.get("vip_manual"))
+    else:
+        patch["vip"] = is_vip_lead(merged)
 
     # Build structured field diffs (from -> to) for any changed fields in this update.
     def _norm(v: Any) -> Any:

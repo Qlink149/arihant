@@ -14,31 +14,54 @@ function sortChatAscending(messages) {
 }
 
 /**
- * Load / sync / send WhatsApp thread for a lead (shared by Digital Twin + Inbox).
+ * Load / sync / send WhatsApp thread for a lead or unmatched peer phone
+ * (shared by Digital Twin + Inbox).
+ *
+ * Pass leadId for CRM leads, or phone alone for Unknown / unmatched threads.
  */
 export function useLeadWhatsAppThread(leadId, { phone, autoLoad = true } = {}) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sessionOpen, setSessionOpen] = useState(false);
   const [error, setError] = useState(null);
+
+  const hasThread = Boolean(leadId || phone);
 
   const load = useCallback(
     async ({ withSync = true } = {}) => {
-      if (!leadId) return [];
+      if (!leadId && !phone) return [];
       setLoading(true);
       setError(null);
       try {
-        const response = await whatsappAPI.getLeadChat(leadId);
-        const localMessages = sortChatAscending(response.data.messages || []);
+        let localMessages = [];
+        if (leadId) {
+          const response = await whatsappAPI.getLeadChat(leadId);
+          localMessages = sortChatAscending(response.data.messages || []);
+          if (typeof response.data.session_open === 'boolean') {
+            setSessionOpen(response.data.session_open);
+          }
+        } else {
+          const response = await whatsappAPI.getChatHistory(phone);
+          localMessages = sortChatAscending(response.data.messages || []);
+          if (typeof response.data.session_open === 'boolean') {
+            setSessionOpen(response.data.session_open);
+          }
+        }
         setMessages(localMessages);
 
         if (withSync) {
           setSyncing(true);
           try {
-            const synced = await whatsappAPI.syncLeadChat(leadId);
+            const synced = leadId
+              ? await whatsappAPI.syncLeadChat(leadId)
+              : await whatsappAPI.syncChatHistory(phone);
             const next = sortChatAscending(synced.data.messages || []);
             setMessages(next);
+            if (typeof synced.data.session_open === 'boolean') {
+              setSessionOpen(synced.data.session_open);
+            }
             return next;
           } catch (syncErr) {
             console.warn('WhatsApp background sync skipped:', syncErr);
@@ -57,15 +80,20 @@ export function useLeadWhatsAppThread(leadId, { phone, autoLoad = true } = {}) {
         setLoading(false);
       }
     },
-    [leadId]
+    [leadId, phone]
   );
 
   const sync = useCallback(async () => {
-    if (!leadId) return;
+    if (!leadId && !phone) return;
     setSyncing(true);
     try {
-      const res = await whatsappAPI.syncLeadChat(leadId);
+      const res = leadId
+        ? await whatsappAPI.syncLeadChat(leadId)
+        : await whatsappAPI.syncChatHistory(phone);
       setMessages(sortChatAscending(res.data.messages || []));
+      if (typeof res.data.session_open === 'boolean') {
+        setSessionOpen(res.data.session_open);
+      }
       const n = res.data.synced ?? 0;
       toast.success(
         n ? `Synced ${n} message${n === 1 ? '' : 's'} from WhatsApp` : 'Chat up to date'
@@ -76,23 +104,31 @@ export function useLeadWhatsAppThread(leadId, { phone, autoLoad = true } = {}) {
     } finally {
       setSyncing(false);
     }
-  }, [leadId]);
+  }, [leadId, phone]);
 
   const sendText = useCallback(
     async (text) => {
       const body = (text || '').trim();
-      if (!leadId || !body) return false;
+      if (!body || (!leadId && !phone)) return false;
       setSending(true);
       try {
-        const response = await whatsappAPI.sendToLead(leadId, {
-          destination: phone || undefined,
-          message_type: 'text',
-          text: body,
-        });
+        let response;
+        if (leadId) {
+          response = await whatsappAPI.sendToLead(leadId, {
+            destination: phone || undefined,
+            message_type: 'text',
+            text: body,
+          });
+        } else {
+          response = await whatsappAPI.sendMessage({
+            destination: phone,
+            message_type: 'text',
+            text: body,
+          });
+        }
         if (response.data.success) {
           toast.success('Message sent');
           await load({ withSync: false });
-          // Refresh from WATI in background
           load({ withSync: true });
           return true;
         }
@@ -114,24 +150,66 @@ export function useLeadWhatsAppThread(leadId, { phone, autoLoad = true } = {}) {
     [leadId, phone, load]
   );
 
+  const sendTemplate = useCallback(
+    async ({ templateName, templateParameters, displayName } = {}) => {
+      if (!templateName || (!leadId && !phone)) return false;
+      setSending(true);
+      try {
+        const payload = {
+          destination: phone || undefined,
+          message_type: 'template',
+          template_name: templateName,
+          template_parameters: templateParameters,
+          broadcast_name: 'arihant_crm',
+        };
+        const response = leadId
+          ? await whatsappAPI.sendToLead(leadId, payload)
+          : await whatsappAPI.sendMessage({ ...payload, destination: phone });
+        if (response.data.success) {
+          toast.success(`${displayName || 'Template'} sent`);
+          await load({ withSync: false });
+          load({ withSync: true });
+          return true;
+        }
+        toast.error('Template not sent', {
+          description: response.data.error || 'Failed to send template',
+        });
+        return false;
+      } catch (err) {
+        const detail =
+          err?.response?.data?.error ||
+          err?.response?.data?.detail ||
+          'Network or server error. Please try again.';
+        toast.error('Template not sent', { description: String(detail) });
+        return false;
+      } finally {
+        setSending(false);
+      }
+    },
+    [leadId, phone, load]
+  );
+
   useEffect(() => {
-    if (!autoLoad || !leadId) {
+    if (!autoLoad || !hasThread) {
       setMessages([]);
+      setSessionOpen(false);
       return undefined;
     }
     load({ withSync: true });
     return undefined;
-  }, [autoLoad, leadId, load]);
+  }, [autoLoad, hasThread, leadId, phone, load]);
 
   return {
     messages,
     loading,
     syncing,
     sending,
+    sessionOpen,
     error,
     load,
     sync,
     sendText,
+    sendTemplate,
     setMessages,
   };
 }

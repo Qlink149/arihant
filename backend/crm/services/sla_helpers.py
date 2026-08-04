@@ -104,20 +104,37 @@ async def assign_lead_to_admin(lead_id: str, reason: str = "sla_escalation") -> 
     admin = await db.users.find_one(
         {"role": {"$regex": r"^\s*admin\s*$", "$options": "i"}},
         {"_id": 0, "id": 1, "full_name": 1},
+        sort=[("id", 1)],
     )
     if not admin or not admin.get("id"):
         return False
     now_dt = utc_now()
     now_iso = iso_utc_now()
+    admin_name = admin.get("full_name") or ""
     await db.leads.update_one(
         {"id": lead_id},
         {
             "$set": {
-                "assigned_to": admin.get("full_name"),
-                "assigned_to_name": admin.get("full_name"),
+                "assigned_to": admin_name,
+                "assigned_to_name": admin_name,
                 "assigned_user_id": admin["id"],
-                "presales_agent": admin.get("full_name"),
+                "presales_agent": admin_name,
                 "follow_up_delayed": True,
+                "updated_at": now_iso,
+                "updated_at_dt": now_dt,
+            }
+        },
+    )
+    # Keep open follow-up work with the new owner (otherwise RNR reminders stay on the rep).
+    await db.tasks.update_many(
+        {
+            "lead_id": lead_id,
+            "status": {"$nin": ["completed", "cancelled", "done"]},
+        },
+        {
+            "$set": {
+                "assigned_to": admin_name,
+                "assigned_user_id": admin["id"],
                 "updated_at": now_iso,
                 "updated_at_dt": now_dt,
             }

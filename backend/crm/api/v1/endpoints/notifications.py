@@ -6,13 +6,13 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from crm.constants.lead_kpi import RNR_STATUS_REGEX
 from crm.services.dashboard_scope import role_scope_filter
 from crm.constants.lead_status import sla_paused_exclusion_clause, terminal_exclusion_clause
 from crm.services.reminder_queries import stale_updated_clause
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now
 from crm.services.notification_service import enrich_notification
 from crm.services.notifications_stream import notifications_stream
+from crm.services.sales_dashboard_filters import rnr_metric_clause
 
 
 router = APIRouter()
@@ -94,13 +94,7 @@ async def _build_auto_notifications(current_user: dict) -> List[Dict[str, Any]]:
         "$and": [
             stale_updated_clause(rnr_cutoff_dt, rnr_cutoff),
             {"sla_paused": sla_paused_exclusion_clause()},
-            {
-                "$or": [
-                    {"is_rnr": True},
-                    {"lead_status": {"$regex": RNR_STATUS_REGEX}},
-                    {"original_fw_status": {"$regex": RNR_STATUS_REGEX}},
-                ]
-            },
+            rnr_metric_clause(),
         ]
     }
     if lead_scope:
@@ -170,6 +164,73 @@ async def _build_auto_notifications(current_user: dict) -> List[Dict[str, Any]]:
         )
 
     return auto_notifications
+
+
+@router.get("/escalations")
+async def list_escalations(
+    current_user: dict = Depends(get_current_user),
+    unread_only: bool = True,
+    limit: int = 100,
+):
+    """Admin/manager Escalation Queue — unread escalation notifications with lead context."""
+    role = (current_user.get("role") or "").strip().lower()
+    if role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Admin or manager only")
+
+    try:
+        limit = max(1, min(int(limit or 100), 200))
+    except (TypeError, ValueError):
+        limit = 100
+
+    query: Dict[str, Any] = {
+        "notification_type": "escalation",
+    }
+    if unread_only:
+        query["is_read"] = False
+
+    now_dt = utc_now()
+    rows = (
+        await db.notifications.find(query, {"_id": 0})
+        .sort([("fired_at_dt", -1), ("created_at_dt", -1), ("created_at", -1)])
+        .to_list(limit)
+    )
+    rows = [enrich_notification(n, now_dt) for n in rows]
+
+    lead_ids = [n.get("lead_id") for n in rows if n.get("lead_id")]
+    leads_by_id: Dict[str, dict] = {}
+    if lead_ids:
+        async for lead in db.leads.find(
+            {"id": {"$in": lead_ids}},
+            {
+                "_id": 0,
+                "id": 1,
+                "first_name": 1,
+                "last_name": 1,
+                "phone": 1,
+                "project": 1,
+                "lead_status": 1,
+                "assigned_to_name": 1,
+                "assigned_to": 1,
+                "assigned_user_id": 1,
+            },
+        ):
+            leads_by_id[lead["id"]] = lead
+
+    out = []
+    for n in rows:
+        lead = leads_by_id.get(n.get("lead_id") or "") or {}
+        out.append(
+            {
+                **n,
+                "lead_name": n.get("lead_name")
+                or f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip(),
+                "lead_phone": lead.get("phone"),
+                "lead_project": lead.get("project"),
+                "lead_status": lead.get("lead_status"),
+                "lead_assignee": lead.get("assigned_to_name") or lead.get("assigned_to"),
+            }
+        )
+    return {"escalations": out, "count": len(out)}
 
 
 @router.get("/notifications")
@@ -258,6 +319,22 @@ async def mark_notification_read(notification_id: str, current_user: dict = Depe
         return {"message": "Notification marked as read"}
     uid = current_user["id"]
     name = current_user["full_name"]
+    role = (current_user.get("role") or "").strip().lower()
+
+    # Escalation Queue is org-wide for admin/manager — allow resolve even when
+    # the SLA notification was addressed to a different admin account.
+    if role in ("admin", "manager"):
+        esc = await db.notifications.find_one(
+            {"id": notification_id, "notification_type": "escalation"},
+            {"_id": 0, "id": 1},
+        )
+        if esc:
+            await db.notifications.update_one(
+                {"id": notification_id},
+                {"$set": {"is_read": True}},
+            )
+            return {"message": "Notification marked as read"}
+
     result = await db.notifications.update_one(
         {"id": notification_id, **_recipient_filter(uid, name)},
         {"$set": {"is_read": True}},

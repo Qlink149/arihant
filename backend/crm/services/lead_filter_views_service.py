@@ -21,6 +21,7 @@ class LeadFilterViewFilters(BaseModel):
     projects: List[str] = Field(default_factory=list)
     statuses: List[str] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list)
+    sales_owners: List[str] = Field(default_factory=list)
     vip: Optional[bool] = None
     intent: str = ""
     temperature: str = ""
@@ -29,14 +30,24 @@ class LeadFilterViewFilters(BaseModel):
     created_to: str = ""
     updated_from: str = ""
     updated_to: str = ""
+    date_field: str = "created"  # created | updated — match VC date filter mode
     meta_qualified: Optional[bool] = None
     site_visit_min: Optional[int] = None
     site_visit_max: Optional[int] = None
     metric: str = ""
     dormant: bool = False
+    mine: bool = False
     search: str = ""
 
-    @field_validator("budgets", "locations", "projects", "statuses", "sources", mode="before")
+    @field_validator(
+        "budgets",
+        "locations",
+        "projects",
+        "statuses",
+        "sources",
+        "sales_owners",
+        mode="before",
+    )
     @classmethod
     def _coerce_str_list(cls, value: Any) -> List[str]:
         if value is None:

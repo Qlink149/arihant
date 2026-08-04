@@ -131,13 +131,11 @@ def test_sv_conducted_includes_follow_up_stages():
 def test_metric_filter_rnr_includes_is_rnr():
     ctx = build_metric_context({}, uid="u1", name="Rep", is_manager=False)
     filt = metric_filter_for_key("rnr", ctx)
-    assert "$or" in filt
-    or_clause = next(p for p in filt["$and"] if "$or" in p) if "$and" in filt else filt
-    if "$and" in filt:
-        rnr_part = next(p for p in filt["$and"] if "$or" in p)
-        assert "is_rnr" in str(rnr_part)
-    else:
-        assert "$or" in filt
+    # merge_query may nest the shared RNR clause under $and with base filters
+    blob = str(filt)
+    assert "is_rnr" in blob
+    assert "original_fw_status" not in blob or blob.count("original_fw_status") == 0
+    assert "$not" in blob  # terminal exclusion
 
 
 def test_metric_filter_unknown_returns_empty():
@@ -158,6 +156,7 @@ def test_all_metrics_defined_including_negotiation_and_qualified():
         "sv_conducted",
         "negotiation",
         "junk",
+        "unqualified",
         "gone_cold",
         "re_engaged",
         "leads_received",

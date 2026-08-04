@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from crm.constants.lead_kpi import RNR_STATUS_REGEX, SITE_VISIT_STATUS_REGEX
+from crm.constants.lead_status import terminal_exclusion_clause
 
 SALES_DASHBOARD_METRICS = frozenset(
     {"contacted", "rnr", "site_visits", "negotiation", "deals_won", "deals_lost"}
@@ -24,11 +25,21 @@ _RNR_LEAD_QUERY = {"$regex": RNR_STATUS_REGEX, "$options": "i"}
 
 
 def rnr_metric_clause() -> dict:
+    """
+    Current RNR queue membership only.
+    Uses live lead_status / is_rnr; excludes terminal/junk/unqualified.
+    Does NOT match historical original_fw_status alone (that pulled closed leads
+    that once were RNR into the queue).
+    """
     return {
-        "$or": [
-            {"is_rnr": True},
-            {"lead_status": _RNR_LEAD_QUERY},
-            {"original_fw_status": _RNR_LEAD_QUERY},
+        "$and": [
+            {
+                "$or": [
+                    {"is_rnr": True},
+                    {"lead_status": _RNR_LEAD_QUERY},
+                ]
+            },
+            {"lead_status": terminal_exclusion_clause()},
         ]
     }
 
