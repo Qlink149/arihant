@@ -11,11 +11,84 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+
+    env:
+      REGISTRY: qlink01
+      REPOSITORY: fastapi-backend
+      IMAGE: registry.digitalocean.com/qlink01/fastapi-backend
+      # Keep latest + this many newest SHA tags (not counting latest)
+      KEEP_SHA_TAGS: "2"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Prune old registry tags
+        run: |
+          set -euo pipefail
+          KEEP_SHA_TAGS="${KEEP_SHA_TAGS:-2}"
+
+          echo "Listing tags for ${REPOSITORY}..."
+          TMP=$(mktemp)
+          if ! doctl registry repository list-tags "$REPOSITORY" \
+              --format Tag,UpdatedAt --no-header >"$TMP" 2>/dev/null; then
+            echo "Could not list tags (empty repo?). Skipping prune."
+            exit 0
+          fi
+
+          # Keep: latest + newest N digests/SHAs. Delete everything else.
+          mapfile -t KEEP_SHA < <(
+            awk '$1 ~ /^[0-9a-f]{7,40}$/ { print $2 "\t" $1 }' "$TMP" \
+              | sort -r \
+              | head -n "$KEEP_SHA_TAGS" \
+              | cut -f2
+          )
+
+          declare -A KEEP_SET
+          KEEP_SET[latest]=1
+          for t in "${KEEP_SHA[@]:-}"; do
+            [ -n "$t" ] && KEEP_SET[$t]=1 && echo "Keeping: $t"
+          done
+          echo "Keeping: latest"
+
+          while read -r tag _rest; do
+            [ -z "${tag:-}" ] && continue
+            if [ -z "${KEEP_SET[$tag]:-}" ]; then
+              echo "Deleting tag: $tag"
+              doctl registry repository delete-tag "$REPOSITORY" "$tag" --force || true
+            fi
+          done <"$TMP"
+
+      - name: Run registry garbage collection
+        run: |
+          set -euo pipefail
+
+          echo "Starting garbage collection..."
+          doctl registry garbage-collection start \
+            --include-untagged-manifests \
+            --force \
+            || echo "GC start returned non-zero (may already be running or unavailable)"
+
+          echo "Waiting for GC to finish (registry is read-only during GC)..."
+          for i in $(seq 1 90); do
+            if ! OUT=$(doctl registry garbage-collection get-active --format Status --no-header 2>/dev/null); then
+              echo "No active GC. Registry writable again."
+              exit 0
+            fi
+            STATUS=$(echo "$OUT" | tr -d '[:space:]')
+            echo "GC active status=${STATUS:-unknown} (poll $i)"
+            case "${STATUS,,}" in
+              succeeded|failed|cancelled|canceled) exit 0 ;;
+            esac
+            sleep 10
+          done
+          echo "Timed out waiting for GC; continuing (push may fail if still read-only)"
 
       - name: Log in to DigitalOcean Container Registry
         uses: docker/login-action@v3
@@ -25,9 +98,8 @@ jobs:
           password: ${{ secrets.DO_API_TOKEN }}
 
       - name: Build and push Docker image
-        env:
-          IMAGE: registry.digitalocean.com/qlink01/fastapi-backend
         run: |
+          set -euo pipefail
           docker build -t "$IMAGE:latest" -t "$IMAGE:${GITHUB_SHA}" backend/
           docker push "$IMAGE:latest"
           docker push "$IMAGE:${GITHUB_SHA}"
