@@ -14,6 +14,9 @@
     --text-primary: #EDEDED;
     --text-secondary: #A1A1AA;
     --text-muted: #52525B;
+    --border-subtle: rgba(255, 255, 255, 0.1);
+    --glass-bg: rgba(0, 0, 0, 0.4);
+    --glass-border: rgba(255, 255, 255, 0.1);
     --success: #059669;
     --warning: #D97706;
     --error: #DC2626;
@@ -128,6 +131,9 @@
     --text-primary: #1A1A2E;
     --text-secondary: #4A4A5A;
     --text-muted: #71717A;
+    --border-subtle: #E0E0E0;
+    --glass-bg: rgba(255, 255, 255, 0.85);
+    --glass-border: #E0E0E0;
 
     /* Temperature badge tokens (light mode) */
     --temp-hot-bg: rgba(239, 68, 68, 0.10);
@@ -207,16 +213,16 @@
 }
 
 .light-mode .glass-card {
-    background: rgba(255, 255, 255, 0.85) !important;
+    background: var(--glass-bg) !important;
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid #E0E0E0 !important;
+    border: 1px solid var(--glass-border) !important;
     box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.08);
 }
 
 .light-mode .glass {
     background: rgba(255, 255, 255, 0.7) !important;
-    border: 1px solid #E0E0E0 !important;
+    border: 1px solid var(--glass-border) !important;
 }
 
 .light-mode .card-hover:hover {
@@ -224,9 +230,20 @@
     border-color: rgba(197, 160, 89, 0.4) !important;
 }
 
-/* Light mode text overrides */
+/* Light mode text overrides — keep white on solid brand CTAs */
 .light-mode h1, .light-mode h2, .light-mode h3 { color: #1A1A2E !important; }
-.light-mode .text-white { color: #1A1A2E !important; }
+.light-mode .text-white:not(.text-on-brand):not(.bg-green-600):not(.bg-green-700):not(.bg-\[\#C5A059\]):not(.bg-\[\#C5A059\]\/90) {
+    color: #1A1A2E !important;
+}
+.light-mode .text-on-brand,
+.light-mode .bg-green-600.text-white,
+.light-mode .bg-green-700.text-white,
+.light-mode .bg-\[\#C5A059\].text-white,
+.light-mode .bg-green-600 .text-white,
+.light-mode .bg-green-700 .text-white,
+.light-mode [class*="bg-green-"] > .text-white {
+    color: #ffffff !important;
+}
 .light-mode .text-\[\#A1A1AA\] { color: #4A4A5A !important; }
 .light-mode .text-\[\#52525B\] { color: #71717A !important; }
 .light-mode .text-\[\#EDEDED\] { color: #1A1A2E !important; }
@@ -271,15 +288,22 @@
 .light-mode .bg-\[\#1A1A1A\] { background-color: #FFFFFF !important; }
 .light-mode .bg-\[\#0F0F0F\] { background-color: #FAFAF8 !important; }
 .light-mode .bg-\[\#141414\] { background-color: #FFFFFF !important; }
+.light-mode .bg-\[\#111\] { background-color: #EDEDE8 !important; }
+.light-mode .bg-\[\#111111\] { background-color: #EDEDE8 !important; }
+.light-mode .bg-\[\#0B0B0B\] { background-color: #F5F5F0 !important; }
 .light-mode .bg-black\/50 { background-color: rgba(255,255,255,0.8) !important; }
+.light-mode .bg-black\/40 { background-color: rgba(245,245,240,0.92) !important; }
 .light-mode .bg-black\/30 { background-color: rgba(245,245,240,0.8) !important; }
+.light-mode .bg-black\/20 { background-color: rgba(245,245,240,0.7) !important; }
 .light-mode .bg-white\/5 { background-color: rgba(0,0,0,0.05) !important; }
 .light-mode .bg-white\/10 { background-color: rgba(0,0,0,0.06) !important; }
 .light-mode .bg-white\/\[0\.02\] { background-color: rgba(0,0,0,0.03) !important; }
+.light-mode .bg-white\/\[0\.03\] { background-color: rgba(0,0,0,0.04) !important; }
 
 /* Light mode borders */
 .light-mode .border-white\/10 { border-color: #E0E0E0 !important; }
 .light-mode .border-white\/5 { border-color: #EBEBEB !important; }
+.light-mode .border-white\/15 { border-color: #D8D8D8 !important; }
 .light-mode .border-white\/20 { border-color: #D0D0D0 !important; }
 .light-mode .border-white\/\[0\.08\] { border-color: #E0E0E0 !important; }
 .light-mode .border-white\/\[0\.06\] { border-color: #EBEBEB !important; }
@@ -288,10 +312,16 @@
 .light-mode .hover\:bg-white\/5:hover { background-color: rgba(0,0,0,0.04) !important; }
 .light-mode .hover\:bg-white\/10:hover { background-color: rgba(0,0,0,0.06) !important; }
 .light-mode .hover\:bg-white\/\[0\.02\]:hover { background-color: rgba(0,0,0,0.04) !important; }
+.light-mode .hover\:bg-white\/\[0\.03\]:hover { background-color: rgba(0,0,0,0.045) !important; }
 
 /* Light mode sidebar & header */
 .light-mode .bg-\[\#0A0A0A\]\/80 { background-color: rgba(255,255,255,0.92) !important; }
+.light-mode .bg-\[\#0A0A0A\]\/90 { background-color: rgba(255,255,255,0.94) !important; }
 .light-mode .bg-\[\#0A0A0A\]\/95 { background-color: rgba(255,255,255,0.96) !important; }
+
+.light-mode .metric-gradient {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(245, 245, 240, 0.98) 100%) !important;
+}
 
 /* Sticky lead overview — dark + light */
 .lead-overview-sticky {
@@ -453,6 +483,9 @@
     --text-primary: #EDEDED;
     --text-secondary: #A1A1AA;
     --text-muted: #52525B;
+    --border-subtle: rgba(255, 255, 255, 0.1);
+    --glass-bg: rgba(0, 0, 0, 0.4);
+    --glass-border: rgba(255, 255, 255, 0.1);
 }
 
 * {
@@ -482,19 +515,19 @@ body {
     font-family: 'JetBrains Mono', monospace;
 }
 
-/* Glass Effect */
+/* Glass Effect — uses theme tokens so light/dark both work */
 .glass {
     background: rgba(26, 26, 26, 0.6);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
 }
 
 .glass-card {
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--glass-bg, rgba(0, 0, 0, 0.4));
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 }
 

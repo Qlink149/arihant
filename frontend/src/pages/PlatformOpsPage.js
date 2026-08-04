@@ -58,18 +58,18 @@ const PlatformOpsPage = () => {
         </div>
         <div>
           <h1 className="text-2xl font-semibold text-white">Ops</h1>
-          <p className="text-[#52525B] text-sm">Login as any user to debug their experience</p>
+          <p className="text-crm-fg-muted text-sm">Login as any user to debug their experience</p>
         </div>
       </div>
 
       {loading ? (
         <div className="text-[#C5A059] animate-pulse py-12 text-center">Loading users...</div>
       ) : (
-        <div className="bg-[#1A1A1A] border border-white/5 rounded-xl overflow-hidden">
+        <div className="bg-crm-elevated border border-white/5 rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/10 text-[#52525B] text-left">
+                <tr className="border-b border-crm-border text-crm-fg-muted text-left">
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Role</th>
@@ -80,7 +80,7 @@ const PlatformOpsPage = () => {
               <tbody>
                 {users.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center text-[#52525B]">
+                    <td colSpan={5} className="px-4 py-12 text-center text-crm-fg-muted">
                       No users found
                     </td>
                   </tr>
@@ -92,8 +92,8 @@ const PlatformOpsPage = () => {
                       data-testid={`ops-user-${u.id}`}
                     >
                       <td className="px-4 py-3 text-white">{u.full_name}</td>
-                      <td className="px-4 py-3 text-[#A1A1AA]">{u.email}</td>
-                      <td className="px-4 py-3 text-[#A1A1AA] capitalize">{u.role}</td>
+                      <td className="px-4 py-3 text-crm-fg-secondary">{u.email}</td>
+                      <td className="px-4 py-3 text-crm-fg-secondary capitalize">{u.role}</td>
                       <td className="px-4 py-3">
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full ${

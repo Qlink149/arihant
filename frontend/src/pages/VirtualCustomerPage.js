@@ -1039,32 +1039,32 @@ const VirtualCustomerPage = () => {
         className="flex flex-col lg:flex-row lg:items-center justify-between gap-4"
       >
         <div>
-          <h1 className="text-xl font-semibold text-white" data-testid="virtual-customer-title">
+          <h1 className="text-xl font-semibold text-crm-fg" data-testid="virtual-customer-title">
             Virtual Customer Explorer
           </h1>
           <motion.div className="mt-1" data-testid="virtual-customer-lead-count" role="status">
             {showDuplicates ? (
-              <p className="text-[#A1A1AA]">
+              <p className="text-crm-fg-secondary">
                 {duplicateGroups.length} duplicate groups found
               </p>
             ) : loading ? (
-              <p className="text-[#A1A1AA]">Loading leads…</p>
+              <p className="text-crm-fg-secondary">Loading leads…</p>
             ) : totalLeads > 0 ? (
               <>
-                <p className="text-[#A1A1AA]">
+                <p className="text-crm-fg-secondary">
                   {totalLeads} leads
                   {activeFiltersCount > 0 ? ' match your filters' : ''}
                 </p>
                 {leads.length < totalLeads && (
-                  <p className="text-[#52525B] text-sm mt-0.5">
+                  <p className="text-crm-fg-muted text-sm mt-0.5">
                     {leads.length} loaded — scroll for more
                   </p>
                 )}
               </>
             ) : leads.length === 0 ? (
-              <p className="text-[#A1A1AA]">No leads found</p>
+              <p className="text-crm-fg-secondary">No leads found</p>
             ) : (
-              <p className="text-[#A1A1AA]">Loading count…</p>
+              <p className="text-crm-fg-secondary">Loading count…</p>
             )}
           </motion.div>
         </div>
@@ -1083,7 +1083,7 @@ const VirtualCustomerPage = () => {
           {isAdmin && !showDuplicates && (
             <Button
               onClick={() => setShowExportModal(true)}
-              className="bg-[#1A1A1A] border border-white/10 text-white hover:bg-white/5"
+              className="bg-crm-elevated border border-crm-border text-crm-fg hover:bg-white/5"
               data-testid="export-csv-btn"
             >
               <Download size={16} className="mr-2" />
@@ -1093,7 +1093,7 @@ const VirtualCustomerPage = () => {
           {isAdmin && (
             <Button
               onClick={() => setShowUploadModal(true)}
-              className="bg-[#1A1A1A] border border-white/10 text-white hover:bg-white/5"
+              className="bg-crm-elevated border border-crm-border text-crm-fg hover:bg-white/5"
               data-testid="upload-csv-btn"
             >
               <Upload size={16} className="mr-2" />
@@ -1179,7 +1179,7 @@ const VirtualCustomerPage = () => {
                 }
                 setShowDuplicates(!showDuplicates);
               }}
-              className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
+              className={`bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5 ${
                 showDuplicates ? 'border-red-500 text-red-500' : ''
               }`}
               data-testid="duplicate-filter"
@@ -1263,7 +1263,7 @@ const VirtualCustomerPage = () => {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
+                  className={`bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5 ${
                     isDateFilterActive(filters) ? 'border-[#C5A059] text-[#C5A059]' : ''
                   }`}
                   data-testid="date-filter"
@@ -1274,13 +1274,13 @@ const VirtualCustomerPage = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
-                className="bg-[#1A1A1A] border-white/10"
+                className="bg-crm-elevated border-crm-border"
                 align="start"
                 data-testid="date-filter-menu"
               >
                 {dateMenuMode === 'presets' ? (
                   <>
-                    <DropdownMenuLabel className="text-[#A1A1AA]">
+                    <DropdownMenuLabel className="text-crm-fg-secondary">
                     {filters.date_field === 'updated' ? 'Updated date' : 'Created date'}
                   </DropdownMenuLabel>
                   <div className="px-2 pb-2 flex gap-1">
@@ -1291,7 +1291,7 @@ const VirtualCustomerPage = () => {
                         className={`flex-1 h-7 rounded text-[10px] uppercase tracking-wide ${
                           (filters.date_field || 'created') === mode
                             ? 'bg-[#C5A059]/20 text-[#C5A059] border border-[#C5A059]/40'
-                            : 'text-[#A1A1AA] border border-white/10'
+                            : 'text-crm-fg-secondary border border-crm-border'
                         }`}
                         onClick={() => {
                           setActiveFilterViewId(null);
@@ -1356,7 +1356,7 @@ const VirtualCustomerPage = () => {
                         e.preventDefault();
                         setDateMenuMode('presets');
                       }}
-                      className="text-[#A1A1AA] hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                      className="text-crm-fg-secondary hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
                     >
                       ← Back to presets
                     </DropdownMenuItem>
@@ -1370,7 +1370,7 @@ const VirtualCustomerPage = () => {
                         mode="range"
                         selected={customDateRange}
                         onSelect={handleCustomRangeSelect}
-                        className="bg-[#1A1A1A] text-white"
+                        className="bg-crm-elevated text-crm-fg"
                         data-testid="date-range-calendar"
                       />
                     </DropdownMenuItem>
@@ -1384,7 +1384,7 @@ const VirtualCustomerPage = () => {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
-                  className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
+                  className={`bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5 ${
                     filters.meta_qualified === true || filters.meta_qualified === false
                       ? 'border-[#C5A059] text-[#C5A059]'
                       : ''
@@ -1395,7 +1395,7 @@ const VirtualCustomerPage = () => {
                   <ChevronDown size={14} className="ml-2" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
+              <DropdownMenuContent className="bg-crm-elevated border-crm-border">
                 <DropdownMenuItem
                   onClick={() => {
                     setActiveFilterViewId(null);
@@ -1433,7 +1433,7 @@ const VirtualCustomerPage = () => {
                 setActiveFilterViewId(null);
                 setFilters({ ...filters, vip: filters.vip === true ? null : true });
               }}
-              className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
+              className={`bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5 ${
                 filters.vip === true ? 'border-[#C5A059] text-[#C5A059]' : ''
               }`}
               data-testid="vip-filter"
@@ -1447,7 +1447,7 @@ const VirtualCustomerPage = () => {
               <Button
                 variant="ghost"
                 onClick={clearFilters}
-                className="text-[#A1A1AA] hover:text-white"
+                className="text-crm-fg-secondary hover:text-crm-fg"
                 data-testid="clear-filters-btn"
               >
                 <X size={14} className="mr-1" />
@@ -1480,9 +1480,9 @@ const VirtualCustomerPage = () => {
         >
           {duplicateGroups.length === 0 ? (
             <div className="glass-card rounded-lg p-12 text-center">
-              <Copy className="mx-auto text-[#52525B]" size={48} />
-              <p className="text-[#A1A1AA] mt-4">No duplicate leads found</p>
-              <p className="text-[#52525B] text-sm">All phone numbers are unique</p>
+              <Copy className="mx-auto text-crm-fg-muted" size={48} />
+              <p className="text-crm-fg-secondary mt-4">No duplicate leads found</p>
+              <p className="text-crm-fg-muted text-sm">All phone numbers are unique</p>
             </div>
           ) : (
             duplicateGroups.map((group, idx) => (
@@ -1501,12 +1501,12 @@ const VirtualCustomerPage = () => {
                           {lead.first_name?.charAt(0)}{lead.last_name?.charAt(0)}
                         </div>
                         <div>
-                          <p className="text-white font-medium">{lead.first_name} {lead.last_name}</p>
-                          <p className="text-[#52525B] text-xs">{lead.project}</p>
+                          <p className="text-crm-fg font-medium">{lead.first_name} {lead.last_name}</p>
+                          <p className="text-crm-fg-muted text-xs">{lead.project}</p>
                         </div>
                       </div>
-                      <p className="text-[#A1A1AA] text-sm">{lead.phone}</p>
-                      <p className="text-[#52525B] text-xs mt-1">Source: {lead.lead_source}</p>
+                      <p className="text-crm-fg-secondary text-sm">{lead.phone}</p>
+                      <p className="text-crm-fg-muted text-xs mt-1">Source: {lead.lead_source}</p>
                       {lidx === 0 ? (
                         <CrmBadge variant="success" className="mt-2">
                           Primary
@@ -1548,7 +1548,7 @@ const VirtualCustomerPage = () => {
 
       {/* Quick note modal */}
       <Dialog open={!!noteLeadId} onOpenChange={(open) => !open && setNoteLeadId(null)}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg" data-testid="quick-note-modal">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-lg" data-testid="quick-note-modal">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl">Add note</DialogTitle>
           </DialogHeader>
@@ -1558,14 +1558,14 @@ const VirtualCustomerPage = () => {
               onChange={(e) => setQuickNote(e.target.value)}
               placeholder="Write a note for this lead..."
               rows={4}
-              className="w-full px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none resize-none"
+              className="w-full px-3 py-2 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none resize-none"
               data-testid="quick-note-input"
             />
             <div className="flex justify-end gap-2">
               <Button
                 variant="ghost"
                 onClick={() => setNoteLeadId(null)}
-                className="text-[#A1A1AA]"
+                className="text-crm-fg-secondary"
               >
                 Cancel
               </Button>
@@ -1604,7 +1604,7 @@ const VirtualCustomerPage = () => {
       {/* Add New Customer Modal */}
       <Dialog open={showAddCustomerModal} onOpenChange={setShowAddCustomerModal}>
         <DialogContent
-          className="bg-[#1A1A1A] border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto"
+          className="bg-crm-elevated border-crm-border text-crm-fg max-w-2xl max-h-[90vh] overflow-y-auto"
           aria-describedby={undefined}
         >
           <DialogHeader>
@@ -1617,22 +1617,22 @@ const VirtualCustomerPage = () => {
             {/* Name Row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">First Name *</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">First Name *</label>
                 <Input
                   value={newCustomer.first_name}
                   onChange={(e) => setNewCustomer({ ...newCustomer, first_name: e.target.value })}
                   placeholder="First Name"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                   required
                 />
               </div>
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Last Name</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Last Name</label>
                 <Input
                   value={newCustomer.last_name}
                   onChange={(e) => setNewCustomer({ ...newCustomer, last_name: e.target.value })}
                   placeholder="Last Name"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                 />
               </div>
             </div>
@@ -1640,44 +1640,44 @@ const VirtualCustomerPage = () => {
             {/* Contact Row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Mobile Number *</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Mobile Number *</label>
                 <Input
                   value={newCustomer.phone}
                   onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
                   placeholder="+91 XXXXX XXXXX"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                   required
                 />
               </div>
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Work (alternate number)</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Work (alternate number)</label>
                 <Input
                   value={newCustomer.work_phone}
                   onChange={(e) => setNewCustomer({ ...newCustomer, work_phone: e.target.value })}
                   placeholder="Alternate phone"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Email Address</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Email Address</label>
                 <Input
                   type="email"
                   value={newCustomer.email}
                   onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
                   placeholder="email@example.com"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                 />
               </div>
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Unit Size</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Unit Size</label>
                 <Input
                   value={newCustomer.unit_size}
                   onChange={(e) => setNewCustomer({ ...newCustomer, unit_size: e.target.value })}
                   placeholder="e.g. 3 BHK"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                 />
               </div>
             </div>
@@ -1685,7 +1685,7 @@ const VirtualCustomerPage = () => {
             {/* Project & Budget Row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Interested Project</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Interested Project</label>
                 <SelectWithOther
                   value={newCustomer.project}
                   onChange={(value) => setNewCustomer({ ...newCustomer, project: value })}
@@ -1701,7 +1701,7 @@ const VirtualCustomerPage = () => {
                 />
               </div>
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Budget Alignment</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Budget Alignment</label>
                 <SelectWithOther
                   value={newCustomer.budget}
                   onChange={(value) => setNewCustomer({ ...newCustomer, budget: value })}
@@ -1719,15 +1719,15 @@ const VirtualCustomerPage = () => {
             {/* Intent & Location Row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Intent Type</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Intent Type</label>
                 <Select
                   value={newCustomer.reason_for_purchase || undefined}
                   onValueChange={(value) => setNewCustomer({ ...newCustomer, reason_for_purchase: value })}
                 >
-                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                  <SelectTrigger className="bg-crm-muted border-crm-border text-crm-fg">
                     <SelectValue placeholder="Select Intent" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10">
+                  <SelectContent className="bg-crm-elevated border-crm-border">
                     <SelectItem value="Investor" className="text-white hover:bg-[#C5A059]/10">Investor</SelectItem>
                     <SelectItem value="Self-Occupation" className="text-white hover:bg-[#C5A059]/10">Self-Occupation</SelectItem>
                     <SelectItem value="Not Decided" className="text-white hover:bg-[#C5A059]/10">Not Decided</SelectItem>
@@ -1735,7 +1735,7 @@ const VirtualCustomerPage = () => {
                 </Select>
               </div>
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Location Preference</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Location Preference</label>
                 <SelectWithOther
                   value={newCustomer.location}
                   onChange={(value) => setNewCustomer({ ...newCustomer, location: value })}
@@ -1755,7 +1755,7 @@ const VirtualCustomerPage = () => {
             {/* Source & Manager Row */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Lead Source</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Lead Source</label>
                 <SelectWithOther
                   value={newCustomer.lead_source}
                   onChange={(value) => setNewCustomer({ ...newCustomer, lead_source: value })}
@@ -1771,7 +1771,7 @@ const VirtualCustomerPage = () => {
                 />
               </div>
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Assigned Sales Manager</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Assigned Sales Manager</label>
                 <Select
                   value={newCustomer.assigned_user_id ? String(newCustomer.assigned_user_id) : '__unassigned__'}
                   onValueChange={(value) => {
@@ -1791,15 +1791,15 @@ const VirtualCustomerPage = () => {
                     });
                   }}
                 >
-                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                  <SelectTrigger className="bg-crm-muted border-crm-border text-crm-fg">
                     <SelectValue placeholder="Select Manager" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10 max-h-60 overflow-y-auto">
+                  <SelectContent className="bg-crm-elevated border-crm-border max-h-60 overflow-y-auto">
                     <SelectItem value="__unassigned__" className="text-white hover:bg-[#C5A059]/10">
                       Unassigned
                     </SelectItem>
                     {assigneesLoading ? (
-                      <SelectItem value="__loading_mgr" disabled className="text-[#52525B]">
+                      <SelectItem value="__loading_mgr" disabled className="text-crm-fg-muted">
                         Loading managers…
                       </SelectItem>
                     ) : (
@@ -1821,38 +1821,38 @@ const VirtualCustomerPage = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Original source</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Original source</label>
                 <Input
                   value={newCustomer.original_source}
                   onChange={(e) => setNewCustomer({ ...newCustomer, original_source: e.target.value })}
                   placeholder="Original source"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                 />
               </div>
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Most recent source</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Most recent source</label>
                 <Input
                   value={newCustomer.most_recent_source}
                   onChange={(e) => setNewCustomer({ ...newCustomer, most_recent_source: e.target.value })}
                   placeholder="Most recent source"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">No. of Site Visits</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">No. of Site Visits</label>
                 <Input
                   type="number"
                   min={0}
                   value={newCustomer.site_visit_count}
                   onChange={(e) => setNewCustomer({ ...newCustomer, site_visit_count: e.target.value })}
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                 />
               </div>
               <div>
-                <label className="text-[#A1A1AA] text-sm mb-2 block">Meta Qualified</label>
+                <label className="text-crm-fg-secondary text-sm mb-2 block">Meta Qualified</label>
                 <Select
                   value={
                     newCustomer.meta_qualified === true
@@ -1868,10 +1868,10 @@ const VirtualCustomerPage = () => {
                     })
                   }
                 >
-                  <SelectTrigger className="bg-black/50 border-white/10 text-white">
+                  <SelectTrigger className="bg-crm-muted border-crm-border text-crm-fg">
                     <SelectValue placeholder="Not set" />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#1A1A1A] border-white/10">
+                  <SelectContent className="bg-crm-elevated border-crm-border">
                     <SelectItem value="unset" className="text-white hover:bg-[#C5A059]/10">Not set</SelectItem>
                     <SelectItem value="yes" className="text-white hover:bg-[#C5A059]/10">Yes</SelectItem>
                     <SelectItem value="no" className="text-white hover:bg-[#C5A059]/10">No</SelectItem>
@@ -1883,8 +1883,8 @@ const VirtualCustomerPage = () => {
             {/* Timeline */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[#A1A1AA] text-sm block">Timeline</label>
-                <span className="text-[#52525B] text-xs">Optional</span>
+                <label className="text-crm-fg-secondary text-sm block">Timeline</label>
+                <span className="text-crm-fg-muted text-xs">Optional</span>
               </div>
 
               <div className="relative">
@@ -1925,13 +1925,13 @@ const VirtualCustomerPage = () => {
                             'h-3 w-3 rounded-full border transition-colors',
                             isSelected
                               ? 'bg-[#C5A059] border-[#C5A059]'
-                              : 'bg-[#0B0B0B] border-white/20 group-hover:border-[#C5A059]/60',
+                              : 'bg-crm border-white/20 group-hover:border-[#C5A059]/60',
                           ].join(' ')}
                         />
                         <span
                           className={[
                             'text-[11px] leading-tight text-center',
-                            isSelected ? 'text-white' : 'text-[#A1A1AA] group-hover:text-white/80',
+                            isSelected ? 'text-crm-fg' : 'text-crm-fg-secondary group-hover:text-crm-fg/80',
                           ].join(' ')}
                         >
                           {status}
@@ -1949,7 +1949,7 @@ const VirtualCustomerPage = () => {
                   </label>
                   <div className="flex gap-4">
                     {NURTURE_LABELS.map((label) => (
-                      <label key={label} className="flex items-center gap-2 cursor-pointer text-white text-sm">
+                      <label key={label} className="flex items-center gap-2 cursor-pointer text-crm-fg text-sm">
                         <input
                           type="radio"
                           name="create-nurture-label"
@@ -1968,12 +1968,12 @@ const VirtualCustomerPage = () => {
 
             {/* Notes */}
             <div>
-              <label className="text-[#A1A1AA] text-sm mb-2 block">Additional Notes</label>
+              <label className="text-crm-fg-secondary text-sm mb-2 block">Additional Notes</label>
               <textarea
                 value={newCustomer.presales_description}
                 onChange={(e) => setNewCustomer({ ...newCustomer, presales_description: e.target.value })}
                 placeholder="Any additional information about the customer..."
-                className="w-full h-24 px-4 py-3 bg-black/50 border border-white/10 rounded-md text-white placeholder:text-[#52525B] resize-none"
+                className="w-full h-24 px-4 py-3 bg-crm-muted border border-crm-border rounded-md text-crm-fg placeholder:text-crm-fg-muted resize-none"
               />
             </div>
 
@@ -1983,7 +1983,7 @@ const VirtualCustomerPage = () => {
                 type="button"
                 variant="outline"
                 onClick={() => setShowAddCustomerModal(false)}
-                className="flex-1 border-white/10 text-white hover:bg-white/5"
+                className="flex-1 border-crm-border text-crm-fg hover:bg-white/5"
               >
                 Cancel
               </Button>
@@ -2009,12 +2009,12 @@ const VirtualCustomerPage = () => {
 
       {/* Upload CSV Modal */}
       <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl">Upload Lead CSV</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-[#A1A1AA] text-sm">
+            <p className="text-crm-fg-secondary text-sm">
               Upload a CSV file with lead data. The system will automatically detect and skip duplicates.
             </p>
             <div className="border-2 border-dashed border-white/20 rounded-lg p-8 text-center hover:border-[#C5A059]/50 transition-colors">
@@ -2027,13 +2027,13 @@ const VirtualCustomerPage = () => {
                 data-testid="csv-file-input"
               />
               <label htmlFor="csv-upload" className="cursor-pointer">
-                <Upload className="mx-auto text-[#A1A1AA]" size={32} />
-                <p className="text-[#A1A1AA] mt-2">
+                <Upload className="mx-auto text-crm-fg-secondary" size={32} />
+                <p className="text-crm-fg-secondary mt-2">
                   {uploadingFile ? 'Uploading...' : 'Click to select CSV file'}
                 </p>
               </label>
             </div>
-            <div className="text-[#52525B] text-xs">
+            <div className="text-crm-fg-muted text-xs">
               <p className="font-medium mb-1">Supported CSV column formats:</p>
               <p><strong>Format 1:</strong> ID, First name, Last name, Created at, Mobile, Email IDs, Project, Sales owner, Status, Source, Recent note</p>
               <p className="mt-1"><strong>Format 2:</strong> First Name, Last Name, Phone, Email, Project, Lead Status, Lead Source, Budget, Location, Presales Agent, Presales Description</p>

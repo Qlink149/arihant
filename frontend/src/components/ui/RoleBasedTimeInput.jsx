@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { parseTimeTo24h, splitTimeForRole } from '../../utils/datetime';
 
 const selectClass =
-  'h-10 px-2 bg-black/50 border border-white/10 rounded-lg text-white text-sm';
+  'h-10 px-2 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm';
 
 const HOURS_12 = Array.from({ length: 12 }, (_, i) => String(i + 1));
 const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
@@ -67,7 +67,7 @@ export function RoleBasedTimeInput({ value, onChange, isAdmin, testId }) {
           <option key={h} value={h}>{h}</option>
         ))}
       </select>
-      <span className="text-white self-center">:</span>
+      <span className="text-crm-fg self-center">:</span>
       <select
         value={parts.minute}
         onChange={(e) => update({ ...parts, minute: e.target.value })}

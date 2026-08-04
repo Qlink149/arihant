@@ -36,7 +36,7 @@ export const LeadListTable = memo(function LeadListTable({
           size="sm"
           variant="outline"
           onClick={toggleDensity}
-          className="h-8 border-white/10 text-[#A1A1AA] hover:text-white text-xs"
+          className="h-8 border-crm-border text-crm-fg-secondary hover:text-white text-xs"
           data-testid="table-density-toggle"
         >
           {tableDensity === 'compact' ? 'Comfortable rows' : 'Compact rows'}
@@ -57,7 +57,7 @@ export const LeadListTable = memo(function LeadListTable({
         <>
           <div ref={loadMoreSentinelRef} className="h-1 w-full" aria-hidden />
           {loadingMore && (
-            <p className="text-center text-[#52525B] text-sm py-3 w-full">Loading more leads…</p>
+            <p className="text-center text-crm-fg-muted text-sm py-3 w-full">Loading more leads…</p>
           )}
         </>
       )}

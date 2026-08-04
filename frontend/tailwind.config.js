@@ -22,6 +22,16 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)',
       },
       colors: {
+        // CRM theme tokens — use these instead of raw #0A0A0A / border-white/10
+        crm: {
+          DEFAULT: 'var(--bg-primary)',
+          elevated: 'var(--bg-secondary)',
+          muted: 'var(--bg-tertiary)',
+          fg: 'var(--text-primary)',
+          'fg-secondary': 'var(--text-secondary)',
+          'fg-muted': 'var(--text-muted)',
+          border: 'var(--border-subtle)',
+        },
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {

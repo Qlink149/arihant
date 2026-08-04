@@ -49,20 +49,20 @@ function TaskRow({
           </div>
 
           {reason && (
-            <p className="text-[#A1A1AA] text-xs line-clamp-2">{reason}</p>
+            <p className="text-crm-fg-secondary text-xs line-clamp-2">{reason}</p>
           )}
 
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[#A1A1AA]">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-crm-fg-secondary">
             {due ? (
-              <span className={dueBucket === 'overdue' ? 'text-red-400' : 'text-[#A1A1AA]'}>
+              <span className={dueBucket === 'overdue' ? 'text-red-400' : 'text-crm-fg-secondary'}>
                 <Calendar size={12} className="inline mr-1" />
                 Due: {due}
               </span>
             ) : (
-              <span className="text-[#52525B]">No due date</span>
+              <span className="text-crm-fg-muted">No due date</span>
             )}
 
-            <span className="text-[#A1A1AA]">
+            <span className="text-crm-fg-secondary">
               Assigned to: {getAssignedDisplay(task)}
             </span>
 
@@ -83,7 +83,7 @@ function TaskRow({
             type="button"
             variant="outline"
             size="sm"
-            className="border-white/10 text-white hover:bg-white/5 h-8"
+            className="border-crm-border text-white hover:bg-white/5 h-8"
             onClick={() => onOpenLead?.(leadId)}
           >
             <ExternalLink size={14} className="mr-1.5" />
@@ -128,14 +128,14 @@ export function LeadTasksDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="lead-tasks-drawer bg-[#1A1A1A] border-white/10 text-white w-[min(96vw,520px)] sm:max-w-[520px]"
+        className="lead-tasks-drawer bg-crm-elevated border-crm-border text-white w-[min(96vw,520px)] sm:max-w-[520px]"
       >
         <SheetHeader className="pr-6">
           <SheetTitle className="font-serif text-xl text-white flex items-center gap-2">
             <ListChecks size={18} className="text-[#C5A059]" />
             {title}
           </SheetTitle>
-          <p className="text-[#A1A1AA] text-sm mt-1">{subtitle}</p>
+          <p className="text-crm-fg-secondary text-sm mt-1">{subtitle}</p>
         </SheetHeader>
 
         <div className="mt-4 space-y-2 overflow-y-auto max-h-[calc(100vh-10rem)] pr-1">
@@ -144,14 +144,14 @@ export function LeadTasksDrawer({
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="h-20 rounded-lg bg-white/5 animate-pulse border border-white/10"
+                  className="h-20 rounded-lg bg-white/5 animate-pulse border border-crm-border"
                 />
               ))}
             </div>
           ) : !tasks?.length ? (
-            <div className="lead-task-row rounded-lg border border-white/10 bg-white/5 p-6 text-center">
-              <p className="text-[#A1A1AA] text-sm">No pending tasks for this lead.</p>
-              <p className="text-[#52525B] text-xs mt-1">
+            <div className="lead-task-row rounded-lg border border-crm-border bg-white/5 p-6 text-center">
+              <p className="text-crm-fg-secondary text-sm">No pending tasks for this lead.</p>
+              <p className="text-crm-fg-muted text-xs mt-1">
                 “Active tasks” counts only tasks linked to this lead.
               </p>
             </div>

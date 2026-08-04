@@ -36,7 +36,7 @@ const ProtectedRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+      <div className="min-h-screen bg-crm flex items-center justify-center">
         <div className="text-[#C5A059] animate-pulse">Loading...</div>
       </div>
     );
@@ -54,7 +54,7 @@ const AdminRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+      <div className="min-h-screen bg-crm flex items-center justify-center">
         <div className="text-[#C5A059] animate-pulse">Loading...</div>
       </div>
     );
@@ -77,7 +77,7 @@ const AdminOrManagerRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+      <div className="min-h-screen bg-crm flex items-center justify-center">
         <div className="text-[#C5A059] animate-pulse">Loading...</div>
       </div>
     );
@@ -101,7 +101,7 @@ const PublicRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+      <div className="min-h-screen bg-crm flex items-center justify-center">
         <div className="text-[#C5A059] animate-pulse">Loading...</div>
       </div>
     );

@@ -62,9 +62,9 @@ const STATS_REFRESH_MS = 60_000;
 function DashboardBarTooltip({ active, payload, label }) {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-[#1A1A1A] border border-white/10 rounded-lg p-3 shadow-xl">
+      <div className="bg-crm-elevated border border-crm-border rounded-lg p-3 shadow-xl">
         <p className="text-[#C5A059] font-medium">{label}</p>
-        <p className="text-white">{payload[0].value} leads</p>
+        <p className="text-crm-fg">{payload[0].value} leads</p>
       </div>
     );
   }
@@ -152,15 +152,15 @@ function DashboardLeadCriteriaTooltip({ type }) {
     <TooltipProvider>
       <TooltipUI>
         <TooltipTrigger asChild>
-          <button className="ml-2 text-[#52525B] hover:text-[#C5A059] transition-colors">
+          <button className="ml-2 text-crm-fg-muted hover:text-[#C5A059] transition-colors">
             <Info size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" className="bg-[#1A1A1A] border-white/10 p-4 max-w-xs">
+        <TooltipContent side="right" className="bg-crm-elevated border-crm-border p-4 max-w-xs">
           <p className="text-[#C5A059] font-medium mb-2">{criteria.title}</p>
           <ul className="space-y-1">
             {criteria.rules.map((rule, idx) => (
-              <li key={idx} className="text-[#A1A1AA] text-xs flex items-start gap-2">
+              <li key={idx} className="text-crm-fg-secondary text-xs flex items-start gap-2">
                 <span className="text-[#C5A059] mt-0.5">•</span>
                 {rule}
               </li>
@@ -349,9 +349,9 @@ const DashboardPage = () => {
           </span>
         ) : null}
       </div>
-      <p className="text-[#A1A1AA] text-sm">{title}</p>
-      <p className="text-2xl font-semibold text-white mt-0.5">{value ?? 0}</p>
-      {subtitle ? <p className="text-[#52525B] text-xs mt-1">{subtitle}</p> : null}
+      <p className="text-crm-fg-secondary text-sm">{title}</p>
+      <p className="text-2xl font-semibold text-crm-fg mt-0.5">{value ?? 0}</p>
+      {subtitle ? <p className="text-crm-fg-muted text-xs mt-1">{subtitle}</p> : null}
     </div>
   );
 
@@ -371,12 +371,12 @@ const DashboardPage = () => {
 
   if (!analytics) {
     return (
-      <div className="rounded-lg border border-white/10 bg-[#1A1A1A] p-8 text-center max-w-lg mx-auto mt-8">
-        <p className="text-[#A1A1AA] mb-4">{loadError || 'Dashboard data is unavailable'}</p>
+      <div className="rounded-lg border border-crm-border bg-crm-elevated p-8 text-center max-w-lg mx-auto mt-8">
+        <p className="text-crm-fg-secondary mb-4">{loadError || 'Dashboard data is unavailable'}</p>
         <Button
           type="button"
           variant="outline"
-          className="border-white/10 text-white"
+          className="border-crm-border text-crm-fg"
           onClick={() => fetchAnalytics()}
         >
           Retry
@@ -389,7 +389,7 @@ const DashboardPage = () => {
     <div className={`space-y-3 relative transition-opacity duration-200 ${refreshing ? 'opacity-80' : ''}`}>
       {refreshing && (
         <div
-          className="absolute top-0 right-0 z-20 px-3 py-1 rounded-md bg-[#1A1A1A]/90 border border-white/10 text-[#C5A059] text-xs animate-pulse"
+          className="absolute top-0 right-0 z-20 px-3 py-1 rounded-md bg-crm-elevated border border-crm-border text-[#C5A059] text-xs animate-pulse"
           aria-live="polite"
         >
           Updating…
@@ -436,7 +436,7 @@ const DashboardPage = () => {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
-                className="bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 hover:text-[#C5A059]"
+                className="bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5 hover:text-[#C5A059]"
                 data-testid="time-filter-dropdown"
               >
                 <Calendar size={16} className="mr-2" />
@@ -444,7 +444,7 @@ const DashboardPage = () => {
                 <ChevronDown size={16} className="ml-2" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
+            <DropdownMenuContent className="bg-crm-elevated border-crm-border">
               {timeFilters.map((filter) => (
                 <DropdownMenuItem
                   key={filter.value}
@@ -463,14 +463,14 @@ const DashboardPage = () => {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
-                className="bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 hover:text-[#C5A059]"
+                className="bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5 hover:text-[#C5A059]"
                 data-testid="project-filter-dropdown"
               >
                 {projectFilter === 'all' ? 'All Projects' : projectFilter}
                 <ChevronDown size={16} className="ml-2" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
+            <DropdownMenuContent className="bg-crm-elevated border-crm-border">
               <DropdownMenuItem
                 onClick={() => setProjectFilter('all')}
                 className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
@@ -495,17 +495,17 @@ const DashboardPage = () => {
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  className="bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5"
+                  className="bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5"
                 >
                   Select Date Range
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0 bg-[#1A1A1A] border-white/10">
+              <PopoverContent className="w-auto p-0 bg-crm-elevated border-crm-border">
                 <CalendarUI
                   mode="range"
                   selected={dateRange}
                   onSelect={setDateRange}
-                  className="bg-[#1A1A1A] text-white"
+                  className="bg-crm-elevated text-crm-fg"
                 />
               </PopoverContent>
             </Popover>
@@ -519,7 +519,7 @@ const DashboardPage = () => {
         transition={{ delay: 0.1 }}
         className="space-y-2"
       >
-        <p className="text-[#52525B] text-xs uppercase tracking-wider">Action today</p>
+        <p className="text-crm-fg-muted text-xs uppercase tracking-wider">Action today</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <StatTile
             tile="missed_follow_up"
@@ -597,7 +597,7 @@ const DashboardPage = () => {
         transition={{ delay: 0.15 }}
         className="space-y-2"
       >
-        <p className="text-[#52525B] text-xs uppercase tracking-wider">Pipeline context</p>
+        <p className="text-crm-fg-muted text-xs uppercase tracking-wider">Pipeline context</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <StatTile
             tile="total"
@@ -634,7 +634,7 @@ const DashboardPage = () => {
           className="glass-card rounded-lg p-4"
           data-testid="lead-source-chart"
         >
-          <h3 className="font-serif text-xl text-white mb-6">Lead Source Performance</h3>
+          <h3 className="font-serif text-xl text-crm-fg mb-6">Lead Source Performance</h3>
           <ResponsiveContainer width="100%" height={400}>
             <BarChart
               data={analytics?.lead_sources || []}
@@ -668,7 +668,7 @@ const DashboardPage = () => {
           className="glass-card rounded-lg p-4"
           data-testid="lead-status-chart"
         >
-          <h3 className="font-serif text-xl text-white mb-6">Lead Status Distribution</h3>
+          <h3 className="font-serif text-xl text-crm-fg mb-6">Lead Status Distribution</h3>
           <div className="flex items-center justify-center">
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
@@ -696,9 +696,9 @@ const DashboardPage = () => {
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       return (
-                        <div className="bg-[#1A1A1A] border border-white/10 rounded-lg p-3 shadow-xl">
+                        <div className="bg-crm-elevated border border-crm-border rounded-lg p-3 shadow-xl">
                           <p className="text-[#C5A059] font-medium">{payload[0].name}</p>
-                          <p className="text-white">{payload[0].value} leads</p>
+                          <p className="text-crm-fg">{payload[0].value} leads</p>
                         </div>
                       );
                     }
@@ -722,7 +722,7 @@ const DashboardPage = () => {
                   className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ backgroundColor: item.color }}
                 />
-                <span className="text-[#A1A1AA] text-xs whitespace-nowrap hover:text-white">
+                <span className="text-crm-fg-secondary text-xs whitespace-nowrap hover:text-crm-fg">
                   {item.name} ({item.value})
                 </span>
               </button>
@@ -740,7 +740,7 @@ const DashboardPage = () => {
         className="glass-card rounded-lg p-4"
         data-testid="sales-team-heatmap"
       >
-        <h3 className="font-serif text-xl text-white mb-6">Sales Team Performance</h3>
+        <h3 className="font-serif text-xl text-crm-fg mb-6">Sales Team Performance</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           {(analytics?.sales_owners || []).map((owner, index) => {
             const colorScheme = REGIONAL_COLORS[index % REGIONAL_COLORS.length];
@@ -754,9 +754,9 @@ const DashboardPage = () => {
                   border: `2px solid ${colorScheme.border}`
                 }}
               >
-                <p className="text-white font-medium text-sm">{owner.name}</p>
+                <p className="text-crm-fg font-medium text-sm">{owner.name}</p>
                 <p className="font-serif text-2xl mt-1" style={{ color: colorScheme.text }}>{owner.count}</p>
-                <p className="text-[#52525B] text-xs">leads</p>
+                <p className="text-crm-fg-muted text-xs">leads</p>
               </div>
             );
           })}
@@ -772,14 +772,14 @@ const DashboardPage = () => {
         className="glass-card rounded-lg p-4"
         data-testid="project-distribution"
       >
-        <h3 className="font-serif text-xl text-white mb-6">Project Interest Distribution</h3>
-        <p className="text-[#52525B] text-sm mb-4">Click on a project to view its leads</p>
+        <h3 className="font-serif text-xl text-crm-fg mb-6">Project Interest Distribution</h3>
+        <p className="text-crm-fg-muted text-sm mb-4">Click on a project to view its leads</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {topProjects.map((project) => (
             <div
               key={project.name}
               onClick={() => handleProjectClick(project.name)}
-              className="p-4 rounded-lg bg-[#1A1A1A] border border-white/10 hover:border-[#C5A059]/50 transition-all cursor-pointer group overflow-hidden relative"
+              className="p-4 rounded-lg bg-crm-elevated border border-crm-border hover:border-[#C5A059]/50 transition-all cursor-pointer group overflow-hidden relative"
               data-testid={`project-card-${project.name}`}
             >
               {PROJECT_IMAGES[project.name] && (
@@ -791,19 +791,19 @@ const DashboardPage = () => {
               <div className="relative z-10">
                 <div className="flex items-center gap-2 mb-3">
                   <Building className="text-[#C5A059]" size={18} />
-                  <span className="text-white font-medium group-hover:text-[#C5A059] transition-colors">{project.name}</span>
+                  <span className="text-crm-fg font-medium group-hover:text-[#C5A059] transition-colors">{project.name}</span>
                 </div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[#52525B] text-sm">Leads</span>
+                  <span className="text-crm-fg-muted text-sm">Leads</span>
                   <span className="text-[#C5A059] font-serif text-xl">{project.count}</span>
                 </div>
-                <div className="h-2 bg-black/50 rounded-full overflow-hidden">
+                <div className="h-2 bg-crm-muted rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-[#C5A059] to-[#E5C079] rounded-full transition-all duration-500"
                     style={{ width: `${(project.count / maxProjectCount) * 100}%` }}
                   />
                 </div>
-                <p className="text-[#52525B] text-xs mt-2 group-hover:text-[#A1A1AA] transition-colors">
+                <p className="text-crm-fg-muted text-xs mt-2 group-hover:text-crm-fg-secondary transition-colors">
                   Click to view leads →
                 </p>
               </div>
@@ -812,25 +812,25 @@ const DashboardPage = () => {
           {otherProjects.length > 0 && (
             <div
               onClick={() => setOtherModalOpen(true)}
-              className="p-4 rounded-lg bg-[#1A1A1A] border border-white/10 hover:border-[#C5A059]/50 transition-all cursor-pointer group overflow-hidden relative"
+              className="p-4 rounded-lg bg-crm-elevated border border-crm-border hover:border-[#C5A059]/50 transition-all cursor-pointer group overflow-hidden relative"
               data-testid="project-card-Other"
             >
               <div className="relative z-10">
                 <div className="flex items-center gap-2 mb-3">
                   <Layers className="text-[#C5A059]" size={18} />
-                  <span className="text-white font-medium group-hover:text-[#C5A059] transition-colors">Other</span>
+                  <span className="text-crm-fg font-medium group-hover:text-[#C5A059] transition-colors">Other</span>
                 </div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[#52525B] text-sm">Leads</span>
+                  <span className="text-crm-fg-muted text-sm">Leads</span>
                   <span className="text-[#C5A059] font-serif text-xl">{otherTotal}</span>
                 </div>
-                <div className="h-2 bg-black/50 rounded-full overflow-hidden">
+                <div className="h-2 bg-crm-muted rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-[#C5A059] to-[#E5C079] rounded-full transition-all duration-500"
                     style={{ width: `${(otherTotal / maxProjectCount) * 100}%` }}
                   />
                 </div>
-                <p className="text-[#52525B] text-xs mt-2 group-hover:text-[#A1A1AA] transition-colors">
+                <p className="text-crm-fg-muted text-xs mt-2 group-hover:text-crm-fg-secondary transition-colors">
                   Click to view all projects →
                 </p>
               </div>
@@ -840,10 +840,10 @@ const DashboardPage = () => {
       </motion.div>
 
       <Dialog open={otherModalOpen} onOpenChange={setOtherModalOpen}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-lg">
           <DialogHeader>
-            <DialogTitle className="font-serif text-xl text-[#EDEDED]">Other projects</DialogTitle>
-            <DialogDescription className="text-[#A1A1AA]">
+            <DialogTitle className="font-serif text-xl text-crm-fg">Other projects</DialogTitle>
+            <DialogDescription className="text-crm-fg-secondary">
               {otherProjects.length} project{otherProjects.length !== 1 ? 's' : ''} · {otherTotal} leads total
             </DialogDescription>
           </DialogHeader>
@@ -853,10 +853,10 @@ const DashboardPage = () => {
                 key={project.name}
                 type="button"
                 onClick={() => handleOtherProjectClick(project.name)}
-                className="w-full flex items-center justify-between gap-4 p-3 rounded-lg bg-black/30 border border-white/10 hover:border-[#C5A059]/50 hover:bg-white/5 transition-all text-left cursor-pointer group"
+                className="w-full flex items-center justify-between gap-4 p-3 rounded-lg bg-black/30 border border-crm-border hover:border-[#C5A059]/50 hover:bg-white/5 transition-all text-left cursor-pointer group"
                 data-testid={`other-project-row-${project.name}`}
               >
-                <span className="text-white font-medium group-hover:text-[#C5A059] transition-colors truncate">
+                <span className="text-crm-fg font-medium group-hover:text-[#C5A059] transition-colors truncate">
                   {project.name}
                 </span>
                 <span className="text-[#C5A059] font-serif text-lg flex-shrink-0">{project.count}</span>

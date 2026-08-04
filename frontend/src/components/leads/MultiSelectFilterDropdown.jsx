@@ -53,7 +53,7 @@ export const MultiSelectFilterDropdown = memo(function MultiSelectFilterDropdown
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 ${
+          className={`bg-crm-elevated border-crm-border text-white hover:bg-white/5 ${
             isActive ? 'border-[#C5A059] text-[#C5A059]' : ''
           } ${className}`}
           data-testid={testId}
@@ -64,18 +64,18 @@ export const MultiSelectFilterDropdown = memo(function MultiSelectFilterDropdown
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        className="bg-[#1A1A1A] border-white/10 max-h-72 overflow-y-auto"
+        className="bg-crm-elevated border-crm-border max-h-72 overflow-y-auto"
         align="start"
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        <DropdownMenuLabel className="text-[#A1A1AA]">{label}</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-crm-fg-secondary">{label}</DropdownMenuLabel>
         <DropdownMenuSeparator className="bg-white/10" />
         {loading ? (
-          <DropdownMenuItem disabled className="text-[#52525B]">
+          <DropdownMenuItem disabled className="text-crm-fg-muted">
             Loading…
           </DropdownMenuItem>
         ) : normalizedOptions.length === 0 ? (
-          <DropdownMenuItem disabled className="text-[#52525B]">
+          <DropdownMenuItem disabled className="text-crm-fg-muted">
             No options
           </DropdownMenuItem>
         ) : (
@@ -89,7 +89,7 @@ export const MultiSelectFilterDropdown = memo(function MultiSelectFilterDropdown
             >
               {item.name}
               {item.count != null ? (
-                <span className="ml-2 text-[#52525B] text-xs">({item.count})</span>
+                <span className="ml-2 text-crm-fg-muted text-xs">({item.count})</span>
               ) : null}
             </DropdownMenuCheckboxItem>
           ))
@@ -98,7 +98,7 @@ export const MultiSelectFilterDropdown = memo(function MultiSelectFilterDropdown
         <DropdownMenuItem
           onClick={handleClear}
           disabled={!isActive}
-          className="text-[#A1A1AA] hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+          className="text-crm-fg-secondary hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
         >
           Clear all
         </DropdownMenuItem>

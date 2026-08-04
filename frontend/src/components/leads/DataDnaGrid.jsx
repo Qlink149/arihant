@@ -241,7 +241,7 @@ const DataDnaCard = memo(function DataDnaCard({ field, lead, onEdit, index }) {
         >
           {index}
         </span>
-        <span className="text-[#52525B] text-[10px] uppercase tracking-wider shrink-0 w-[76px] pt-0.5">
+        <span className="text-crm-fg-muted text-[10px] uppercase tracking-wider shrink-0 w-[76px] pt-0.5">
           {field.label}
         </span>
         <div className="flex-1 min-w-0">
@@ -260,7 +260,7 @@ const DataDnaCard = memo(function DataDnaCard({ field, lead, onEdit, index }) {
     >
       <Pencil
         size={10}
-        className="absolute top-1.5 right-1.5 text-[#52525B] opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-1.5 right-1.5 text-crm-fg-muted opacity-0 group-hover:opacity-100 transition-opacity"
       />
       <span
         className="lead-overview-index shrink-0 w-5 h-5 rounded text-[10px] font-medium flex items-center justify-center mt-0.5"
@@ -268,7 +268,7 @@ const DataDnaCard = memo(function DataDnaCard({ field, lead, onEdit, index }) {
       >
         {index}
       </span>
-      <span className="text-[#52525B] text-[10px] uppercase tracking-wider shrink-0 w-[76px] pt-0.5">
+      <span className="text-crm-fg-muted text-[10px] uppercase tracking-wider shrink-0 w-[76px] pt-0.5">
         {field.label}
       </span>
       <div className="flex-1 min-w-0">
@@ -310,7 +310,7 @@ function NativeSelectWithOther({
           onModeChange('preset');
           onPresetChange(e.target.value);
         }}
-        className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm"
+        className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-white text-sm"
         disabled={disabled}
       >
         <option value="">{placeholder}</option>
@@ -329,7 +329,7 @@ function NativeSelectWithOther({
             onOtherTextChange(e.target.value);
           }}
           placeholder={otherPlaceholder}
-          className="bg-black/50 border-white/10 text-white"
+          className="bg-crm-muted border-crm-border text-white"
           disabled={disabled}
         />
       )}
@@ -548,7 +548,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
           <select
             value={draftValue}
             onChange={(e) => setDraftValue(e.target.value)}
-            className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm"
+            className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-white text-sm"
           >
             <option value="unset">Not set</option>
             <option value="yes">Yes</option>
@@ -564,7 +564,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
             value={draftValue}
             onChange={(e) => setDraftValue(e.target.value)}
             placeholder="0"
-            className="bg-black/50 border-white/10 text-white"
+            className="bg-crm-muted border-crm-border text-white"
           />
         );
       case 'purpose':
@@ -572,7 +572,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
           <select
             value={draftValue}
             onChange={(e) => setDraftValue(e.target.value)}
-            className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm"
+            className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-white text-sm"
           >
             <option value="">Select purpose</option>
             {PURPOSE_OPTIONS.map((opt) => (
@@ -586,7 +586,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
             value={draftValue}
             onChange={(e) => setDraftValue(e.target.value)}
             placeholder={`Enter ${editingField.label.toLowerCase()}`}
-            className="bg-black/50 border-white/10 text-white"
+            className="bg-crm-muted border-crm-border text-white"
           />
         );
     }
@@ -653,7 +653,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
                   </div>
                   {isCollapsed && collapsedPreview && (
                     <p
-                      className="text-[#A1A1AA] text-xs truncate sm:max-w-[50%]"
+                      className="text-crm-fg-secondary text-xs truncate sm:max-w-[50%]"
                       data-testid="lead-overview-collapsed-preview"
                     >
                       {collapsedPreview}
@@ -674,7 +674,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
       </motion.div>
 
       <Dialog open={!!editingField} onOpenChange={(open) => !open && closeEdit()}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-md">
+        <DialogContent className="bg-crm-elevated border-crm-border text-white max-w-md">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl">
               Edit {editingField?.label}
@@ -684,7 +684,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
             {renderEditor()}
             {showAiSuggestion && (
               <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[#C5A059]/10 border border-[#C5A059]/20">
-                <p className="text-[#A1A1AA] text-sm flex items-center gap-1.5">
+                <p className="text-crm-fg-secondary text-sm flex items-center gap-1.5">
                   <Sparkles size={14} className="text-[#C5A059] shrink-0" />
                   AI suggestion: <span className="text-white">{aiSuggestion}</span>
                 </p>
@@ -703,7 +703,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
               <Button
                 variant="outline"
                 onClick={closeEdit}
-                className="flex-1 border-white/10 text-white hover:bg-white/5"
+                className="flex-1 border-crm-border text-white hover:bg-white/5"
                 disabled={saving}
               >
                 Cancel

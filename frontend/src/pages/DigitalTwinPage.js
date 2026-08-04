@@ -151,7 +151,7 @@ const LeadQuickSearch = ({ currentLeadId }) => {
         className={`flex items-center justify-center w-9 h-9 rounded-lg border transition-all duration-200 ${
           expanded
             ? 'bg-[#C5A059]/15 border-[#C5A059]/40 text-[#C5A059]'
-            : 'bg-black/30 border-white/10 text-[#A1A1AA] hover:text-white hover:border-white/20'
+            : 'bg-black/30 border-crm-border text-crm-fg-secondary hover:text-crm-fg hover:border-white/20'
         } lg:hidden`}
         aria-label="Search leads"
       >
@@ -160,7 +160,7 @@ const LeadQuickSearch = ({ currentLeadId }) => {
 
       {/* Desktop: always-visible compact search input */}
       <div className={`hidden lg:flex items-center relative`}>
-        <Search size={15} className="absolute left-3 text-[#52525B] pointer-events-none z-10" />
+        <Search size={15} className="absolute left-3 text-crm-fg-muted pointer-events-none z-10" />
         <Input
           ref={inputRef}
           value={query}
@@ -168,7 +168,7 @@ const LeadQuickSearch = ({ currentLeadId }) => {
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0) setOpen(true); }}
           placeholder="Search any lead..."
-          className="w-[230px] pl-9 pr-3 h-9 bg-black/40 border-white/10 text-white placeholder:text-[#52525B] text-sm focus:border-[#C5A059]/40 focus:ring-0 transition-all"
+          className="w-[230px] pl-9 pr-3 h-9 bg-crm-muted border-crm-border text-crm-fg placeholder:text-crm-fg-muted text-sm focus:border-[#C5A059]/40 focus:ring-0 transition-all"
         />
         {loading && (
           <Loader2 size={14} className="absolute right-3 text-[#C5A059] animate-spin" />
@@ -186,7 +186,7 @@ const LeadQuickSearch = ({ currentLeadId }) => {
             className="lg:hidden absolute right-10 flex items-center overflow-hidden"
           >
             <div className="relative w-full">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525B] pointer-events-none" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-crm-fg-muted pointer-events-none" />
               <Input
                 ref={inputRef}
                 value={query}
@@ -194,7 +194,7 @@ const LeadQuickSearch = ({ currentLeadId }) => {
                 onKeyDown={handleKeyDown}
                 onFocus={() => { if (results.length > 0) setOpen(true); }}
                 placeholder="Search any lead..."
-                className="w-full pl-8 pr-3 h-9 bg-[#111] border-white/15 text-white placeholder:text-[#52525B] text-sm"
+                className="w-full pl-8 pr-3 h-9 bg-crm-muted border-crm-border text-crm-fg placeholder:text-crm-fg-muted text-sm"
               />
               {loading && (
                 <Loader2 size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#C5A059] animate-spin" />
@@ -212,18 +212,18 @@ const LeadQuickSearch = ({ currentLeadId }) => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-2 w-[320px] z-50 glass-card border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+            className="absolute right-0 top-full mt-2 w-[320px] z-50 glass-card border border-crm-border rounded-xl shadow-2xl overflow-hidden"
           >
             {loading && results.length === 0 ? (
-              <div className="flex items-center justify-center gap-2 py-5 text-[#A1A1AA] text-sm">
+              <div className="flex items-center justify-center gap-2 py-5 text-crm-fg-secondary text-sm">
                 <Loader2 size={15} className="animate-spin text-[#C5A059]" />
                 Searching…
               </div>
             ) : results.length === 0 ? (
-              <div className="py-5 text-center text-[#A1A1AA] text-sm">No leads found</div>
+              <div className="py-5 text-center text-crm-fg-secondary text-sm">No leads found</div>
             ) : (
               <div className="max-h-72 overflow-y-auto">
-                <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-widest text-[#52525B] font-medium">
+                <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-widest text-crm-fg-muted font-medium">
                   {results.length} result{results.length !== 1 ? 's' : ''}
                 </div>
                 {results.map((lead) => (
@@ -240,7 +240,7 @@ const LeadQuickSearch = ({ currentLeadId }) => {
                       {(lead.first_name?.[0] || '?').toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-white text-sm font-medium truncate leading-tight">
+                      <p className="text-crm-fg text-sm font-medium truncate leading-tight">
                         {lead.first_name} {lead.last_name}
                         {lead.id === currentLeadId && (
                           <span className="ml-2 text-[10px] text-[#C5A059] font-normal">(current)</span>
@@ -248,13 +248,13 @@ const LeadQuickSearch = ({ currentLeadId }) => {
                       </p>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         {lead.phone && (
-                          <span className="text-[#A1A1AA] text-xs flex items-center gap-1">
+                          <span className="text-crm-fg-secondary text-xs flex items-center gap-1">
                             <Phone size={10} />
                             {lead.phone}
                           </span>
                         )}
                         {(lead.presales_agent || lead.assigned_to_name) && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-[#52525B] border border-white/10">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-crm-fg-muted border border-crm-border">
                             {lead.presales_agent || lead.assigned_to_name}
                           </span>
                         )}
@@ -264,7 +264,7 @@ const LeadQuickSearch = ({ currentLeadId }) => {
                 ))}
               </div>
             )}
-            <div className="px-3 py-2 border-t border-white/5 text-[10px] text-[#52525B] flex items-center gap-1">
+            <div className="px-3 py-2 border-t border-white/5 text-[10px] text-crm-fg-muted flex items-center gap-1">
               <Search size={10} />
               Showing top 5 — type more to narrow
             </div>
@@ -786,7 +786,7 @@ const DigitalTwinPage = () => {
   if (!lead) {
     return (
       <div className="text-center py-12">
-        <p className="text-[#A1A1AA]">Lead not found</p>
+        <p className="text-crm-fg-secondary">Lead not found</p>
         <Button onClick={() => navigate('/virtual-customer')} className="mt-4">
           Back to Leads
         </Button>
@@ -804,12 +804,12 @@ const DigitalTwinPage = () => {
       />
 
       {/* Sticky Back + keep visible while scrolling lead overview */}
-      <div className="sticky top-12 z-30 -mx-1 px-1 py-2 mb-1 bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/5">
+      <div className="sticky top-12 z-30 -mx-1 px-1 py-2 mb-1 bg-crm backdrop-blur-md border-b border-white/5">
         <motion.button
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-[#A1A1AA] hover:text-white transition-colors text-sm"
+          className="flex items-center gap-2 text-crm-fg-secondary hover:text-crm-fg transition-colors text-sm"
           data-testid="back-btn"
         >
           <ArrowLeft size={16} />
@@ -836,13 +836,13 @@ const DigitalTwinPage = () => {
               contactSlot={(
                 <>
                   {lead.phone && (
-                    <span className="text-white text-xs font-semibold flex items-center gap-1">
+                    <span className="text-crm-fg text-xs font-semibold flex items-center gap-1">
                       <Phone size={12} />
                       {lead.phone}
                     </span>
                   )}
                   {lead.email && (
-                    <span className="text-[#52525B] text-xs flex items-center gap-1">
+                    <span className="text-crm-fg-muted text-xs flex items-center gap-1">
                       <MessageCircle size={12} />
                       <span className="truncate max-w-[160px]">{lead.email}</span>
                     </span>
@@ -862,7 +862,7 @@ const DigitalTwinPage = () => {
             <Button
               size="primary"
               onClick={() => setShowWhatsAppModal(true)}
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className="bg-green-600 hover:bg-green-700 text-white text-on-brand"
               data-testid="whatsapp-btn"
             >
               <MessageCircle size={16} className="mr-1.5" />
@@ -911,7 +911,7 @@ const DigitalTwinPage = () => {
       )}
 
       {!lead.ai_configured && (
-        <div className="rounded-lg border border-white/10 bg-black/30 px-4 py-3 text-sm text-[#A1A1AA]">
+        <div className="rounded-lg border border-crm-border bg-black/30 px-4 py-3 text-sm text-crm-fg-secondary">
           Live AI is not configured (set <span className="font-mono text-[#C5A059]">GROQ_API_KEY</span> on the server). Persona and strategic moves will appear once keys are added.
         </div>
       )}
@@ -927,20 +927,20 @@ const DigitalTwinPage = () => {
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
             <Sparkles className="text-[#C5A059]" size={16} />
-            <h2 className="text-base font-semibold text-white">AI Persona Summary</h2>
+            <h2 className="text-base font-semibold text-crm-fg">AI Persona Summary</h2>
           </div>
           <Button
             type="button"
             size="sm"
             variant="ghost"
             onClick={() => setAiPersonaExpanded((v) => !v)}
-            className="h-7 px-2 text-[#52525B] hover:text-white text-xs"
+            className="h-7 px-2 text-crm-fg-muted hover:text-crm-fg text-xs"
             data-testid="ai-persona-toggle"
           >
             {aiPersonaExpanded ? 'Collapse' : 'Expand'}
           </Button>
         </div>
-        <p className={`text-[#A1A1AA] text-sm leading-relaxed ${aiPersonaExpanded ? '' : 'line-clamp-3'}`}>
+        <p className={`text-crm-fg-secondary text-sm leading-relaxed ${aiPersonaExpanded ? '' : 'line-clamp-3'}`}>
           {lead.ai_persona_summary ||
             (lead.ai_configured
               ? 'Insights will appear shortly after notes or calls are loaded (refresh if you just added context).'
@@ -960,8 +960,8 @@ const DigitalTwinPage = () => {
               <AccordionTrigger className="hover:no-underline py-3">
                 <div className="flex items-center gap-2 text-left">
                   <TrendingUp className="text-emerald-400 shrink-0" size={16} />
-                  <span className="text-base font-semibold text-white">AI strategic next moves</span>
-                  <span className="text-[#52525B] text-xs font-normal">from conversations</span>
+                  <span className="text-base font-semibold text-crm-fg">AI strategic next moves</span>
+                  <span className="text-crm-fg-muted text-xs font-normal">from conversations</span>
                 </div>
               </AccordionTrigger>
               <AccordionContent>
@@ -971,8 +971,8 @@ const DigitalTwinPage = () => {
                       key={idx}
                       className="p-3 bg-black/30 rounded-lg border border-white/5"
                     >
-                      <p className="text-white font-medium">{move.title || `Step ${idx + 1}`}</p>
-                      <p className="text-[#A1A1AA] text-sm mt-1">{move.rationale}</p>
+                      <p className="text-crm-fg font-medium">{move.title || `Step ${idx + 1}`}</p>
+                      <p className="text-crm-fg-secondary text-sm mt-1">{move.rationale}</p>
                       {move.priority && (
                         <span className="inline-block mt-2 text-xs text-[#C5A059] capitalize">{move.priority}</span>
                       )}
@@ -992,8 +992,8 @@ const DigitalTwinPage = () => {
               <AccordionTrigger className="hover:no-underline py-3">
                 <div className="flex items-center gap-2 text-left">
                   <Target className="text-[#C5A059] shrink-0" size={16} />
-                  <span className="text-base font-semibold text-white">Portfolio suggestions</span>
-                  <span className="text-[#52525B] text-xs font-normal">cross-project</span>
+                  <span className="text-base font-semibold text-crm-fg">Portfolio suggestions</span>
+                  <span className="text-crm-fg-muted text-xs font-normal">cross-project</span>
                 </div>
               </AccordionTrigger>
               <AccordionContent>
@@ -1001,20 +1001,20 @@ const DigitalTwinPage = () => {
                   {suggestions.map((suggestion, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center justify-between p-3 bg-black/30 rounded-lg hover:bg-black/40 transition-colors"
+                      className="flex items-center justify-between p-3 bg-black/30 rounded-lg hover:bg-crm-muted transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         <Building className="text-[#C5A059]" size={18} />
                         <div>
-                          <p className="text-white font-medium">{suggestion.project}</p>
-                          <p className="text-[#52525B] text-sm">{suggestion.reason}</p>
+                          <p className="text-crm-fg font-medium">{suggestion.project}</p>
+                          <p className="text-crm-fg-muted text-sm">{suggestion.reason}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[#C5A059] text-sm">
                           {Math.round(suggestion.match_score * 100)}% match
                         </span>
-                        <ChevronRight className="text-[#52525B]" size={16} />
+                        <ChevronRight className="text-crm-fg-muted" size={16} />
                       </div>
                     </div>
                   ))}
@@ -1036,7 +1036,7 @@ const DigitalTwinPage = () => {
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <Clock className="text-[#C5A059]" size={16} />
-            <h2 className="text-base font-semibold text-white">Context Updates Timeline</h2>
+            <h2 className="text-base font-semibold text-crm-fg">Context Updates Timeline</h2>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex flex-col items-end gap-1">
@@ -1096,16 +1096,16 @@ const DigitalTwinPage = () => {
               >
                 {/* Icon */}
                 <div className={`absolute left-0 w-5 h-5 rounded-full flex items-center justify-center ${
-                  isNew ? 'bg-[#C5A059] gold-glow' : 'bg-[#1A1A1A] border border-white/10'
+                  isNew ? 'bg-[#C5A059] gold-glow' : 'bg-crm-elevated border border-crm-border'
                 }`}>
-                  <IconComponent size={10} className={isNew ? 'text-black' : 'text-[#A1A1AA]'} />
+                  <IconComponent size={10} className={isNew ? 'text-black' : 'text-crm-fg-secondary'} />
                 </div>
 
                 {/* Content */}
                 <div className={`p-3 rounded-lg ${isNew ? 'bg-[#C5A059]/10 border border-[#C5A059]/30' : 'bg-black/30'}`}>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                      isNew ? 'bg-[#C5A059] text-black' : 'bg-white/10 text-[#A1A1AA]'
+                      isNew ? 'bg-[#C5A059] text-black' : 'bg-white/10 text-crm-fg-secondary'
                     }`}>
                       {update.type}
                     </span>
@@ -1116,15 +1116,15 @@ const DigitalTwinPage = () => {
                   {update.type === 'updated' && Array.isArray(update.changes) && update.changes.length > 0 ? (
                     <div className="mt-2 space-y-1.5" data-testid="timeline-changes">
                       {update.changes.map((c, i) => (
-                        <div key={`${c.field || 'field'}-${i}`} className="text-sm text-white/90 flex flex-wrap gap-2">
-                          <span className="text-[#A1A1AA]">{changeLabel(c.field)}:</span>
-                          <span className="text-white">{changeValue(c.from)}</span>
-                          <span className="text-[#52525B]">→</span>
-                          <span className="text-white">{changeValue(c.to)}</span>
+                        <div key={`${c.field || 'field'}-${i}`} className="text-sm text-crm-fg/90 flex flex-wrap gap-2">
+                          <span className="text-crm-fg-secondary">{changeLabel(c.field)}:</span>
+                          <span className="text-crm-fg">{changeValue(c.from)}</span>
+                          <span className="text-crm-fg-muted">→</span>
+                          <span className="text-crm-fg">{changeValue(c.to)}</span>
                         </div>
                       ))}
                       {update.description && (
-                        <p className="text-[#52525B] text-xs mt-2">{update.description}</p>
+                        <p className="text-crm-fg-muted text-xs mt-2">{update.description}</p>
                       )}
                     </div>
                   ) : editingContextIndex === update._source_index ? (
@@ -1132,7 +1132,7 @@ const DigitalTwinPage = () => {
                       <textarea
                         value={editContextNote}
                         onChange={(e) => setEditContextNote(e.target.value)}
-                        className="w-full min-h-[72px] px-3 py-2 rounded-lg bg-black/50 border border-white/10 text-sm text-white"
+                        className="w-full min-h-[72px] px-3 py-2 rounded-lg bg-crm-muted border border-crm-border text-sm text-crm-fg"
                       />
                       <div className="flex gap-2">
                         <Button
@@ -1146,7 +1146,7 @@ const DigitalTwinPage = () => {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 text-xs border-white/10"
+                          className="h-7 text-xs border-crm-border"
                           onClick={() => {
                             setEditingContextIndex(null);
                             setEditContextNote('');
@@ -1158,11 +1158,11 @@ const DigitalTwinPage = () => {
                     </div>
                   ) : (
                     <div className="mt-2 group/note relative">
-                      <p className="text-white pr-8">{update.description}</p>
+                      <p className="text-crm-fg pr-8">{update.description}</p>
                       {isEditableTimelineNote(update) && typeof update._source_index === 'number' && (
                         <button
                           type="button"
-                          className="absolute top-0 right-0 p-1 rounded text-[#52525B] hover:text-[#C5A059] opacity-70 hover:opacity-100"
+                          className="absolute top-0 right-0 p-1 rounded text-crm-fg-muted hover:text-[#C5A059] opacity-70 hover:opacity-100"
                           title="Edit note"
                           onClick={() => {
                             setEditingContextIndex(update._source_index);
@@ -1179,13 +1179,13 @@ const DigitalTwinPage = () => {
                   {update.type === 'call' && update.key_points && (
                     <div className="mt-3 p-3 bg-black/30 rounded">
                       <p className="text-[#C5A059] text-xs uppercase tracking-wider mb-2">Key Points</p>
-                      <ul className="text-[#A1A1AA] text-sm space-y-1">
+                      <ul className="text-crm-fg-secondary text-sm space-y-1">
                         {update.key_points.map((point, i) => (
                           <li key={i}>• {point}</li>
                         ))}
                       </ul>
                       {update.next_steps && (
-                        <div className="mt-2 pt-2 border-t border-white/10">
+                        <div className="mt-2 pt-2 border-t border-crm-border">
                           <p className="text-[#C5A059] text-xs">Next Steps: {update.next_steps}</p>
                         </div>
                       )}
@@ -1207,7 +1207,7 @@ const DigitalTwinPage = () => {
                   Math.min(n + TIMELINE_LOAD_MORE_STEP, fullTimeline.length)
                 )
               }
-              className="border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white"
+              className="border-crm-border text-crm-fg-secondary hover:bg-white/5 hover:text-crm-fg"
               data-testid="timeline-load-more"
             >
               Load older activity (
@@ -1220,7 +1220,7 @@ const DigitalTwinPage = () => {
 
       {/* Update Context Modal */}
       <Dialog open={showContextModal} onOpenChange={setShowContextModal}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg" data-testid="context-modal">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-lg" data-testid="context-modal">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl flex items-center gap-2">
               <FileText className="text-[#C5A059]" size={22} /> Update Context
@@ -1228,9 +1228,9 @@ const DigitalTwinPage = () => {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Update Type</label>
+              <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Update Type</label>
               <select value={contextType} onChange={e => setContextType(e.target.value)}
-                className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm"
+                className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm"
                 data-testid="context-type-select">
                 <option value="call_note">Call Note</option>
                 <option value="site_visit_note">Site Visit Note</option>
@@ -1241,15 +1241,15 @@ const DigitalTwinPage = () => {
               </select>
             </div>
             <div>
-              <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Note</label>
+              <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Note</label>
               <textarea value={contextNote} onChange={e => setContextNote(e.target.value)}
                 placeholder="e.g., Customer visited site today, liked the 3BHK layout, wants possession by Dec 2026..."
-                className="w-full h-32 px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-white placeholder:text-[#52525B] resize-none"
+                className="w-full h-32 px-4 py-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg placeholder:text-crm-fg-muted resize-none"
                 data-testid="context-note-input" />
             </div>
-            <p className="text-[#52525B] text-xs">This note will be added to the timeline and the AI Summary will be regenerated.</p>
+            <p className="text-crm-fg-muted text-xs">This note will be added to the timeline and the AI Summary will be regenerated.</p>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={() => setShowContextModal(false)} className="flex-1 border-white/10 text-white hover:bg-white/5">Cancel</Button>
+              <Button variant="outline" onClick={() => setShowContextModal(false)} className="flex-1 border-crm-border text-crm-fg hover:bg-white/5">Cancel</Button>
               <Button onClick={handleSaveContext} disabled={savingContext || !contextNote.trim()}
                 className="flex-1 bg-[#C5A059] text-black hover:bg-[#E5C079] disabled:opacity-50" data-testid="save-context-btn">
                 {savingContext ? 'Saving...' : 'Save Update'}
@@ -1261,7 +1261,7 @@ const DigitalTwinPage = () => {
 
       {/* Add Task Modal */}
       <Dialog open={showTaskModal} onOpenChange={setShowTaskModal}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg" data-testid="task-modal">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-lg" data-testid="task-modal">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl flex items-center gap-2">
               <ClipboardList className="text-[#C5A059]" size={22} /> Add Task
@@ -1269,20 +1269,20 @@ const DigitalTwinPage = () => {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Task Description</label>
+              <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Task Description</label>
               <textarea value={taskForm.description} onChange={e => setTaskForm({...taskForm, description: e.target.value})}
                 placeholder="e.g., Schedule site visit for Reserve 16..."
-                className="w-full h-20 px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-white placeholder:text-[#52525B] resize-none"
+                className="w-full h-20 px-4 py-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg placeholder:text-crm-fg-muted resize-none"
                 data-testid="task-description-input" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Due Date</label>
+                <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Due Date</label>
                 <input type="date" value={taskForm.due_date} onChange={e => setTaskForm({...taskForm, due_date: e.target.value})}
-                  className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm" data-testid="task-due-date" />
+                  className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm" data-testid="task-due-date" />
               </div>
               <div>
-                <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Due Time</label>
+                <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Due Time</label>
                 <RoleBasedTimeInput
                   value={taskForm.due_time}
                   onChange={(due_time) => setTaskForm({ ...taskForm, due_time })}
@@ -1293,20 +1293,20 @@ const DigitalTwinPage = () => {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Priority</label>
+                <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Priority</label>
                 <select value={taskForm.priority} onChange={e => setTaskForm({...taskForm, priority: e.target.value})}
-                  className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm" data-testid="task-priority">
+                  className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm" data-testid="task-priority">
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
                 </select>
               </div>
               <div>
-                <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Reminder</label>
+                <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Reminder</label>
                 <select
                   value={taskForm.reminder_method}
                   disabled
-                  className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm opacity-70 cursor-not-allowed"
+                  className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm opacity-70 cursor-not-allowed"
                   data-testid="task-reminder"
                 >
                   <option value="default">Default</option>
@@ -1314,11 +1314,11 @@ const DigitalTwinPage = () => {
               </div>
             </div>
             <div>
-              <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-2">Assign To</label>
+              <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Assign To</label>
               <select
                 value={taskForm.assigned_to}
                 onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}
-                className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm"
+                className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm"
                 data-testid="task-assigned-to"
                 disabled={loadingAssignees}
               >
@@ -1337,7 +1337,7 @@ const DigitalTwinPage = () => {
               </select>
             </div>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={() => setShowTaskModal(false)} className="flex-1 border-white/10 text-white hover:bg-white/5">Cancel</Button>
+              <Button variant="outline" onClick={() => setShowTaskModal(false)} className="flex-1 border-crm-border text-crm-fg hover:bg-white/5">Cancel</Button>
               <Button onClick={handleSaveTask} disabled={savingTask || !taskForm.description.trim() || !taskForm.due_date}
                 className="flex-1 bg-[#C5A059] text-black hover:bg-[#E5C079] disabled:opacity-50" data-testid="save-task-btn">
                 {savingTask ? 'Creating...' : 'Create Task'}
@@ -1352,7 +1352,7 @@ const DigitalTwinPage = () => {
         setShowWhatsAppModal(open);
         if (open) { setSelectedTemplate(null); fetchWaTemplates(); }
       }}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl flex items-center gap-2">
               <MessageCircle className="text-green-500" size={24} />
@@ -1360,14 +1360,14 @@ const DigitalTwinPage = () => {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-[#A1A1AA] text-sm">
+            <p className="text-crm-fg-secondary text-sm">
               Sending to: {lead?.phone}
             </p>
             
             {/* WATI Template picker (shown when APPROVED templates available) */}
             {waTemplatesLoaded && waTemplates.length > 0 && (
               <div className="space-y-2">
-                <p className="text-[#52525B] text-xs uppercase tracking-wider">Approved Templates</p>
+                <p className="text-crm-fg-muted text-xs uppercase tracking-wider">Approved Templates</p>
                 <select
                   value={selectedTemplate?.name || ''}
                   onChange={(e) => {
@@ -1375,7 +1375,7 @@ const DigitalTwinPage = () => {
                     setSelectedTemplate(tpl);
                     if (tpl) setMessageText('');
                   }}
-                  className="w-full h-10 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm focus:border-green-500"
+                  className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm focus:border-green-500"
                   data-testid="template-select"
                 >
                   <option value="">— Free text (session) —</option>
@@ -1384,7 +1384,7 @@ const DigitalTwinPage = () => {
                   ))}
                 </select>
                 {selectedTemplate && (
-                  <p className="text-[#52525B] text-xs">
+                  <p className="text-crm-fg-muted text-xs">
                     Template body: {selectedTemplate.body || selectedTemplate.hsm || '—'}
                   </p>
                 )}
@@ -1400,29 +1400,29 @@ const DigitalTwinPage = () => {
             {/* Quick fill buttons (pre-fill text area only) */}
             {!selectedTemplate && (
               <div className="space-y-2">
-                <p className="text-[#52525B] text-xs uppercase tracking-wider">Quick Fill</p>
+                <p className="text-crm-fg-muted text-xs uppercase tracking-wider">Quick Fill</p>
                 <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => handleQuickMessage('greeting')}
-                  className="px-3 py-1 text-xs bg-black/50 border border-white/10 rounded hover:border-green-500/50 transition-colors"
+                  className="px-3 py-1 text-xs bg-crm-muted border border-crm-border rounded hover:border-green-500/50 transition-colors"
                 >
                   Greeting
                 </button>
                 <button
                   onClick={() => handleQuickMessage('followup')}
-                  className="px-3 py-1 text-xs bg-black/50 border border-white/10 rounded hover:border-green-500/50 transition-colors"
+                  className="px-3 py-1 text-xs bg-crm-muted border border-crm-border rounded hover:border-green-500/50 transition-colors"
                 >
                   Follow Up
                 </button>
                 <button
                   onClick={() => handleQuickMessage('brochure')}
-                  className="px-3 py-1 text-xs bg-black/50 border border-white/10 rounded hover:border-green-500/50 transition-colors"
+                  className="px-3 py-1 text-xs bg-crm-muted border border-crm-border rounded hover:border-green-500/50 transition-colors"
                 >
                   Brochure
                 </button>
                 <button
                   onClick={() => handleQuickMessage('sitevisit')}
-                  className="px-3 py-1 text-xs bg-black/50 border border-white/10 rounded hover:border-green-500/50 transition-colors"
+                  className="px-3 py-1 text-xs bg-crm-muted border border-crm-border rounded hover:border-green-500/50 transition-colors"
                 >
                   Site Visit
                 </button>
@@ -1437,7 +1437,7 @@ const DigitalTwinPage = () => {
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 placeholder="Type your message..."
-                className="w-full h-32 px-4 py-3 bg-black/50 border border-white/10 rounded-lg text-white placeholder:text-[#52525B] resize-none focus:border-green-500 transition-colors"
+                className="w-full h-32 px-4 py-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg placeholder:text-crm-fg-muted resize-none focus:border-green-500 transition-colors"
                 data-testid="whatsapp-message-input"
               />
             </div>
@@ -1447,14 +1447,14 @@ const DigitalTwinPage = () => {
               <Button
                 variant="outline"
                 onClick={() => setShowWhatsAppModal(false)}
-                className="flex-1 border-white/10 text-white hover:bg-white/5"
+                className="flex-1 border-crm-border text-crm-fg hover:bg-white/5"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleSendWhatsApp}
                 disabled={sendingMessage || (!messageText.trim() && !selectedTemplate)}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white text-on-brand disabled:opacity-50"
                 data-testid="send-whatsapp-btn"
               >
                 {sendingMessage ? (
@@ -1475,8 +1475,8 @@ const DigitalTwinPage = () => {
             </div>
 
             {/* Per-project brochure buttons */}
-            <div className="border-t border-white/10 pt-3 space-y-2">
-              <p className="text-[#52525B] text-xs uppercase tracking-wider">Send project brochure</p>
+            <div className="border-t border-crm-border pt-3 space-y-2">
+              <p className="text-crm-fg-muted text-xs uppercase tracking-wider">Send project brochure</p>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { key: 'melange', label: 'Mélange' },
@@ -1489,7 +1489,7 @@ const DigitalTwinPage = () => {
                     onClick={() => handleSendBrochure(p.key)}
                     disabled={sendingBrochure}
                     variant="outline"
-                    className="border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50 h-9 text-xs"
+                    className="border-crm-border text-crm-fg-secondary hover:bg-white/5 hover:text-crm-fg disabled:opacity-50 h-9 text-xs"
                     data-testid={`send-brochure-${p.key}`}
                   >
                     <Paperclip size={13} className="mr-1.5" />
@@ -1497,18 +1497,18 @@ const DigitalTwinPage = () => {
                   </Button>
                 ))}
               </div>
-              <p className="text-[#52525B] text-xs text-center">
+              <p className="text-crm-fg-muted text-xs text-center">
                 Requires active session · PDF configured on server
               </p>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 border-t border-white/10 pt-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 border-t border-crm-border pt-3">
               {/* Send Pricing */}
               <Button
                 onClick={handleSendPricing}
                 disabled={sendingPricing}
                 variant="outline"
-                className="w-full border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50"
+                className="w-full border-crm-border text-crm-fg-secondary hover:bg-white/5 hover:text-crm-fg disabled:opacity-50"
               >
                 {sendingPricing ? (
                   <span className="flex items-center gap-2">
@@ -1531,7 +1531,7 @@ const DigitalTwinPage = () => {
                 onClick={handleSendSiteVisitReq}
                 disabled={sendingSiteVisitReq}
                 variant="outline"
-                className="w-full border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50"
+                className="w-full border-crm-border text-crm-fg-secondary hover:bg-white/5 hover:text-crm-fg disabled:opacity-50"
               >
                 {sendingSiteVisitReq ? (
                   <span className="flex items-center gap-2">
@@ -1554,7 +1554,7 @@ const DigitalTwinPage = () => {
                 onClick={handleSendSiteVisitDone}
                 disabled={sendingSiteVisitDone}
                 variant="outline"
-                className="w-full border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-50 md:col-span-2"
+                className="w-full border-crm-border text-crm-fg-secondary hover:bg-white/5 hover:text-crm-fg disabled:opacity-50 md:col-span-2"
               >
                 {sendingSiteVisitDone ? (
                   <span className="flex items-center gap-2">
@@ -1578,7 +1578,7 @@ const DigitalTwinPage = () => {
 
       {/* Chat History Modal */}
       <Dialog open={showChatHistory} onOpenChange={setShowChatHistory}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader className="flex-shrink-0">
             <div className="flex items-start justify-between gap-3 pr-6">
               <div>
@@ -1586,7 +1586,7 @@ const DigitalTwinPage = () => {
                   <MessageCircle className="text-green-500" size={24} />
                   Chat with {lead?.first_name} {lead?.last_name}
                 </DialogTitle>
-                <p className="text-[#52525B] text-sm">{lead?.phone}</p>
+                <p className="text-crm-fg-muted text-sm">{lead?.phone}</p>
               </div>
               <Button
                 type="button"
@@ -1594,7 +1594,7 @@ const DigitalTwinPage = () => {
                 size="sm"
                 onClick={handleSyncChat}
                 disabled={syncingChat}
-                className="border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/5 shrink-0"
+                className="border-crm-border text-crm-fg-secondary hover:text-crm-fg hover:bg-white/5 shrink-0"
                 data-testid="chat-sync-btn"
               >
                 {syncingChat ? (
@@ -1610,7 +1610,7 @@ const DigitalTwinPage = () => {
           {/* Chat Messages */}
           <div className="wa-chat-thread flex-1 overflow-y-auto py-4 space-y-3 min-h-[300px] max-h-[400px]" data-testid="chat-messages">
             {chatHistory.length === 0 ? (
-              <div className="text-center py-12 text-[#52525B]">
+              <div className="text-center py-12 text-crm-fg-muted">
                 <MessageCircle className="mx-auto mb-3" size={40} />
                 <p className="text-lg">No messages yet</p>
                 <p className="text-sm mt-1">Start a conversation with {lead?.first_name}</p>
@@ -1633,7 +1633,7 @@ const DigitalTwinPage = () => {
           </div>
 
           {/* Message Input */}
-          <div className="flex-shrink-0 pt-4 border-t border-white/10">
+          <div className="flex-shrink-0 pt-4 border-t border-crm-border">
             <div className="flex gap-2">
               <input
                 type="text"
@@ -1641,13 +1641,13 @@ const DigitalTwinPage = () => {
                 onChange={(e) => setMessageText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendFromChat()}
                 placeholder="Type a message..."
-                className="flex-1 h-12 px-4 bg-black/50 border border-white/10 rounded-full text-white placeholder:text-[#52525B] focus:border-green-500 transition-colors"
+                className="flex-1 h-12 px-4 bg-crm-muted border border-crm-border rounded-full text-crm-fg placeholder:text-crm-fg-muted focus:border-green-500 transition-colors"
                 data-testid="chat-message-input"
               />
               <Button
                 onClick={handleSendFromChat}
                 disabled={sendingMessage || !messageText.trim()}
-                className="h-12 w-12 rounded-full bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 p-0"
+                className="h-12 w-12 rounded-full bg-green-600 hover:bg-green-700 text-white text-on-brand disabled:opacity-50 p-0"
                 data-testid="chat-send-btn"
               >
                 {sendingMessage ? (
@@ -1660,7 +1660,7 @@ const DigitalTwinPage = () => {
                 )}
               </Button>
             </div>
-            <p className="text-[#52525B] text-xs mt-2 text-center">
+            <p className="text-crm-fg-muted text-xs mt-2 text-center">
               Press Enter to send • Messages sent via WhatsApp
             </p>
           </div>

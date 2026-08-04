@@ -64,16 +64,16 @@ const EscalationQueuePage = () => {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="font-serif text-2xl text-white flex items-center gap-2">
+          <h1 className="font-serif text-2xl text-crm-fg flex items-center gap-2">
             <AlertTriangle className="text-amber-400" size={24} />
             Escalation Queue
           </h1>
-          <p className="text-[#52525B] text-sm mt-1">
+          <p className="text-crm-fg-muted text-sm mt-1">
             Admin view of leads needing intervention — open, reassign from Digital Twin, then mark resolved.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-xs text-[#A1A1AA] flex items-center gap-1.5">
+          <label className="text-xs text-crm-fg-secondary flex items-center gap-1.5">
             <input
               type="checkbox"
               checked={includeRead}
@@ -87,25 +87,25 @@ const EscalationQueuePage = () => {
             size="sm"
             onClick={load}
             disabled={loading}
-            className="border-white/10 text-[#A1A1AA]"
+            className="border-crm-border text-crm-fg-secondary"
           >
             {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           </Button>
         </div>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-[#141414] overflow-hidden">
+      <div className="rounded-xl border border-crm-border bg-crm-elevated overflow-hidden">
         {loading && !rows.length ? (
-          <div className="flex justify-center py-16 text-[#52525B]">
+          <div className="flex justify-center py-16 text-crm-fg-muted">
             <Loader2 className="animate-spin mr-2" size={18} /> Loading…
           </div>
         ) : rows.length === 0 ? (
-          <div className="p-10 text-center text-[#52525B] text-sm">No open escalations</div>
+          <div className="p-10 text-center text-crm-fg-muted text-sm">No open escalations</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/10 text-left text-[11px] uppercase tracking-wider text-[#52525B]">
+                <tr className="border-b border-crm-border text-left text-[11px] uppercase tracking-wider text-crm-fg-muted">
                   <th className="px-4 py-3">Lead</th>
                   <th className="px-4 py-3">Reason</th>
                   <th className="px-4 py-3">Status</th>
@@ -118,18 +118,18 @@ const EscalationQueuePage = () => {
                 {rows.map((row) => (
                   <tr key={row.id} className="border-b border-white/5 hover:bg-white/[0.03]">
                     <td className="px-4 py-3">
-                      <p className="text-white font-medium">{row.lead_name || 'Lead'}</p>
-                      <p className="text-xs text-[#52525B]">
+                      <p className="text-crm-fg font-medium">{row.lead_name || 'Lead'}</p>
+                      <p className="text-xs text-crm-fg-muted">
                         {row.lead_phone || '—'}
                         {row.lead_project ? ` · ${row.lead_project}` : ''}
                       </p>
                     </td>
-                    <td className="px-4 py-3 text-[#A1A1AA] max-w-xs">
+                    <td className="px-4 py-3 text-crm-fg-secondary max-w-xs">
                       {row.title || row.message || 'Escalation'}
                     </td>
-                    <td className="px-4 py-3 text-[#A1A1AA]">{row.lead_status || '—'}</td>
-                    <td className="px-4 py-3 text-[#A1A1AA]">{row.lead_assignee || '—'}</td>
-                    <td className="px-4 py-3 text-[#52525B] whitespace-nowrap">
+                    <td className="px-4 py-3 text-crm-fg-secondary">{row.lead_status || '—'}</td>
+                    <td className="px-4 py-3 text-crm-fg-secondary">{row.lead_assignee || '—'}</td>
+                    <td className="px-4 py-3 text-crm-fg-muted whitespace-nowrap">
                       {ageLabel(row.fired_at_dt || row.created_at_dt || row.created_at)}
                     </td>
                     <td className="px-4 py-3">
@@ -150,7 +150,7 @@ const EscalationQueuePage = () => {
                             type="button"
                             size="sm"
                             variant="outline"
-                            className="h-8 border-white/10 text-[#A1A1AA]"
+                            className="h-8 border-crm-border text-crm-fg-secondary"
                             disabled={busyId === row.id}
                             onClick={() => markResolved(row.id)}
                           >

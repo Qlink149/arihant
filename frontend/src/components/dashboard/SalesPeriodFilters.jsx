@@ -27,19 +27,19 @@ const CALENDAR_CLASS_NAMES = {
   caption: 'flex justify-center pt-1 relative items-center text-white',
   caption_label: 'text-sm font-medium text-white',
   nav: 'space-x-1 flex items-center',
-  nav_button: 'h-7 w-7 bg-transparent border border-white/10 text-white hover:bg-white/10 p-0 inline-flex items-center justify-center rounded-md',
+  nav_button: 'h-7 w-7 bg-transparent border border-crm-border text-white hover:bg-white/10 p-0 inline-flex items-center justify-center rounded-md',
   nav_button_previous: 'absolute left-1',
   nav_button_next: 'absolute right-1',
   table: 'w-full border-collapse',
   head_row: 'flex',
-  head_cell: 'text-[#A1A1AA] rounded-md w-8 font-normal text-[0.75rem]',
+  head_cell: 'text-crm-fg-secondary rounded-md w-8 font-normal text-[0.75rem]',
   row: 'flex w-full mt-1',
   cell: 'relative p-0 text-center text-sm focus-within:relative focus-within:z-20',
   day: 'h-8 w-8 p-0 font-normal text-white hover:bg-[#C5A059]/20 rounded-md',
   day_selected: 'bg-[#C5A059] text-black hover:bg-[#C5A059] hover:text-black rounded-md',
   day_today: 'bg-white/10 text-white rounded-md',
-  day_outside: 'text-[#52525B] opacity-50',
-  day_disabled: 'text-[#52525B] opacity-30',
+  day_outside: 'text-crm-fg-muted opacity-50',
+  day_disabled: 'text-crm-fg-muted opacity-30',
   day_range_middle: 'bg-[#C5A059]/20 text-white rounded-none',
   day_range_start: 'bg-[#C5A059] text-black rounded-l-md rounded-r-none',
   day_range_end: 'bg-[#C5A059] text-black rounded-r-md rounded-l-none',
@@ -167,7 +167,7 @@ export function SalesPeriodFilters({
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"
-            className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 h-9 ${
+            className={`bg-crm-elevated border-crm-border text-white hover:bg-white/5 h-9 ${
               quarter !== 'all' ? 'border-[#C5A059] text-[#C5A059]' : ''
             }`}
             data-testid="sales-quarter-filter"
@@ -176,8 +176,8 @@ export function SalesPeriodFilters({
             <ChevronDown size={14} className="ml-2" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="bg-[#1A1A1A] border-white/10 max-h-72 overflow-y-auto" align="start">
-          <DropdownMenuLabel className="text-[#A1A1AA]">Quarter</DropdownMenuLabel>
+        <DropdownMenuContent className="bg-crm-elevated border-crm-border max-h-72 overflow-y-auto" align="start">
+          <DropdownMenuLabel className="text-crm-fg-secondary">Quarter</DropdownMenuLabel>
           <DropdownMenuSeparator className="bg-white/10" />
           {QUARTER_OPTIONS.map((opt) => (
             <DropdownMenuItem
@@ -201,7 +201,7 @@ export function SalesPeriodFilters({
         <DropdownMenuTrigger asChild>
           <Button
             variant="outline"
-            className={`bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5 h-9 ${
+            className={`bg-crm-elevated border-crm-border text-white hover:bg-white/5 h-9 ${
               dateActive ? 'border-[#C5A059] text-[#C5A059]' : ''
             }`}
             data-testid="sales-date-filter"
@@ -212,13 +212,13 @@ export function SalesPeriodFilters({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          className="bg-[#1A1A1A] border-white/10"
+          className="bg-crm-elevated border-crm-border"
           align="start"
           data-testid="sales-date-filter-menu"
         >
           {dateMenuMode === 'presets' ? (
             <>
-              <DropdownMenuLabel className="text-[#A1A1AA]">Created date</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-crm-fg-secondary">Created date</DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/10" />
               <DropdownMenuItem
                 onClick={() => applyDatePreset('today')}
@@ -285,7 +285,7 @@ export function SalesPeriodFilters({
                   e.preventDefault();
                   setDateMenuMode('presets');
                 }}
-                className="text-[#A1A1AA] hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                className="text-crm-fg-secondary hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
               >
                 ← Back to presets
               </DropdownMenuItem>
@@ -300,7 +300,7 @@ export function SalesPeriodFilters({
                   selected={singleDate}
                   onSelect={handleSingleDateSelect}
                   classNames={CALENDAR_CLASS_NAMES}
-                  className="p-3 bg-[#1A1A1A] text-white"
+                  className="p-3 bg-crm-elevated text-white"
                   data-testid="sales-date-single-calendar"
                 />
               </DropdownMenuItem>
@@ -314,7 +314,7 @@ export function SalesPeriodFilters({
                   e.preventDefault();
                   setDateMenuMode('presets');
                 }}
-                className="text-[#A1A1AA] hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
+                className="text-crm-fg-secondary hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
               >
                 ← Back to presets
               </DropdownMenuItem>
@@ -329,7 +329,7 @@ export function SalesPeriodFilters({
                   selected={customDateRange}
                   onSelect={handleCustomRangeSelect}
                   classNames={CALENDAR_CLASS_NAMES}
-                  className="p-3 bg-[#1A1A1A] text-white"
+                  className="p-3 bg-crm-elevated text-white"
                   numberOfMonths={1}
                   data-testid="sales-date-range-calendar"
                 />

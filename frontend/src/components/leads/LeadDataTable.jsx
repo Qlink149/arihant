@@ -58,7 +58,7 @@ const RecentNoteCell = memo(function RecentNoteCell({ note, leadId, onResize }) 
   }, [normalized]);
 
   if (!normalized) {
-    return <span className="text-[#52525B] text-sm">—</span>;
+    return <span className="text-crm-fg-muted text-sm">—</span>;
   }
 
   const toggle = (e) => {
@@ -71,9 +71,9 @@ const RecentNoteCell = memo(function RecentNoteCell({ note, leadId, onResize }) 
     <div className="min-w-0">
       <div
         className={[
-          'text-[#A1A1AA] text-sm break-words',
+          'text-crm-fg-secondary text-sm break-words',
           expanded
-            ? 'whitespace-pre-wrap max-h-80 overflow-y-auto rounded-md border border-white/10 bg-black/20 p-2'
+            ? 'whitespace-pre-wrap max-h-80 overflow-y-auto rounded-md border border-crm-border bg-black/20 p-2'
             : 'line-clamp-2',
         ].join(' ')}
         title={!expanded ? normalized : undefined}
@@ -87,7 +87,7 @@ const RecentNoteCell = memo(function RecentNoteCell({ note, leadId, onResize }) 
         <button
           type="button"
           onClick={toggle}
-          className="mt-1 text-[11px] text-[#52525B] hover:text-[#C5A059] underline-offset-2 hover:underline"
+          className="mt-1 text-[11px] text-crm-fg-muted hover:text-[#C5A059] underline-offset-2 hover:underline"
           aria-expanded={expanded}
         >
           {expanded ? 'Show less' : 'Show more'}
@@ -139,7 +139,7 @@ const LeadTableRow = memo(function LeadTableRow({
           <div className="min-w-0 flex-1 overflow-hidden">
             <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
               <span
-                className={`text-white font-medium ${textSize} truncate`}
+                className={`text-crm-fg font-medium ${textSize} truncate`}
                 title={fullName || undefined}
               >
                 {lead.first_name} {lead.last_name}
@@ -153,7 +153,7 @@ const LeadTableRow = memo(function LeadTableRow({
       </TableCell>
       <TableCell className={`${cellPy} w-[130px] max-w-[130px] min-w-0 overflow-hidden`}>
         <span
-          className={`text-white font-semibold ${textSize} truncate block`}
+          className={`text-crm-fg font-semibold ${textSize} truncate block`}
           title={lead.phone || undefined}
           data-testid={`lead-phone-${lead.id}`}
         >
@@ -169,7 +169,7 @@ const LeadTableRow = memo(function LeadTableRow({
         {followUp ? (
           <button
             type="button"
-            className={`text-white ${textSize} font-medium hover:text-[#C5A059] underline-offset-2 hover:underline truncate block max-w-full text-left`}
+            className={`text-crm-fg ${textSize} font-medium hover:text-[#C5A059] underline-offset-2 hover:underline truncate block max-w-full text-left`}
             onClick={(e) => {
               e.stopPropagation();
               onOpenLeadTasks?.(lead, { highlightTaskId: earliestTaskId || null });
@@ -180,7 +180,7 @@ const LeadTableRow = memo(function LeadTableRow({
             {followUp}
           </button>
         ) : (
-          <span className={`text-[#52525B] ${textSize}`}>—</span>
+          <span className={`text-crm-fg-muted ${textSize}`}>—</span>
         )}
       </TableCell>
       <TableCell className={cellPy}>
@@ -201,16 +201,16 @@ const LeadTableRow = memo(function LeadTableRow({
             </CrmBadge>
           </button>
         ) : (
-          <span className={`text-[#52525B] ${textSize}`}>—</span>
+          <span className={`text-crm-fg-muted ${textSize}`}>—</span>
         )}
       </TableCell>
       <TableCell className={`${cellPy} max-w-[200px]`}>
-        <span className={`text-[#A1A1AA] ${textSize} truncate block`} title={lead.project || ''}>
+        <span className={`text-crm-fg-secondary ${textSize} truncate block`} title={lead.project || ''}>
           {lead.project || '—'}
         </span>
       </TableCell>
       <TableCell className={`${cellPy} max-w-[140px]`}>
-        <span className={`text-[#52525B] ${textSize} truncate block`} title={lead.lead_source || ''}>
+        <span className={`text-crm-fg-muted ${textSize} truncate block`} title={lead.lead_source || ''}>
           {lead.lead_source || '—'}
         </span>
       </TableCell>
@@ -222,14 +222,14 @@ const LeadTableRow = memo(function LeadTableRow({
           {owner !== '—' && (
             <LeadAvatar lead={{ first_name: owner, last_name: '', id: owner }} size="sm" />
           )}
-          <span className={`text-[#A1A1AA] ${textSize} truncate`} title={owner}>
+          <span className={`text-crm-fg-secondary ${textSize} truncate`} title={owner}>
             {owner}
           </span>
         </div>
       </TableCell>
       <TableCell className={`${cellPy} max-w-[100px]`}>
         <span
-          className={`text-[#A1A1AA] ${textSize} truncate block`}
+          className={`text-crm-fg-secondary ${textSize} truncate block`}
           title={formatLeadUpdatedAt(lead)}
           data-testid={`lead-updated-${lead.id}`}
         >
@@ -245,50 +245,50 @@ const LeadTableRow = memo(function LeadTableRow({
 function LeadTableHeader() {
   return (
     <TableHeader>
-      <TableRow className="border-white/10 hover:bg-transparent">
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[200px]">
+      <TableRow className="border-crm-border hover:bg-transparent">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[200px]">
           Name
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[130px] w-[130px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[130px] w-[130px]">
           Phone
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[160px] w-[160px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[160px] w-[160px]">
           Status
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[148px] w-[148px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[148px] w-[148px]">
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="cursor-help">Next follow-up</span>
             </TooltipTrigger>
-            <TooltipContent className="bg-[#1A1A1A] border border-white/10 text-[#EDEDED]">
+            <TooltipContent className="bg-crm-elevated border border-crm-border text-crm-fg">
               Earliest of next_action_date or earliest pending task due time.
             </TooltipContent>
           </Tooltip>
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[100px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[100px]">
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="cursor-help">Active tasks</span>
             </TooltipTrigger>
-            <TooltipContent className="bg-[#1A1A1A] border border-white/10 text-[#EDEDED]">Pending tasks linked to this lead.</TooltipContent>
+            <TooltipContent className="bg-crm-elevated border border-crm-border text-crm-fg">Pending tasks linked to this lead.</TooltipContent>
           </Tooltip>
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[160px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[160px]">
           Project
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[120px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[120px]">
           Source
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[220px] max-w-[320px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[220px] max-w-[320px]">
           Recent note
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[140px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[140px]">
           Sales owner
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider min-w-[100px] w-[100px]">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[100px] w-[100px]">
           Updated
         </TableHead>
-        <TableHead className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur text-[#52525B] text-xs uppercase tracking-wider w-[88px] text-right">
+        <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider w-[88px] text-right">
           Actions
         </TableHead>
       </TableRow>
@@ -391,7 +391,7 @@ export const LeadDataTable = memo(function LeadDataTable({
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-white/5 bg-[#1A1A1A] overflow-hidden">
+      <div className="rounded-lg border border-white/5 bg-crm-elevated overflow-hidden">
         <div className="p-8 space-y-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="h-10 bg-white/5 rounded animate-pulse" />
@@ -403,9 +403,9 @@ export const LeadDataTable = memo(function LeadDataTable({
 
   if (!leads.length) {
     return (
-      <div className="rounded-lg border border-white/5 bg-[#1A1A1A] p-12 text-center">
-        <p className="text-[#A1A1AA]">No leads found</p>
-        <p className="text-[#52525B] text-sm mt-1">Try adjusting your filters</p>
+      <div className="rounded-lg border border-white/5 bg-crm-elevated p-12 text-center">
+        <p className="text-crm-fg-secondary">No leads found</p>
+        <p className="text-crm-fg-muted text-sm mt-1">Try adjusting your filters</p>
       </div>
     );
   }
@@ -413,7 +413,7 @@ export const LeadDataTable = memo(function LeadDataTable({
   return (
     <div
       ref={tableAnchorRef}
-      className="rounded-lg border border-white/5 bg-[#1A1A1A] overflow-x-auto"
+      className="rounded-lg border border-white/5 bg-crm-elevated overflow-x-auto"
       data-testid="lead-data-table"
     >
       {useVirtualTable ? (

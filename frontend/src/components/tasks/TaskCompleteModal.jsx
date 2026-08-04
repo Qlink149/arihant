@@ -27,20 +27,20 @@ export function TaskCompleteModal({ open, onOpenChange, task, onConfirm, saving 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-md">
+      <DialogContent className="bg-crm-elevated border-crm-border text-white max-w-md">
         <DialogHeader>
           <DialogTitle className="font-serif text-xl">Complete task</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <p className="text-sm text-[#A1A1AA]">{task?.description}</p>
+          <p className="text-sm text-crm-fg-secondary">{task?.description}</p>
           {requiresOutcome ? (
             <>
               <div>
-                <label className="text-[#A1A1AA] text-xs mb-1.5 block">Outcome *</label>
+                <label className="text-crm-fg-secondary text-xs mb-1.5 block">Outcome *</label>
                 <select
                   value={outcome}
                   onChange={(e) => setOutcome(e.target.value)}
-                  className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm"
+                  className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm"
                   required
                 >
                   <option value="">Select outcome</option>
@@ -53,12 +53,12 @@ export function TaskCompleteModal({ open, onOpenChange, task, onConfirm, saving 
               </div>
               {outcome === 'Others' ? (
                 <div>
-                  <label className="text-[#A1A1AA] text-xs mb-1.5 block">Reason *</label>
+                  <label className="text-crm-fg-secondary text-xs mb-1.5 block">Reason *</label>
                   <input
                     type="text"
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
-                    className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm"
+                    className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm"
                     required
                   />
                 </div>
@@ -66,7 +66,7 @@ export function TaskCompleteModal({ open, onOpenChange, task, onConfirm, saving 
             </>
           ) : null}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" className="border-white/10 text-white" onClick={() => onOpenChange?.(false)}>
+            <Button type="button" variant="outline" className="border-crm-border text-white" onClick={() => onOpenChange?.(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving} className="bg-[#C5A059] text-black hover:bg-[#E5C079]">

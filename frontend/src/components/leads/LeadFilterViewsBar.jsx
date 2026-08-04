@@ -150,7 +150,7 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
         size="sm"
         variant="outline"
         onClick={() => setListOpen(true)}
-        className="h-8 text-xs bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5"
+        className="h-8 text-xs bg-crm-elevated border-crm-border text-white hover:bg-white/5"
         data-testid="open-filter-views-btn"
       >
         <Bookmark size={12} className="mr-1.5 text-[#C5A059]" />
@@ -171,7 +171,7 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
           variant="outline"
           onClick={handleUpdate}
           disabled={saving}
-          className="h-8 text-xs bg-[#1A1A1A] border-[#C5A059]/50 text-[#C5A059] hover:bg-[#C5A059]/10"
+          className="h-8 text-xs bg-crm-elevated border-[#C5A059]/50 text-[#C5A059] hover:bg-[#C5A059]/10"
           data-testid="update-filter-view-btn"
         >
           Update &quot;{pinnedView.name}&quot;
@@ -184,7 +184,7 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
           size="sm"
           variant="outline"
           onClick={() => setSaveOpen(true)}
-          className="h-8 text-xs bg-[#1A1A1A] border-white/10 text-white hover:bg-white/5"
+          className="h-8 text-xs bg-crm-elevated border-crm-border text-white hover:bg-white/5"
           data-testid="save-filter-view-btn"
         >
           <BookmarkPlus size={12} className="mr-1" />
@@ -194,24 +194,24 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
 
       <Dialog open={listOpen} onOpenChange={setListOpen}>
         <DialogContent
-          className="bg-[#1A1A1A] border-white/10 text-white sm:max-w-md"
+          className="bg-crm-elevated border-crm-border text-white sm:max-w-md"
           aria-describedby={undefined}
         >
           <DialogHeader>
             <DialogTitle className="font-serif text-xl">Saved filter views</DialogTitle>
           </DialogHeader>
-          <p className="text-[#A1A1AA] text-sm -mt-2">
+          <p className="text-crm-fg-secondary text-sm -mt-2">
             Apply a saved combination of filters, date range, and search.
           </p>
 
           <div className="max-h-[min(50vh,320px)] overflow-y-auto -mx-1 px-1" data-testid="filter-views-list">
             {loading ? (
-              <p className="text-[#52525B] text-sm py-6 text-center">Loading views…</p>
+              <p className="text-crm-fg-muted text-sm py-6 text-center">Loading views…</p>
             ) : views.length === 0 ? (
-              <div className="py-8 text-center border border-dashed border-white/10 rounded-lg">
-                <Bookmark className="mx-auto text-[#52525B] mb-2" size={24} />
-                <p className="text-[#A1A1AA] text-sm">No saved views yet</p>
-                <p className="text-[#52525B] text-xs mt-1">Save your current filters to reuse them later.</p>
+              <div className="py-8 text-center border border-dashed border-crm-border rounded-lg">
+                <Bookmark className="mx-auto text-crm-fg-muted mb-2" size={24} />
+                <p className="text-crm-fg-secondary text-sm">No saved views yet</p>
+                <p className="text-crm-fg-muted text-xs mt-1">Save your current filters to reuse them later.</p>
               </div>
             ) : (
               <ul className="space-y-2">
@@ -223,7 +223,7 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
                       className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 transition-colors ${
                         isActive
                           ? 'border-[#C5A059]/50 bg-[#C5A059]/10'
-                          : 'border-white/10 bg-black/20 hover:border-white/20'
+                          : 'border-crm-border bg-black/20 hover:border-white/20'
                       }`}
                       data-testid={`filter-view-row-${view.id}`}
                     >
@@ -246,7 +246,7 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="h-8 w-8 text-[#52525B] hover:text-white shrink-0"
+                        className="h-8 w-8 text-crm-fg-muted hover:text-white shrink-0"
                         onClick={() => openRename(view)}
                         aria-label={`Rename ${view.name}`}
                       >
@@ -256,7 +256,7 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="h-8 w-8 text-[#52525B] hover:text-red-400 shrink-0"
+                        className="h-8 w-8 text-crm-fg-muted hover:text-red-400 shrink-0"
                         onClick={() => handleDelete(view)}
                         aria-label={`Delete ${view.name}`}
                       >
@@ -273,7 +273,7 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
             <Button
               variant="ghost"
               onClick={() => setListOpen(false)}
-              className="text-[#A1A1AA] hover:text-white"
+              className="text-crm-fg-secondary hover:text-white"
             >
               Close
             </Button>
@@ -292,18 +292,18 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
       </Dialog>
 
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white sm:max-w-md" aria-describedby={undefined}>
+        <DialogContent className="bg-crm-elevated border-crm-border text-white sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Save filter view</DialogTitle>
           </DialogHeader>
-          <p className="text-[#A1A1AA] text-sm">
+          <p className="text-crm-fg-secondary text-sm">
             Save your current filters, date range, and search as a reusable view.
           </p>
           <Input
             value={saveName}
             onChange={(e) => setSaveName(e.target.value)}
             placeholder="e.g. South Chennai 2-5Cr"
-            className="bg-black/50 border-white/10 text-white"
+            className="bg-crm-muted border-crm-border text-white"
             maxLength={60}
             data-testid="filter-view-name-input"
             onKeyDown={(e) => {
@@ -311,7 +311,7 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
             }}
           />
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setSaveOpen(false)} className="text-[#A1A1AA]">
+            <Button variant="ghost" onClick={() => setSaveOpen(false)} className="text-crm-fg-secondary">
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={saving} className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90">
@@ -322,21 +322,21 @@ export const LeadFilterViewsBar = memo(function LeadFilterViewsBar({
       </Dialog>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white sm:max-w-md" aria-describedby={undefined}>
+        <DialogContent className="bg-crm-elevated border-crm-border text-white sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Rename view</DialogTitle>
           </DialogHeader>
           <Input
             value={renameName}
             onChange={(e) => setRenameName(e.target.value)}
-            className="bg-black/50 border-white/10 text-white"
+            className="bg-crm-muted border-crm-border text-white"
             maxLength={60}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleRename();
             }}
           />
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setRenameOpen(false)} className="text-[#A1A1AA]">
+            <Button variant="ghost" onClick={() => setRenameOpen(false)} className="text-crm-fg-secondary">
               Cancel
             </Button>
             <Button onClick={handleRename} disabled={renaming} className="bg-[#C5A059] text-black hover:bg-[#C5A059]/90">

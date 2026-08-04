@@ -38,7 +38,7 @@ export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
       tabIndex={0}
       onClick={openLead}
       onKeyDown={handleKeyDown}
-      className="bg-[#1A1A1A] border border-white/5 rounded-lg p-3 hover:border-white/10 hover:bg-white/[0.02] transition-all group cursor-pointer"
+      className="bg-crm-elevated border border-white/5 rounded-lg p-3 hover:border-crm-border hover:bg-white/[0.02] transition-all group cursor-pointer"
       data-testid={`lead-card-${lead.id}`}
     >
       <div className="flex items-center gap-3">
@@ -57,27 +57,27 @@ export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
             )}
           </div>
           <div className="flex items-center gap-3 mt-1">
-            <span className="text-[#52525B] text-xs flex items-center gap-1">
+            <span className="text-crm-fg-muted text-xs flex items-center gap-1">
               <Building size={11} /> {lead.project || 'No project'}
             </span>
             {isManager && (lead.assigned_to || lead.assigned_to_name) && (
-              <span className="text-[#52525B] text-xs flex items-center gap-1">
+              <span className="text-crm-fg-muted text-xs flex items-center gap-1">
                 <User size={11} /> {lead.assigned_to || lead.assigned_to_name}
               </span>
             )}
             <LeadStatusBadge status={lead.lead_status} temperature={lead.temperature} />
           </div>
           <div className="flex flex-wrap items-center gap-3 mt-2">
-            <span className="text-[#A1A1AA] text-xs flex items-center gap-1">
-              <Calendar size={11} className="text-[#52525B]" />
+            <span className="text-crm-fg-secondary text-xs flex items-center gap-1">
+              <Calendar size={11} className="text-crm-fg-muted" />
               {followUp ? (
                 <span className="text-white/90 font-medium">{followUp}</span>
               ) : (
-                <span className="text-[#52525B]">—</span>
+                <span className="text-crm-fg-muted">—</span>
               )}
             </span>
-            <span className="text-[#A1A1AA] text-xs flex items-center gap-1">
-              <ListChecks size={11} className="text-[#52525B]" />
+            <span className="text-crm-fg-secondary text-xs flex items-center gap-1">
+              <ListChecks size={11} className="text-crm-fg-muted" />
               {taskCount > 0 ? (
                 <button
                   type="button"
@@ -93,7 +93,7 @@ export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
                   </CrmBadge>
                 </button>
               ) : (
-                <span className="text-[#52525B]">—</span>
+                <span className="text-crm-fg-muted">—</span>
               )}
             </span>
           </div>
@@ -102,7 +102,7 @@ export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
           <Button
             size="sm"
             variant="ghost"
-            className="text-[#A1A1AA] hover:text-white h-8 w-8 p-0"
+            className="text-crm-fg-secondary hover:text-white h-8 w-8 p-0"
             onClick={openLead}
             data-testid={`view-lead-${lead.id}`}
           >
@@ -112,7 +112,7 @@ export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
             <Button
               size="sm"
               variant="ghost"
-              className="text-[#A1A1AA] hover:text-amber-400 h-8 w-8 p-0"
+              className="text-crm-fg-secondary hover:text-amber-400 h-8 w-8 p-0"
               onClick={() => onTransfer(lead)}
               data-testid={`transfer-lead-${lead.id}`}
             >

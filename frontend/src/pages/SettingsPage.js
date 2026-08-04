@@ -154,7 +154,7 @@ const SettingsPage = () => {
         <h1 className="text-xl font-semibold text-white" data-testid="settings-title">
           Settings
         </h1>
-        <p className="text-[#A1A1AA] mt-2">Configure alerts and notifications</p>
+        <p className="text-crm-fg-secondary mt-2">Configure alerts and notifications</p>
       </motion.div>
 
       {/* Pending Alerts Banner */}
@@ -171,7 +171,7 @@ const SettingsPage = () => {
               <p className="text-white font-medium">
                 {pendingAlerts.length} pending alert{pendingAlerts.length > 1 ? 's' : ''}
               </p>
-              <p className="text-[#A1A1AA] text-sm">
+              <p className="text-crm-fg-secondary text-sm">
                 {pendingAlerts.filter(a => a.type === 'rnr_followup').length} RNR follow-ups needed
               </p>
             </div>
@@ -193,7 +193,7 @@ const SettingsPage = () => {
             </div>
             <div>
               <h2 className="font-serif text-xl text-white">Alert Configurations</h2>
-              <p className="text-[#52525B] text-sm">Manage notification rules for your team</p>
+              <p className="text-crm-fg-muted text-sm">Manage notification rules for your team</p>
             </div>
           </div>
           <Button
@@ -208,7 +208,7 @@ const SettingsPage = () => {
 
         <div className="space-y-4">
           {alerts.length === 0 ? (
-            <div className="text-center py-8 text-[#52525B]">
+            <div className="text-center py-8 text-crm-fg-muted">
               No alert configurations yet. Add one to get started.
             </div>
           ) : (
@@ -224,7 +224,7 @@ const SettingsPage = () => {
                     <p className="text-white font-medium">
                       {alert.name || alertTypes.find(t => t.value === alert.alert_type)?.label || alert.type || alert.alert_type}
                     </p>
-                    <p className="text-[#52525B] text-sm">
+                    <p className="text-crm-fg-muted text-sm">
                       {alert.description || `Threshold: ${alert.threshold_hours || alert.threshold_days || 0}${alert.threshold_days ? ' days' : 'h'} • Channels: ${(alert.notification_channels || []).join(', ') || 'In-app'}`}
                     </p>
                   </div>
@@ -249,7 +249,7 @@ const SettingsPage = () => {
           </div>
           <div>
             <h2 className="font-serif text-xl text-white">Notification Channels</h2>
-            <p className="text-[#52525B] text-sm">Configure how you receive alerts</p>
+            <p className="text-crm-fg-muted text-sm">Configure how you receive alerts</p>
           </div>
         </div>
 
@@ -280,24 +280,24 @@ const SettingsPage = () => {
 
       {/* Add Alert Dialog */}
       <Dialog open={showAddAlert} onOpenChange={setShowAddAlert}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white">
+        <DialogContent className="bg-crm-elevated border-crm-border text-white">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl">Add Alert Configuration</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-[#A1A1AA] text-sm mb-2 block">Alert Type</label>
+              <label className="text-crm-fg-secondary text-sm mb-2 block">Alert Type</label>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
-                    className="w-full justify-between bg-black/50 border-white/10 text-white"
+                    className="w-full justify-between bg-crm-muted border-crm-border text-white"
                   >
                     {alertTypes.find(t => t.value === newAlert.alert_type)?.label || 'Select type'}
                     <ChevronDown size={14} />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="bg-[#1A1A1A] border-white/10">
+                <DropdownMenuContent className="bg-crm-elevated border-crm-border">
                   {alertTypes.map((type) => (
                     <DropdownMenuItem
                       key={type.value}
@@ -312,17 +312,17 @@ const SettingsPage = () => {
             </div>
 
             <div>
-              <label className="text-[#A1A1AA] text-sm mb-2 block">Threshold (hours)</label>
+              <label className="text-crm-fg-secondary text-sm mb-2 block">Threshold (hours)</label>
               <Input
                 type="number"
                 value={newAlert.threshold_hours}
                 onChange={(e) => setNewAlert({ ...newAlert, threshold_hours: parseInt(e.target.value) })}
-                className="bg-black/50 border-white/10 text-white"
+                className="bg-crm-muted border-crm-border text-white"
               />
             </div>
 
             <div>
-              <label className="text-[#A1A1AA] text-sm mb-2 block">Notification Channels</label>
+              <label className="text-crm-fg-secondary text-sm mb-2 block">Notification Channels</label>
               <div className="flex gap-2">
                 {['email', 'whatsapp', 'sms'].map((channel) => (
                   <Button
@@ -338,7 +338,7 @@ const SettingsPage = () => {
                     className={`capitalize ${
                       newAlert.notification_channels.includes(channel)
                         ? 'bg-[#C5A059] text-black border-[#C5A059]'
-                        : 'bg-transparent border-white/10 text-white'
+                        : 'bg-transparent border-crm-border text-white'
                     }`}
                   >
                     {channel}
@@ -373,7 +373,7 @@ const SettingsPage = () => {
             </div>
             <div>
               <h2 className="text-xl text-white font-medium">Automated Reminders</h2>
-              <p className="text-[#A1A1AA] text-sm">SOP-driven reminders via WhatsApp & in-app notifications</p>
+              <p className="text-crm-fg-secondary text-sm">SOP-driven reminders via WhatsApp & in-app notifications</p>
             </div>
           </div>
           <Button
@@ -400,18 +400,18 @@ const SettingsPage = () => {
                   <div className="flex items-center gap-2">
                     <p className="text-white font-medium text-sm">{rule.name}</p>
                     {rule.days_threshold > 0 && (
-                      <span className="text-[10px] bg-white/10 text-[#A1A1AA] px-1.5 py-0.5 rounded-full">
+                      <span className="text-[10px] bg-white/10 text-crm-fg-secondary px-1.5 py-0.5 rounded-full">
                         {rule.days_threshold}d threshold
                       </span>
                     )}
                   </div>
-                  <p className="text-[#52525B] text-xs mt-0.5">
-                    Trigger: <span className="text-[#A1A1AA]">{rule.trigger.replace(/_/g, ' ')}</span>
+                  <p className="text-crm-fg-muted text-xs mt-0.5">
+                    Trigger: <span className="text-crm-fg-secondary">{rule.trigger.replace(/_/g, ' ')}</span>
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
-                    <MessageCircle size={14} className={rule.send_whatsapp ? 'text-green-400' : 'text-[#52525B]'} />
+                    <MessageCircle size={14} className={rule.send_whatsapp ? 'text-green-400' : 'text-crm-fg-muted'} />
                     <Switch
                       checked={rule.send_whatsapp}
                       onCheckedChange={() => handleToggleWhatsApp(rule.id, rule.send_whatsapp)}
@@ -435,17 +435,17 @@ const SettingsPage = () => {
             <History size={14} className="text-[#C5A059]" /> Recent Reminders
           </h3>
           {reminderHistory.length === 0 ? (
-            <p className="text-[#52525B] text-sm text-center py-4">No reminders sent yet. Click "Run Now" to trigger.</p>
+            <p className="text-crm-fg-muted text-sm text-center py-4">No reminders sent yet. Click "Run Now" to trigger.</p>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {reminderHistory.map((r) => (
                 <div key={r.id} className="flex items-start gap-3 py-2 border-b border-white/5 last:border-0">
                   <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${r.whatsapp_sent ? 'bg-green-400' : 'bg-[#52525B]'}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[#A1A1AA] text-xs">{r.message}</p>
+                    <p className="text-crm-fg-secondary text-xs">{r.message}</p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[#52525B] text-[10px]">{r.assigned_to}</span>
-                      <span className="text-[#52525B] text-[10px]">{formatDateTimeIST(r.created_at) || '—'}</span>
+                      <span className="text-crm-fg-muted text-[10px]">{r.assigned_to}</span>
+                      <span className="text-crm-fg-muted text-[10px]">{formatDateTimeIST(r.created_at) || '—'}</span>
                       {r.whatsapp_sent && <span className="text-green-400 text-[10px]">WA sent</span>}
                     </div>
                   </div>
@@ -459,17 +459,17 @@ const SettingsPage = () => {
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-xl p-6 border border-white/10 space-y-4"
+        className="glass-card rounded-xl p-6 border border-crm-border space-y-4"
       >
         <h2 className="font-serif text-xl text-white flex items-center gap-2">
           <Mail className="text-[#C5A059]" size={20} />
           Brevo (Admin alerts)
         </h2>
-        <p className="text-[#52525B] text-sm">
-          Nurturing 14-day review digest. Create template <code className="text-[#A1A1AA]">nurturing_review_alert</code> in Brevo or use default HTML body.
+        <p className="text-crm-fg-muted text-sm">
+          Nurturing 14-day review digest. Create template <code className="text-crm-fg-secondary">nurturing_review_alert</code> in Brevo or use default HTML body.
         </p>
         <div className="flex items-center justify-between">
-          <span className="text-[#A1A1AA] text-sm">Enable Brevo</span>
+          <span className="text-crm-fg-secondary text-sm">Enable Brevo</span>
           <Switch
             checked={brevo.brevo_enabled}
             onCheckedChange={(v) => setBrevo((p) => ({ ...p, brevo_enabled: v }))}
@@ -479,19 +479,19 @@ const SettingsPage = () => {
           placeholder="Alert email"
           value={brevo.alert_email}
           onChange={(e) => setBrevo((p) => ({ ...p, alert_email: e.target.value }))}
-          className="bg-[#0F0F0F] border-white/10 text-white"
+          className="bg-crm-muted border-crm-border text-white"
         />
         <Input
           placeholder="API key (leave *** to keep)"
           value={brevo.brevo_api_key}
           onChange={(e) => setBrevo((p) => ({ ...p, brevo_api_key: e.target.value }))}
-          className="bg-[#0F0F0F] border-white/10 text-white"
+          className="bg-crm-muted border-crm-border text-white"
         />
         <Input
           placeholder="Dashboard URL"
           value={brevo.dashboard_url}
           onChange={(e) => setBrevo((p) => ({ ...p, dashboard_url: e.target.value }))}
-          className="bg-[#0F0F0F] border-white/10 text-white"
+          className="bg-crm-muted border-crm-border text-white"
         />
         <div className="flex gap-2">
           <Button
@@ -514,7 +514,7 @@ const SettingsPage = () => {
           </Button>
           <Button
             variant="outline"
-            className="border-white/10 text-white"
+            className="border-crm-border text-white"
             onClick={async () => {
               try {
                 const { data } = await settingsAPI.testBrevo();

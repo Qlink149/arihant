@@ -119,14 +119,14 @@ export function ChatMessageBubble({ msg }) {
       <div
         className={`max-w-[75%] px-4 py-3 rounded-2xl ${
           outbound
-            ? 'wa-bubble-out bg-green-600 text-white rounded-br-md'
+            ? 'wa-bubble-out bg-green-600 text-white text-on-brand rounded-br-md'
             : 'wa-bubble-in bg-[#262626] text-white rounded-bl-md'
         }`}
       >
         {body}
         <div
           className={`wa-bubble-meta flex items-center gap-2 mt-1 text-xs ${
-            outbound ? 'text-green-200' : 'text-[#52525B]'
+            outbound ? 'text-green-200' : 'text-crm-fg-muted'
           }`}
         >
           <span>{formatTimeIST(msg.created_at) || '—'}</span>

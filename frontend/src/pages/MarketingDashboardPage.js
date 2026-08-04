@@ -149,7 +149,7 @@ const MarketingDashboardPage = () => {
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload?.length) {
       return (
-        <div className="bg-[#1A1A1A] border border-white/10 rounded-lg p-3 shadow-xl">
+        <div className="bg-crm-elevated border border-crm-border rounded-lg p-3 shadow-xl">
           <p className="text-[#C5A059] font-medium text-sm mb-1">{label}</p>
           {payload.map((p, i) => (
             <p key={i} className="text-white text-xs">
@@ -170,7 +170,7 @@ const MarketingDashboardPage = () => {
           <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="marketing-title">
             Marketing <span className="text-[#C5A059]">Dashboard</span>
           </h1>
-          <p className="text-[#52525B] mt-1 text-sm">Track spends, leads generated, and ROI across channels</p>
+          <p className="text-crm-fg-muted mt-1 text-sm">Track spends, leads generated, and ROI across channels</p>
         </div>
         <Button
           onClick={() => setShowAddForm(true)}
@@ -194,14 +194,14 @@ const MarketingDashboardPage = () => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.05 }}
-            className="bg-[#1A1A1A] border border-white/5 rounded-xl p-5"
+            className="bg-crm-elevated border border-white/5 rounded-xl p-5"
             data-testid={`metric-${card.label.toLowerCase().replace(/[\s.]/g, '-')}`}
           >
             <div className={`w-10 h-10 rounded-lg ${card.bg} flex items-center justify-center mb-3`}>
               <card.icon size={20} className={card.color} />
             </div>
             <p className="text-white text-2xl font-semibold">{card.value}</p>
-            <p className="text-[#52525B] text-xs mt-1">{card.label}</p>
+            <p className="text-crm-fg-muted text-xs mt-1">{card.label}</p>
           </motion.div>
         ))}
       </div>
@@ -215,7 +215,7 @@ const MarketingDashboardPage = () => {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.2 }}
-              className="bg-[#1A1A1A] border border-white/5 rounded-xl p-6"
+              className="bg-crm-elevated border border-white/5 rounded-xl p-6"
               data-testid="channel-chart"
             >
               <h3 className="text-white font-medium mb-4 flex items-center gap-2">
@@ -235,7 +235,7 @@ const MarketingDashboardPage = () => {
                 {channelChartData.map(c => (
                   <div key={c.name} className="flex items-center gap-1.5">
                     <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.color }} />
-                    <span className="text-[#A1A1AA] text-xs">{c.name}</span>
+                    <span className="text-crm-fg-secondary text-xs">{c.name}</span>
                   </div>
                 ))}
               </div>
@@ -246,7 +246,7 @@ const MarketingDashboardPage = () => {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.2 }}
-              className="bg-[#1A1A1A] border border-white/5 rounded-xl p-6"
+              className="bg-crm-elevated border border-white/5 rounded-xl p-6"
               data-testid="project-chart"
             >
               <h3 className="text-white font-medium mb-4 flex items-center gap-2">
@@ -264,8 +264,8 @@ const MarketingDashboardPage = () => {
                 </BarChart>
               </ResponsiveContainer>
               <div className="flex gap-4 mt-2 justify-center">
-                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#C5A059]" /><span className="text-[#A1A1AA] text-xs">Spend (₹)</span></div>
-                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#3B82F6]" /><span className="text-[#A1A1AA] text-xs">Leads</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#C5A059]" /><span className="text-crm-fg-secondary text-xs">Spend (₹)</span></div>
+                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#3B82F6]" /><span className="text-crm-fg-secondary text-xs">Leads</span></div>
               </div>
             </motion.div>
           </div>
@@ -275,7 +275,7 @@ const MarketingDashboardPage = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="bg-[#1A1A1A] border border-white/5 rounded-xl p-6"
+            className="bg-crm-elevated border border-white/5 rounded-xl p-6"
             data-testid="project-breakdown"
           >
             <h3 className="text-white font-medium mb-4 flex items-center gap-2">
@@ -284,20 +284,20 @@ const MarketingDashboardPage = () => {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left text-[#52525B] font-medium py-3 pr-4">Project</th>
-                    <th className="text-right text-[#52525B] font-medium py-3 px-4">Spend</th>
-                    <th className="text-right text-[#52525B] font-medium py-3 px-4">Leads</th>
-                    <th className="text-right text-[#52525B] font-medium py-3 px-4">Conversions</th>
-                    <th className="text-right text-[#52525B] font-medium py-3 px-4">CPL</th>
-                    <th className="text-right text-[#52525B] font-medium py-3 pl-4">CPC</th>
+                  <tr className="border-b border-crm-border">
+                    <th className="text-left text-crm-fg-muted font-medium py-3 pr-4">Project</th>
+                    <th className="text-right text-crm-fg-muted font-medium py-3 px-4">Spend</th>
+                    <th className="text-right text-crm-fg-muted font-medium py-3 px-4">Leads</th>
+                    <th className="text-right text-crm-fg-muted font-medium py-3 px-4">Conversions</th>
+                    <th className="text-right text-crm-fg-muted font-medium py-3 px-4">CPL</th>
+                    <th className="text-right text-crm-fg-muted font-medium py-3 pl-4">CPC</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(dashData?.by_project || []).map((p, i) => (
                     <tr key={p.project} className="border-b border-white/5 hover:bg-white/[0.02]">
                       <td className="py-3 pr-4 text-white font-medium">{p.project}</td>
-                      <td className="py-3 px-4 text-right text-[#A1A1AA]">₹{formatCurrency(p.total_spend)}</td>
+                      <td className="py-3 px-4 text-right text-crm-fg-secondary">₹{formatCurrency(p.total_spend)}</td>
                       <td className="py-3 px-4 text-right text-blue-400">{p.total_leads}</td>
                       <td className="py-3 px-4 text-right text-emerald-400">{p.total_conversions}</td>
                       <td className="py-3 px-4 text-right text-[#C5A059]">₹{formatCurrency(p.cpl)}</td>
@@ -310,10 +310,10 @@ const MarketingDashboardPage = () => {
           </motion.div>
         </>
       ) : (
-        <div className="text-center py-16 bg-[#1A1A1A] border border-white/5 rounded-xl" data-testid="empty-state">
-          <BarChart3 className="mx-auto text-[#52525B]" size={48} />
+        <div className="text-center py-16 bg-crm-elevated border border-white/5 rounded-xl" data-testid="empty-state">
+          <BarChart3 className="mx-auto text-crm-fg-muted" size={48} />
           <h3 className="text-white font-medium mt-4">No marketing data yet</h3>
-          <p className="text-[#52525B] text-sm mt-1 max-w-md mx-auto">
+          <p className="text-crm-fg-muted text-sm mt-1 max-w-md mx-auto">
             Start by adding your marketing spend entries. Track spends across Meta Ads, Google, Print, Events and more.
           </p>
           <Button onClick={() => setShowAddForm(true)} className="mt-4 bg-[#C5A059] hover:bg-[#B08D3E] text-black font-medium" data-testid="empty-add-btn">
@@ -328,7 +328,7 @@ const MarketingDashboardPage = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.35 }}
-          className="bg-[#1A1A1A] border border-white/5 rounded-xl p-6"
+          className="bg-crm-elevated border border-white/5 rounded-xl p-6"
           data-testid="recent-entries"
         >
           <div className="flex items-center justify-between mb-4">
@@ -339,7 +339,7 @@ const MarketingDashboardPage = () => {
                   key={p}
                   onClick={() => setProjectFilter(p)}
                   className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                    projectFilter === p ? 'bg-[#C5A059]/20 text-[#C5A059]' : 'text-[#52525B] hover:text-[#A1A1AA] bg-white/5'
+                    projectFilter === p ? 'bg-[#C5A059]/20 text-[#C5A059]' : 'text-crm-fg-muted hover:text-crm-fg-secondary bg-white/5'
                   }`}
                   data-testid={`filter-${p}`}
                 >
@@ -355,19 +355,19 @@ const MarketingDashboardPage = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-white text-sm font-medium">{entry.project}</span>
-                    <span className="text-[#52525B] text-xs">via {CHANNEL_OPTIONS.find(c => c.value === entry.channel)?.label || entry.channel}</span>
+                    <span className="text-crm-fg-muted text-xs">via {CHANNEL_OPTIONS.find(c => c.value === entry.channel)?.label || entry.channel}</span>
                   </div>
                   <div className="flex items-center gap-4 mt-0.5">
                     <span className="text-[#C5A059] text-xs">₹{formatCurrency(entry.amount)}</span>
                     <span className="text-blue-400 text-xs">{entry.leads_generated} leads</span>
                     <span className="text-emerald-400 text-xs">{entry.conversions} conv.</span>
-                    <span className="text-[#52525B] text-xs">{entry.period}</span>
-                    {entry.campaign_name && <span className="text-[#52525B] text-xs italic">{entry.campaign_name}</span>}
+                    <span className="text-crm-fg-muted text-xs">{entry.period}</span>
+                    {entry.campaign_name && <span className="text-crm-fg-muted text-xs italic">{entry.campaign_name}</span>}
                   </div>
                 </div>
                 <button
                   onClick={() => handleDelete(entry.id)}
-                  className="text-[#52525B] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1"
+                  className="text-crm-fg-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1"
                   data-testid={`delete-entry-${entry.id}`}
                 >
                   <Trash2 size={14} />
@@ -392,34 +392,34 @@ const MarketingDashboardPage = () => {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1A1A1A] border border-white/10 rounded-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
+              className="bg-crm-elevated border border-crm-border rounded-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
               onClick={e => e.stopPropagation()}
               data-testid="add-spend-modal"
             >
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-white font-semibold">Add Marketing Spend</h3>
-                <button onClick={() => setShowAddForm(false)} className="text-[#52525B] hover:text-white"><X size={20} /></button>
+                <button onClick={() => setShowAddForm(false)} className="text-crm-fg-muted hover:text-white"><X size={20} /></button>
               </div>
 
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Project *</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Project *</label>
                     <input
                       type="text"
                       value={form.project}
                       onChange={e => setForm(p => ({ ...p, project: e.target.value }))}
                       placeholder="e.g. ECR - Reserve 16"
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-project-input"
                     />
                   </div>
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Channel *</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Channel *</label>
                     <select
                       value={form.channel}
                       onChange={e => setForm(p => ({ ...p, channel: e.target.value }))}
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-channel-select"
                     >
                       {CHANNEL_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -429,35 +429,35 @@ const MarketingDashboardPage = () => {
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Amount (₹) *</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Amount (₹) *</label>
                     <input
                       type="number"
                       value={form.amount}
                       onChange={e => setForm(p => ({ ...p, amount: e.target.value }))}
                       placeholder="50000"
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-amount-input"
                     />
                   </div>
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Leads Generated</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Leads Generated</label>
                     <input
                       type="number"
                       value={form.leads_generated}
                       onChange={e => setForm(p => ({ ...p, leads_generated: e.target.value }))}
                       placeholder="0"
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-leads-input"
                     />
                   </div>
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Conversions</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Conversions</label>
                     <input
                       type="number"
                       value={form.conversions}
                       onChange={e => setForm(p => ({ ...p, conversions: e.target.value }))}
                       placeholder="0"
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-conversions-input"
                     />
                   </div>
@@ -465,23 +465,23 @@ const MarketingDashboardPage = () => {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Period</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Period</label>
                     <input
                       type="month"
                       value={form.period}
                       onChange={e => setForm(p => ({ ...p, period: e.target.value }))}
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-period-input"
                     />
                   </div>
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Campaign Name</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Campaign Name</label>
                     <input
                       type="text"
                       value={form.campaign_name}
                       onChange={e => setForm(p => ({ ...p, campaign_name: e.target.value }))}
                       placeholder="Optional"
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-campaign-input"
                     />
                   </div>
@@ -489,37 +489,37 @@ const MarketingDashboardPage = () => {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Impressions</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Impressions</label>
                     <input
                       type="number"
                       value={form.impressions}
                       onChange={e => setForm(p => ({ ...p, impressions: e.target.value }))}
                       placeholder="Optional"
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-impressions-input"
                     />
                   </div>
                   <div>
-                    <label className="text-[#A1A1AA] text-xs mb-1.5 block">Clicks</label>
+                    <label className="text-crm-fg-secondary text-xs mb-1.5 block">Clicks</label>
                     <input
                       type="number"
                       value={form.clicks}
                       onChange={e => setForm(p => ({ ...p, clicks: e.target.value }))}
                       placeholder="Optional"
-                      className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                      className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                       data-testid="spend-clicks-input"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-[#A1A1AA] text-xs mb-1.5 block">Notes</label>
+                  <label className="text-crm-fg-secondary text-xs mb-1.5 block">Notes</label>
                   <textarea
                     value={form.notes}
                     onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
                     placeholder="Optional notes..."
                     rows={2}
-                    className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none resize-none"
+                    className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none resize-none"
                     data-testid="spend-notes-input"
                   />
                 </div>

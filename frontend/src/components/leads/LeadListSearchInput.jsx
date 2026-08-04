@@ -30,12 +30,12 @@ export const LeadListSearchInput = memo(function LeadListSearchInput({
   return (
     <form onSubmit={handleSubmit} className="w-full min-w-0">
       <div className="relative w-full">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525B]" size={18} />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-crm-fg-muted" size={18} />
         <Input
           value={local}
           onChange={(e) => setLocal(e.target.value)}
           placeholder="Search by name, phone, work phone, source, email..."
-          className="w-full pl-10 bg-black/50 border-white/10 text-white placeholder:text-[#52525B] h-11"
+          className="w-full pl-10 bg-crm-muted border-crm-border text-white placeholder:text-crm-fg-muted h-11"
           data-testid="search-input"
         />
       </div>

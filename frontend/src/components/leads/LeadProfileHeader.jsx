@@ -365,12 +365,12 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
   };
 
   const selectClass = compact
-    ? 'h-8 min-w-[130px] px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs disabled:opacity-50'
-    : 'h-9 min-w-[200px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50';
+    ? 'h-8 min-w-[130px] px-2 bg-crm-muted border border-crm-border rounded-md text-crm-fg text-xs disabled:opacity-50'
+    : 'h-9 min-w-[200px] px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm disabled:opacity-50';
   const assignSelectClass = compact
-    ? 'h-8 min-w-[150px] px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs disabled:opacity-50'
-    : 'h-9 min-w-[240px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50';
-  const labelClass = 'text-[#52525B] text-[10px] uppercase tracking-wider shrink-0';
+    ? 'h-8 min-w-[150px] px-2 bg-crm-muted border border-crm-border rounded-md text-crm-fg text-xs disabled:opacity-50'
+    : 'h-9 min-w-[240px] px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm disabled:opacity-50';
+  const labelClass = 'text-crm-fg-muted text-[10px] uppercase tracking-wider shrink-0';
   const rowGap = compact ? 'gap-2 mt-2' : 'gap-3 mt-4';
   const inlineRow = compact ? 'flex flex-wrap items-center gap-2 mt-2' : 'mt-4 flex flex-wrap items-center gap-3';
 
@@ -386,7 +386,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
               onKeyDown={(e) => { if (e.key === 'Enter') saveNameEdit(); if (e.key === 'Escape') cancelNameEdit(); }}
               placeholder="First name"
               disabled={savingName}
-              className={`bg-black/50 border-white/15 text-white focus:border-[#C5A059]/50 ${
+              className={`bg-crm-muted border-white/15 text-crm-fg focus:border-[#C5A059]/50 ${
                 compact ? 'h-7 text-sm w-32' : 'h-9 text-base w-40'
               }`}
               data-testid="edit-first-name-input"
@@ -397,7 +397,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
               onKeyDown={(e) => { if (e.key === 'Enter') saveNameEdit(); if (e.key === 'Escape') cancelNameEdit(); }}
               placeholder="Last name"
               disabled={savingName}
-              className={`bg-black/50 border-white/15 text-white focus:border-[#C5A059]/50 ${
+              className={`bg-crm-muted border-white/15 text-crm-fg focus:border-[#C5A059]/50 ${
                 compact ? 'h-7 text-sm w-28' : 'h-9 text-base w-36'
               }`}
               data-testid="edit-last-name-input"
@@ -415,7 +415,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
               type="button"
               onClick={cancelNameEdit}
               disabled={savingName}
-              className="flex items-center justify-center w-7 h-7 rounded-md bg-white/5 text-[#A1A1AA] hover:bg-white/10 transition-colors"
+              className="flex items-center justify-center w-7 h-7 rounded-md bg-white/5 text-crm-fg-secondary hover:bg-white/10 transition-colors"
               data-testid="cancel-name-btn"
             >
               <XIcon size={14} />
@@ -426,7 +426,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             type="button"
             onClick={openNameEdit}
             className={`group flex items-center gap-1.5 text-left hover:text-[#E5C079] transition-colors ${
-              compact ? 'text-lg font-semibold text-white' : 'font-serif text-3xl text-white'
+              compact ? 'text-lg font-semibold text-crm-fg' : 'font-serif text-3xl text-crm-fg'
             }`}
             title="Click to edit name"
             data-testid="lead-name-display"
@@ -441,7 +441,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
           </button>
         )}
         {compact && lead.project && (
-          <span className="text-[#52525B] text-xs flex items-center gap-1">
+          <span className="text-crm-fg-muted text-xs flex items-center gap-1">
             <Building size={12} className="text-[#C5A059]" />
             {lead.project}
           </span>
@@ -470,7 +470,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             variant="ghost"
             onClick={openNurturePicker}
             disabled={savingStatus}
-            className="h-7 px-2 text-[#A1A1AA] hover:text-white hover:bg-white/5 text-xs"
+            className="h-7 px-2 text-crm-fg-secondary hover:text-crm-fg hover:bg-white/5 text-xs"
             data-testid="change-nurture-label"
           >
             {lead.temperature ? 'Change label' : 'Set label'}
@@ -486,7 +486,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
           size="sm"
           variant="ghost"
           disabled={savingStatus}
-          className={`h-7 px-2 text-xs ${lead.vip ? 'text-purple-300 hover:text-purple-200' : 'text-[#A1A1AA] hover:text-white'} hover:bg-white/5`}
+          className={`h-7 px-2 text-xs ${lead.vip ? 'text-purple-300 hover:text-purple-200' : 'text-crm-fg-secondary hover:text-crm-fg'} hover:bg-white/5`}
           data-testid="toggle-vip"
           onClick={async () => {
             setSavingStatus(true);
@@ -528,7 +528,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
           ))}
         </select>
 
-        <span className="text-[#52525B] hidden sm:inline">|</span>
+        <span className="text-crm-fg-muted hidden sm:inline">|</span>
 
         <label className={labelClass}>Assign</label>
         <select
@@ -552,18 +552,18 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
           ))}
         </select>
         {!canAssign && (
-          <span className="text-[#52525B] text-[10px]" data-testid="assign-to-disabled-hint">
+          <span className="text-crm-fg-muted text-[10px]" data-testid="assign-to-disabled-hint">
             Owner/admin only
           </span>
         )}
 
         {showNurturePicker && (
           <>
-            <span className="text-[#52525B] text-xs">Nurture</span>
+            <span className="text-crm-fg-muted text-xs">Nurture</span>
             {NURTURE_LABELS.map((label) => (
               <label
                 key={label}
-                className="flex items-center gap-1 cursor-pointer text-white text-xs"
+                className="flex items-center gap-1 cursor-pointer text-crm-fg text-xs"
               >
                 <input
                   type="radio"
@@ -591,21 +591,21 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
               variant="outline"
               onClick={handleCancelNurture}
               disabled={savingStatus}
-              className="border-white/10 text-white h-7 text-xs"
+              className="border-crm-border text-crm-fg h-7 text-xs"
             >
               Cancel
             </Button>
           </>
         )}
 
-        {savingStatus && <span className="text-[#52525B] text-xs">Saving...</span>}
+        {savingStatus && <span className="text-crm-fg-muted text-xs">Saving...</span>}
       </div>
 
       {compact && hasExtraFields && !extraFieldsOpen && (
         <button
           type="button"
           onClick={() => setExtraFieldsOpen(true)}
-          className="flex items-center gap-1 mt-1.5 text-[#52525B] text-xs hover:text-[#A1A1AA]"
+          className="flex items-center gap-1 mt-1.5 text-crm-fg-muted text-xs hover:text-crm-fg-secondary"
           data-testid="expand-extra-fields"
         >
           <ChevronDown size={12} />
@@ -620,7 +620,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             type="datetime-local"
             value={visitDateDt}
             onChange={(e) => setVisitDateDt(e.target.value)}
-            className={compact ? 'h-8 px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs' : 'h-9 px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm'}
+            className={compact ? 'h-8 px-2 bg-crm-muted border border-crm-border rounded-md text-crm-fg text-xs' : 'h-9 px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm'}
             data-testid="visit-date-dt-input"
           />
           {!visitDateDt && (
@@ -642,7 +642,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
       )}
 
       {(!compact || extraFieldsOpen) && lead?.visit_date_dt && !showVisitDateField && (
-        <p className="mt-1.5 text-[#A1A1AA] text-xs" data-testid="visit-date-display">
+        <p className="mt-1.5 text-crm-fg-secondary text-xs" data-testid="visit-date-display">
           Visit: {formatVisitDateDisplay(lead.visit_date_dt)}
         </p>
       )}
@@ -654,7 +654,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             value={pendingLostReason}
             onChange={(e) => setPendingLostReason(e.target.value)}
             disabled={savingLostReason}
-            className={compact ? 'h-8 min-w-[180px] px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs disabled:opacity-50' : 'h-9 min-w-[220px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50'}
+            className={compact ? 'h-8 min-w-[180px] px-2 bg-crm-muted border border-crm-border rounded-md text-crm-fg text-xs disabled:opacity-50' : 'h-9 min-w-[220px] px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm disabled:opacity-50'}
             data-testid="lost-reason-select"
           >
             <option value="">Select lost reason</option>
@@ -689,7 +689,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             value={pendingOutcome}
             onChange={(e) => setPendingOutcome(e.target.value)}
             disabled={savingOutcome}
-            className={compact ? 'h-8 min-w-[150px] px-2 bg-black/50 border border-white/10 rounded-md text-white text-xs disabled:opacity-50' : 'h-9 min-w-[220px] px-3 bg-black/50 border border-white/10 rounded-lg text-white text-sm disabled:opacity-50'}
+            className={compact ? 'h-8 min-w-[150px] px-2 bg-crm-muted border border-crm-border rounded-md text-crm-fg text-xs disabled:opacity-50' : 'h-9 min-w-[220px] px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm disabled:opacity-50'}
             data-testid="contacted-outcome-select"
           >
             <option value="">Select outcome</option>
@@ -704,7 +704,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
               value={pendingOutcomeReason}
               onChange={(e) => setPendingOutcomeReason(e.target.value)}
               placeholder="Reason (required)"
-              className="bg-black/50 border-white/10 text-white min-w-[180px] h-8 text-xs"
+              className="bg-crm-muted border-crm-border text-crm-fg min-w-[180px] h-8 text-xs"
               data-testid="contacted-outcome-reason"
             />
           )}
@@ -723,15 +723,15 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
 
       {!compact && (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-        <div className="flex items-center gap-2 text-[#A1A1AA]">
+        <div className="flex items-center gap-2 text-crm-fg-secondary">
           <Briefcase size={16} className="text-[#C5A059]" />
           <span>{lead.designation || 'Not specified'}</span>
         </div>
-        <div className="flex items-center gap-2 text-[#A1A1AA]">
+        <div className="flex items-center gap-2 text-crm-fg-secondary">
           <MapPin size={16} className="text-[#C5A059]" />
           <span>{lead.location || 'Not specified'}</span>
         </div>
-        <div className="flex items-center gap-2 text-[#A1A1AA]">
+        <div className="flex items-center gap-2 text-crm-fg-secondary">
           <Home size={16} className="text-[#C5A059]" />
           <span>{lead.current_residence_type || 'Not specified'}</span>
         </div>
@@ -739,24 +739,24 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
       )}
 
       <Dialog open={assignModalOpen} onOpenChange={setAssignModalOpen}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-md">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-md">
           <DialogHeader>
             <DialogTitle className="font-serif text-lg">Transfer lead</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="text-sm text-[#A1A1AA]">
-              Assign <span className="text-white">{lead.first_name} {lead.last_name}</span> to{' '}
-              <span className="text-white">{pendingAssignee?.full_name || '—'}</span>.
+            <div className="text-sm text-crm-fg-secondary">
+              Assign <span className="text-crm-fg">{lead.first_name} {lead.last_name}</span> to{' '}
+              <span className="text-crm-fg">{pendingAssignee?.full_name || '—'}</span>.
             </div>
             <div>
-              <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-1">
+              <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-1">
                 Note (optional)
               </label>
               <Input
                 value={transferNotes}
                 onChange={(e) => setTransferNotes(e.target.value)}
                 placeholder="Reason / handover notes"
-                className="bg-black/50 border-white/10 text-white"
+                className="bg-crm-muted border-crm-border text-crm-fg"
                 data-testid="transfer-notes-input"
               />
             </div>
@@ -764,7 +764,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
               <Button
                 type="button"
                 variant="outline"
-                className="border-white/10 text-white"
+                className="border-crm-border text-crm-fg"
                 onClick={() => setAssignModalOpen(false)}
                 disabled={transferring}
               >
@@ -785,23 +785,23 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
       </Dialog>
 
       <Dialog open={lostModalOpen} onOpenChange={setLostModalOpen}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-md">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-md">
           <DialogHeader>
             <DialogTitle className="font-serif text-lg">Mark as {pendingLostStatus || 'Closed Lost'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="text-sm text-[#A1A1AA]">
-              Provide a reason to mark this lead as <span className="text-white">{pendingLostStatus || 'Closed Lost'}</span>.
+            <div className="text-sm text-crm-fg-secondary">
+              Provide a reason to mark this lead as <span className="text-crm-fg">{pendingLostStatus || 'Closed Lost'}</span>.
             </div>
             <div>
-              <label className="text-[#52525B] text-xs uppercase tracking-wider block mb-1">
+              <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-1">
                 {isLostReasonEnumStatus(pendingLostStatus) ? 'Lost reason (required)' : 'Reason (required)'}
               </label>
               {isLostReasonEnumStatus(pendingLostStatus) ? (
                 <select
                   value={pendingLostReason}
                   onChange={(e) => setPendingLostReason(e.target.value)}
-                  className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                  className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
                   data-testid="lost-reason-modal-select"
                 >
                   <option value="">Select lost reason</option>
@@ -816,7 +816,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
                   value={pendingLostReason}
                   onChange={(e) => setPendingLostReason(e.target.value)}
                   placeholder="Reason"
-                  className="bg-black/50 border-white/10 text-white"
+                  className="bg-crm-muted border-crm-border text-crm-fg"
                   data-testid="lost-reason-input"
                 />
               )}
@@ -825,7 +825,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
               <Button
                 type="button"
                 variant="outline"
-                className="border-white/10 text-white"
+                className="border-crm-border text-crm-fg"
                 onClick={() => {
                   setLostModalOpen(false);
                   setPendingLostStatus('');

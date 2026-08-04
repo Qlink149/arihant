@@ -627,10 +627,10 @@ const MyDashboardPage = () => {
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.05 }}
         >
-          <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="my-dashboard-greeting">
+          <h1 className="text-xl font-semibold text-crm-fg tracking-tight" data-testid="my-dashboard-greeting">
             {getGreeting()}, <span className="text-[#C5A059]">{data?.rep_name || user?.full_name || 'Rep'}</span>
           </h1>
-          <p className="text-[#52525B] mt-1 text-sm">
+          <p className="text-crm-fg-muted mt-1 text-sm">
             {viewingAs ? 'Manager view of rep workspace' : 'Your personalized sales workspace'}
           </p>
         </motion.div>
@@ -646,7 +646,7 @@ const MyDashboardPage = () => {
               id="rep-switcher-select"
               value={selectedRepUserId || ''}
               onChange={(e) => setSelectedRepUserId(e.target.value || null)}
-              className="w-full sm:min-w-[220px] bg-[#1A1A1A] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+              className="w-full sm:min-w-[220px] bg-crm-elevated border border-crm-border rounded-lg px-3 py-2.5 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
               data-testid="rep-switcher-select"
             >
               <option value="">My dashboard</option>
@@ -667,7 +667,7 @@ const MyDashboardPage = () => {
           className="bg-[#C5A059]/10 border border-[#C5A059]/20 rounded-lg px-4 py-2 text-sm text-[#C5A059]"
           data-testid="viewing-as-banner"
         >
-          Viewing <span className="font-medium text-white">{data?.rep_name || 'rep'}</span>&apos;s dashboard (read-only)
+          Viewing <span className="font-medium text-crm-fg">{data?.rep_name || 'rep'}</span>&apos;s dashboard (read-only)
         </motion.div>
       ) : null}
 
@@ -732,7 +732,7 @@ const MyDashboardPage = () => {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="flex gap-1 bg-[#1A1A1A] p-1 rounded-lg w-fit border border-white/5"
+        className="flex gap-1 bg-crm-elevated p-1 rounded-lg w-fit border border-white/5"
         data-testid="dashboard-tabs"
       >
         {tabs.map(tab => (
@@ -742,7 +742,7 @@ const MyDashboardPage = () => {
             className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
               activeTab === tab.id
                 ? 'bg-[#C5A059]/20 text-[#C5A059]'
-                : 'text-[#A1A1AA] hover:text-white hover:bg-white/5'
+                : 'text-crm-fg-secondary hover:text-crm-fg hover:bg-white/5'
             }`}
             data-testid={`tab-${tab.id}`}
           >
@@ -775,13 +775,13 @@ const MyDashboardPage = () => {
               animate={{ opacity: 1, x: 0 }}
               className="relative flex-1 max-w-md"
             >
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525B]" />
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-crm-fg-muted" />
               <input
                 type="text"
                 placeholder="Search leads..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-[#1A1A1A] border border-white/10 rounded-lg text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                className="w-full pl-9 pr-4 py-2 bg-crm-elevated border border-crm-border rounded-lg text-crm-fg text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                 data-testid="lead-search-input"
               />
             </motion.div>
@@ -796,7 +796,7 @@ const MyDashboardPage = () => {
                 <button
                   type="button"
                   onClick={clearLeadsMetricFilter}
-                  className="hover:text-white rounded p-0.5"
+                  className="hover:text-crm-fg rounded p-0.5"
                   aria-label="Clear metric filter"
                 >
                   <X size={12} />
@@ -806,7 +806,7 @@ const MyDashboardPage = () => {
           </div>
 
           {/* Leads List */}
-          <p className="text-[#52525B] text-xs">
+          <p className="text-crm-fg-muted text-xs">
             Showing {leads.length} of {leadsTotal}{leadsLoading ? ' · Loading…' : ''}
           </p>
           <div
@@ -815,7 +815,7 @@ const MyDashboardPage = () => {
             className="max-h-[calc(100vh-22rem)] overflow-y-auto pr-2"
           >
             {leads.length === 0 && !leadsLoading ? (
-              <div className="text-center py-12 text-[#52525B]">No leads match your filters</div>
+              <div className="text-center py-12 text-crm-fg-muted">No leads match your filters</div>
             ) : useVirtualLeads ? (
               <div
                 style={{
@@ -880,8 +880,8 @@ const MyDashboardPage = () => {
           className="space-y-3"
           data-testid="tasks-section"
         >
-          <div className="rounded-xl border border-white/5 bg-[#1A1A1A] p-3" data-testid="tasks-hint">
-            <p className="text-[#A1A1AA] text-sm">
+          <div className="rounded-xl border border-white/5 bg-crm-elevated p-3" data-testid="tasks-hint">
+            <p className="text-crm-fg-secondary text-sm">
               Each card shows lead, project, and reason at a glance. Use the circle to complete,
               or View Lead / Edit without opening full details. Click the card for more info.
             </p>
@@ -900,7 +900,7 @@ const MyDashboardPage = () => {
             <Button
               variant="outline"
               onClick={() => setShowCompletedTasks((v) => !v)}
-              className={`border-white/10 text-white hover:bg-white/5 ${
+              className={`border-crm-border text-crm-fg hover:bg-white/5 ${
                 showCompletedTasks ? 'border-[#C5A059] text-[#C5A059]' : ''
               }`}
               data-testid="toggle-completed-tasks"
@@ -914,7 +914,7 @@ const MyDashboardPage = () => {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-[#1A1A1A] border border-[#C5A059]/20 rounded-xl p-5 space-y-4"
+              className="bg-crm-elevated border border-[#C5A059]/20 rounded-xl p-5 space-y-4"
               data-testid="add-task-form"
             >
               <motion.div
@@ -922,39 +922,39 @@ const MyDashboardPage = () => {
                 animate={{ opacity: 1 }}
                 className="flex items-center justify-between"
               >
-                <h4 className="text-white font-medium text-sm">New Task</h4>
-                <button onClick={() => setShowAddTask(false)} className="text-[#52525B] hover:text-white">
+                <h4 className="text-crm-fg font-medium text-sm">New Task</h4>
+                <button onClick={() => setShowAddTask(false)} className="text-crm-fg-muted hover:text-crm-fg">
                   <X size={18} />
                 </button>
               </motion.div>
               <div>
-                <label className="text-[#A1A1AA] text-xs mb-1.5 block">Description *</label>
+                <label className="text-crm-fg-secondary text-xs mb-1.5 block">Description *</label>
                 <input
                   type="text"
                   value={newTask.description}
                   onChange={e => setNewTask(p => ({ ...p, description: e.target.value }))}
                   placeholder="e.g. Follow up with client about site visit"
-                  className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none"
+                  className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-crm-fg text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none"
                   data-testid="task-description-input"
                 />
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-                  <label className="text-[#A1A1AA] text-xs mb-1.5 block">Due Date *</label>
+                  <label className="text-crm-fg-secondary text-xs mb-1.5 block">Due Date *</label>
                   <input
                     type="date"
                     value={newTask.due_date}
                     onChange={e => setNewTask(p => ({ ...p, due_date: e.target.value }))}
-                    className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                    className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
                     data-testid="task-due-date-input"
                   />
                 </motion.div>
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
-                  <label className="text-[#A1A1AA] text-xs mb-1.5 block">Priority</label>
+                  <label className="text-crm-fg-secondary text-xs mb-1.5 block">Priority</label>
                   <select
                     value={newTask.priority}
                     onChange={e => setNewTask(p => ({ ...p, priority: e.target.value }))}
-                    className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                    className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
                     data-testid="task-priority-select"
                   >
                     <option value="low">Low</option>
@@ -963,11 +963,11 @@ const MyDashboardPage = () => {
                   </select>
                 </motion.div>
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.11 }}>
-                  <label className="text-[#A1A1AA] text-xs mb-1.5 block">Link to Lead</label>
+                  <label className="text-crm-fg-secondary text-xs mb-1.5 block">Link to Lead</label>
                   <select
                     value={newTask.lead_id}
                     onChange={e => setNewTask(p => ({ ...p, lead_id: e.target.value }))}
-                    className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                    className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
                     data-testid="task-lead-select"
                   >
                     <option value="">None</option>
@@ -980,7 +980,7 @@ const MyDashboardPage = () => {
                 </motion.div>
               </div>
               <div className="flex gap-2 justify-end">
-                <Button variant="ghost" className="text-[#A1A1AA] hover:text-white" onClick={() => setShowAddTask(false)} data-testid="cancel-task-btn">
+                <Button variant="ghost" className="text-crm-fg-secondary hover:text-crm-fg" onClick={() => setShowAddTask(false)} data-testid="cancel-task-btn">
                   Cancel
                 </Button>
                 <Button onClick={handleCreateTask} className="bg-[#C5A059] hover:bg-[#B08D3E] text-black font-medium" data-testid="save-task-btn">
@@ -991,9 +991,9 @@ const MyDashboardPage = () => {
           ) : null}
 
           {!showCompletedTasks && pendingTasks.length === 0 && !showAddTask ? (
-            <div className="text-center py-12 bg-[#1A1A1A] border border-white/5 rounded-xl">
-              <ListChecks className="mx-auto text-[#52525B]" size={32} />
-              <p className="text-[#52525B] mt-2 text-sm">All caught up! No pending tasks.</p>
+            <div className="text-center py-12 bg-crm-elevated border border-white/5 rounded-xl">
+              <ListChecks className="mx-auto text-crm-fg-muted" size={32} />
+              <p className="text-crm-fg-muted mt-2 text-sm">All caught up! No pending tasks.</p>
             </div>
           ) : !showCompletedTasks ? (
             pendingTasks.map((task, i) => (
@@ -1012,8 +1012,8 @@ const MyDashboardPage = () => {
 
           {showCompletedTasks && (
             completedTasks.length === 0 ? (
-              <div className="text-center py-8 bg-[#1A1A1A] border border-white/5 rounded-xl">
-                <p className="text-[#52525B] text-sm">No completed tasks yet</p>
+              <div className="text-center py-8 bg-crm-elevated border border-white/5 rounded-xl">
+                <p className="text-crm-fg-muted text-sm">No completed tasks yet</p>
               </div>
             ) : (
               completedTasks.map((task, i) => (
@@ -1044,7 +1044,7 @@ const MyDashboardPage = () => {
               className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
                 transferSubTab === 'received'
                   ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                  : 'text-[#52525B] hover:text-white'
+                  : 'text-crm-fg-muted hover:text-crm-fg'
               }`}
               data-testid="transfer-subtab-received"
             >
@@ -1056,7 +1056,7 @@ const MyDashboardPage = () => {
               className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
                 transferSubTab === 'sent'
                   ? 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
-                  : 'text-[#52525B] hover:text-white'
+                  : 'text-crm-fg-muted hover:text-crm-fg'
               }`}
               data-testid="transfer-subtab-sent"
             >
@@ -1068,10 +1068,10 @@ const MyDashboardPage = () => {
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="text-center py-12 bg-[#1A1A1A] border border-white/5 rounded-xl"
+              className="text-center py-12 bg-crm-elevated border border-white/5 rounded-xl"
             >
-              <ArrowRightLeft className="mx-auto text-[#52525B]" size={32} />
-              <p className="text-[#52525B] mt-2 text-sm">
+              <ArrowRightLeft className="mx-auto text-crm-fg-muted" size={32} />
+              <p className="text-crm-fg-muted mt-2 text-sm">
                 {transferSubTab === 'sent' ? 'No sent transfers' : 'No received transfers'}
               </p>
             </motion.div>
@@ -1091,7 +1091,7 @@ const MyDashboardPage = () => {
                     navigate(`/lead/${t.lead_id}`);
                   }
                 }}
-                className={`bg-[#1A1A1A] border rounded-xl p-4 cursor-pointer hover:bg-white/[0.02] transition-colors ${
+                className={`bg-crm-elevated border rounded-xl p-4 cursor-pointer hover:bg-white/[0.02] transition-colors ${
                   transferSubTab === 'sent' ? 'border-teal-500/20' : 'border-amber-500/20'
                 }`}
                 data-testid={`transfer-${t.id}`}
@@ -1103,27 +1103,27 @@ const MyDashboardPage = () => {
                     <ArrowRightLeft size={18} className={transferSubTab === 'sent' ? 'text-teal-500' : 'text-amber-500'} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium text-sm">{t.lead_name}</p>
-                    <p className="text-[#52525B] text-xs mt-0.5">
+                    <p className="text-crm-fg font-medium text-sm">{t.lead_name}</p>
+                    <p className="text-crm-fg-muted text-xs mt-0.5">
                       {transferSubTab === 'sent' ? (
                         <>
-                          To <span className="text-[#A1A1AA]">{t.to_rep}</span>
+                          To <span className="text-crm-fg-secondary">{t.to_rep}</span>
                         </>
                       ) : (
                         <>
-                          From <span className="text-[#A1A1AA]">{t.from_rep}</span>
+                          From <span className="text-crm-fg-secondary">{t.from_rep}</span>
                         </>
                       )}
                       {' '}&middot; {t.project}
                     </p>
-                    {t.notes && <p className="text-[#52525B] text-xs mt-1 italic">&ldquo;{t.notes}&rdquo;</p>}
-                    <p className="text-[#52525B] text-[10px] mt-1">{formatTransferDate(t)}</p>
+                    {t.notes && <p className="text-crm-fg-muted text-xs mt-1 italic">&ldquo;{t.notes}&rdquo;</p>}
+                    <p className="text-crm-fg-muted text-[10px] mt-1">{formatTransferDate(t)}</p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-[#A1A1AA] hover:text-white h-8 w-8 p-0"
+                      className="text-crm-fg-secondary hover:text-crm-fg h-8 w-8 p-0"
                       onClick={() => navigate(`/lead/${t.lead_id}`)}
                       data-testid={`view-transfer-lead-${t.id}`}
                       aria-label="View lead"
@@ -1208,20 +1208,20 @@ const MyDashboardPage = () => {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#1A1A1A] border border-white/10 rounded-xl w-full max-w-md p-6"
+              className="bg-crm-elevated border border-crm-border rounded-xl w-full max-w-md p-6"
               onClick={e => e.stopPropagation()}
               data-testid="transfer-modal"
             >
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-white font-semibold">Transfer Lead</h3>
-                <button onClick={() => setShowTransferModal(false)} className="text-[#52525B] hover:text-white">
+                <h3 className="text-crm-fg font-semibold">Transfer Lead</h3>
+                <button onClick={() => setShowTransferModal(false)} className="text-crm-fg-muted hover:text-crm-fg">
                   <X size={20} />
                 </button>
               </div>
 
-              <div className="bg-[#0F0F0F] rounded-lg p-3 mb-4 border border-white/5">
-                <p className="text-white text-sm font-medium">{selectedLead.first_name} {selectedLead.last_name}</p>
-                <p className="text-[#52525B] text-xs mt-0.5">{selectedLead.project} &middot; {selectedLead.lead_status}</p>
+              <div className="bg-crm-muted rounded-lg p-3 mb-4 border border-white/5">
+                <p className="text-crm-fg text-sm font-medium">{selectedLead.first_name} {selectedLead.last_name}</p>
+                <p className="text-crm-fg-muted text-xs mt-0.5">{selectedLead.project} &middot; {selectedLead.lead_status}</p>
               </div>
 
               <motion.div
@@ -1230,11 +1230,11 @@ const MyDashboardPage = () => {
                 className="space-y-4"
               >
                 <div>
-                  <label className="text-[#A1A1AA] text-xs mb-1.5 block">Transfer to</label>
+                  <label className="text-crm-fg-secondary text-xs mb-1.5 block">Transfer to</label>
                   <select
                     value={transferTo}
                     onChange={e => setTransferTo(e.target.value)}
-                    className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                    className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
                     data-testid="transfer-to-select"
                   >
                     <option value="">Select a rep...</option>
@@ -1246,13 +1246,13 @@ const MyDashboardPage = () => {
                   </select>
                 </div>
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.05 }}>
-                  <label className="text-[#A1A1AA] text-xs mb-1.5 block">Notes (optional)</label>
+                  <label className="text-crm-fg-secondary text-xs mb-1.5 block">Notes (optional)</label>
                   <textarea
                     value={transferNotes}
                     onChange={e => setTransferNotes(e.target.value)}
                     placeholder="Reason for transfer, handover notes..."
                     rows={3}
-                    className="w-full bg-[#0F0F0F] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder:text-[#52525B] focus:border-[#C5A059]/50 focus:outline-none resize-none"
+                    className="w-full bg-crm-muted border border-crm-border rounded-lg px-3 py-2.5 text-crm-fg text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none resize-none"
                     data-testid="transfer-notes-input"
                   />
                 </motion.div>

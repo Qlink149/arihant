@@ -37,7 +37,7 @@ const STATS_REFRESH_MS = 60_000;
 function SalesBarTooltip({ active, payload, label }) {
   if (active && payload?.length) {
     return (
-      <div className="bg-[#1A1A1A] border border-white/10 rounded-lg p-3 shadow-xl">
+      <div className="bg-crm-elevated border border-crm-border rounded-lg p-3 shadow-xl">
         <p className="text-[#C5A059] font-medium mb-1">{label}</p>
         {payload.map((e, i) => <p key={i} className="text-white text-sm">{e.name}: {e.value}</p>)}
       </div>
@@ -47,7 +47,7 @@ function SalesBarTooltip({ active, payload, label }) {
 }
 
 function SalesSortIcon({ field, sortField, sortDir }) {
-  if (sortField !== field) return <ArrowUpDown size={12} className="text-[#52525B]" />;
+  if (sortField !== field) return <ArrowUpDown size={12} className="text-crm-fg-muted" />;
   return sortDir === 'desc' ? <ChevronDown size={12} className="text-[#C5A059]" /> : <ChevronUp size={12} className="text-[#C5A059]" />;
 }
 
@@ -350,7 +350,7 @@ const SalesDashboardPage = () => {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-white" data-testid="sales-dashboard-title">Sales Team Dashboard</h1>
-            <p className="text-[#A1A1AA] mt-1 text-sm">
+            <p className="text-crm-fg-secondary mt-1 text-sm">
               Performance analytics and lead distribution across {salesData.filter(s => s.name !== 'Unassigned').length} team members
               {periodLabel ? ` · ${periodLabel}` : ''}
             </p>
@@ -376,7 +376,7 @@ const SalesDashboardPage = () => {
             title={`View ${s.label} in Virtual Customer`}
           >
             <s.icon className={`mx-auto ${s.color}`} size={20} />
-            <p className="text-[#52525B] text-[10px] uppercase mt-1">{s.label}</p>
+            <p className="text-crm-fg-muted text-[10px] uppercase mt-1">{s.label}</p>
             <p className={`font-serif text-xl ${s.color}`}>{totalStats[s.field] ?? 0}</p>
           </button>
         ))}
@@ -386,13 +386,13 @@ const SalesDashboardPage = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div>
             <h3 className="font-serif text-xl text-white" data-testid="team-overview-title">Sales Team Overview</h3>
-            <p className="text-[#52525B] text-xs mt-1">Leads created in {periodLabel}</p>
+            <p className="text-crm-fg-muted text-xs mt-1">Leads created in {periodLabel}</p>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full" data-testid="sales-team-table">
             <thead>
-              <tr className="border-b border-white/10">
+              <tr className="border-b border-crm-border">
                 {[
                   { key: 'rank', label: '#' },
                   { key: 'name', label: 'Sales Person' },
@@ -407,7 +407,7 @@ const SalesDashboardPage = () => {
                   { key: 'conversion_rate', label: 'Conv %' },
                 ].map(col => (
                   <th key={col.key} onClick={() => col.key !== 'rank' && handleSort(col.key)}
-                    className={`py-3 px-3 text-[#52525B] text-[10px] uppercase tracking-wider ${col.key === 'name' ? 'text-left' : 'text-center'} ${col.key !== 'rank' ? 'cursor-pointer hover:text-[#C5A059]' : ''}`}>
+                    className={`py-3 px-3 text-crm-fg-muted text-[10px] uppercase tracking-wider ${col.key === 'name' ? 'text-left' : 'text-center'} ${col.key !== 'rank' ? 'cursor-pointer hover:text-[#C5A059]' : ''}`}>
                     <span className={`flex items-center gap-1 ${col.key === 'name' ? 'justify-start' : 'justify-center'}`}>
                       {col.icon} {col.label} {col.key !== 'rank' && (
                         <SalesSortIcon field={col.key} sortField={sortField} sortDir={sortDir} />
@@ -415,7 +415,7 @@ const SalesDashboardPage = () => {
                     </span>
                   </th>
                 ))}
-                <th className="py-3 px-3 text-center text-[#52525B] text-[10px] uppercase">Actions</th>
+                <th className="py-3 px-3 text-center text-crm-fg-muted text-[10px] uppercase">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -423,7 +423,7 @@ const SalesDashboardPage = () => {
                 <tr key={s.name} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${idx === 0 && sortField === 'deals_won' ? 'bg-[#C5A059]/5' : ''}`}
                   data-testid={`sales-row-${s.name}`}>
                   <td className="py-3 px-3 text-center">
-                    {idx < 3 ? <Award size={16} className={idx === 0 ? 'text-[#C5A059] mx-auto' : idx === 1 ? 'text-gray-400 mx-auto' : 'text-orange-700 mx-auto'} /> : <span className="text-[#52525B] text-sm">{idx + 1}</span>}
+                    {idx < 3 ? <Award size={16} className={idx === 0 ? 'text-[#C5A059] mx-auto' : idx === 1 ? 'text-gray-400 mx-auto' : 'text-orange-700 mx-auto'} /> : <span className="text-crm-fg-muted text-sm">{idx + 1}</span>}
                   </td>
                   <td className="py-3 px-3">
                     <div className="flex items-center gap-2">
@@ -452,7 +452,7 @@ const SalesDashboardPage = () => {
                       </td>
                     );
                   })}
-                  <td className="py-3 px-3 text-center text-[#A1A1AA] text-sm">{s.conversion_rate ?? 0}%</td>
+                  <td className="py-3 px-3 text-center text-crm-fg-secondary text-sm">{s.conversion_rate ?? 0}%</td>
                   <td className="py-3 px-3 text-center">
                     <Button size="sm" variant="ghost" onClick={() => {
                       const next = new URLSearchParams(searchParams);
@@ -473,7 +473,7 @@ const SalesDashboardPage = () => {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="glass-card rounded-lg p-4">
         <div className="mb-6">
           <h3 className="font-serif text-xl text-white">Performance Ranking</h3>
-          <p className="text-[#A1A1AA] text-xs mt-1">
+          <p className="text-crm-fg-secondary text-xs mt-1">
             Ranked by conversion rate · leads created in {periodLabel}
           </p>
         </div>
@@ -488,7 +488,7 @@ const SalesDashboardPage = () => {
               </div>
             ))
           ) : rankingData.length === 0 ? (
-            <p className="text-[#A1A1AA] text-sm text-center py-6">No leads in this period</p>
+            <p className="text-crm-fg-secondary text-sm text-center py-6">No leads in this period</p>
           ) : (
             rankingData.map((s, idx) => {
             const maxTotal = Math.max(...rankingData.map(r => r.total), 1);
@@ -535,7 +535,7 @@ const SalesDashboardPage = () => {
                 {nurtureDistribution.map((e, i) => <Cell key={i} fill={e.color} />)}
               </Pie>
               <Tooltip content={({ active, payload }) => active && payload?.length ? (
-                <div className="bg-[#1A1A1A] border border-white/10 rounded-lg p-3 shadow-xl">
+                <div className="bg-crm-elevated border border-crm-border rounded-lg p-3 shadow-xl">
                   <p className="text-[#C5A059] font-medium">{payload[0].name}</p>
                   <p className="text-white">{payload[0].value} leads</p>
                 </div>
@@ -552,17 +552,17 @@ const SalesDashboardPage = () => {
             className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center pt-10 overflow-y-auto pb-10"
             onClick={closeRepModal}>
             <motion.div initial={{ opacity: 0, y: 30, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 30, scale: 0.95 }}
-              className="bg-[#0F0F0F] border border-white/10 rounded-xl w-full max-w-4xl mx-4 p-6 shadow-2xl"
+              className="bg-crm-muted border border-crm-border rounded-xl w-full max-w-4xl mx-4 p-6 shadow-2xl"
               onClick={e => e.stopPropagation()} data-testid="drilldown-modal">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-full bg-[#C5A059]/20 flex items-center justify-center text-[#C5A059] text-xl font-serif">{selectedPerson.name.charAt(0)}</div>
                   <div>
                     <h2 className="font-serif text-2xl text-white">{selectedPerson.name}</h2>
-                  <p className="text-[#A1A1AA] text-sm">{selectedPerson.total} leads assigned</p>
+                  <p className="text-crm-fg-secondary text-sm">{selectedPerson.total} leads assigned</p>
                   </div>
                 </div>
-                <Button variant="ghost" onClick={closeRepModal} className="text-[#A1A1AA] hover:text-white"><X size={20} /></Button>
+                <Button variant="ghost" onClick={closeRepModal} className="text-crm-fg-secondary hover:text-white"><X size={20} /></Button>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
@@ -578,7 +578,7 @@ const SalesDashboardPage = () => {
                       data-testid={f.metric ? `rep-metric-${f.metric}` : 'rep-metric-total'}
                       title={`View in Virtual Customer`}
                     >
-                      <p className="text-[#52525B] text-[10px] uppercase">{f.label}</p>
+                      <p className="text-crm-fg-muted text-[10px] uppercase">{f.label}</p>
                       <p className={`font-serif text-2xl ${f.color}`}>{value}</p>
                     </button>
                   );
@@ -586,7 +586,7 @@ const SalesDashboardPage = () => {
               </div>
 
               <h3 className="font-serif text-lg text-white mb-3">All Assigned Leads</h3>
-              <p className="text-[#52525B] text-xs mb-2">Showing {repLeads.length} of {repLeadsTotal}{repLeadsLoading ? ' · Loading…' : ''}</p>
+              <p className="text-crm-fg-muted text-xs mb-2">Showing {repLeads.length} of {repLeadsTotal}{repLeadsLoading ? ' · Loading…' : ''}</p>
               <div
                 ref={listScrollRef}
                 onScroll={onLeadListScroll}

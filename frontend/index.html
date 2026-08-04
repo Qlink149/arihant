@@ -14,6 +14,23 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
         <title>Arihant Sales Intelligence</title>
+        <script>
+            (function () {
+                try {
+                    var dark = localStorage.getItem('darkMode');
+                    var isDark = dark === null ? true : JSON.parse(dark);
+                    var root = document.documentElement;
+                    root.classList.remove(isDark ? 'light-mode' : 'dark-mode');
+                    root.classList.add(isDark ? 'dark-mode' : 'light-mode');
+                    document.querySelector('meta[name="theme-color"]')?.setAttribute(
+                        'content',
+                        isDark ? '#0a0a0a' : '#F5F5F0'
+                    );
+                } catch (e) {
+                    document.documentElement.classList.add('dark-mode');
+                }
+            })();
+        </script>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
     </head>
     <body>

@@ -55,15 +55,15 @@ const NotificationsPage = () => {
     <div className="space-y-3 max-w-3xl mx-auto">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="text-[#A1A1AA]">
+          <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="text-crm-fg-secondary">
             <ArrowLeft size={18} />
           </Button>
           <div>
-            <h1 className="font-serif text-2xl text-white flex items-center gap-2">
+            <h1 className="font-serif text-2xl text-crm-fg flex items-center gap-2">
               <Bell className="text-[#C5A059]" size={24} />
               Notifications
             </h1>
-            <p className="text-[#52525B] text-sm mt-1">System alerts and reminders</p>
+            <p className="text-crm-fg-muted text-sm mt-1">System alerts and reminders</p>
           </div>
         </div>
         {items.some((n) => !n.is_read) && (
@@ -86,7 +86,7 @@ const NotificationsPage = () => {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <div className="glass-card rounded-lg p-12 text-center text-[#52525B]">No notifications</div>
+        <div className="glass-card rounded-lg p-12 text-center text-crm-fg-muted">No notifications</div>
       ) : (
         <div className="space-y-2">
           {items.map((n) => {
@@ -107,10 +107,10 @@ const NotificationsPage = () => {
                   <Icon size={18} className="text-[#C5A059]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white font-medium text-sm">{n.title || n.lead_name}</p>
-                  <p className="text-[#A1A1AA] text-xs mt-1">{n.message}</p>
+                  <p className="text-crm-fg font-medium text-sm">{n.title || n.lead_name}</p>
+                  <p className="text-crm-fg-secondary text-xs mt-1">{n.message}</p>
                   <div className="flex flex-wrap gap-2 mt-2">
-                    {n.is_auto && <span className="text-[10px] text-[#52525B]">Auto alert</span>}
+                    {n.is_auto && <span className="text-[10px] text-crm-fg-muted">Auto alert</span>}
                     {n.is_overdue && (
                       <CrmBadge variant="danger" size="xs" uppercase>
                         Overdue

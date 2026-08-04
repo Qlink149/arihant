@@ -241,7 +241,7 @@ const DashboardLayout = () => {
             isActive
               ? 'text-[#C5A059] bg-[#C5A059]/10 border-r-2 border-[#C5A059]'
               : darkMode
-                ? 'text-[#A1A1AA] hover:text-white hover:bg-white/5'
+                ? 'text-crm-fg-secondary hover:text-white hover:bg-white/5'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
           }`
         }
@@ -288,14 +288,14 @@ const DashboardLayout = () => {
   const overdueCount = notifications.filter(n => n.is_overdue && !n.is_read).length;
 
   return (
-    <div className={`min-h-screen flex ${darkMode ? 'bg-[#0A0A0A]' : 'bg-gray-100'}`}>
+    <div className={`min-h-screen flex ${darkMode ? 'bg-crm' : 'bg-gray-100'}`}>
       {/* Sidebar - Desktop */}
       <aside
         className={`hidden lg:flex flex-col fixed h-full border-r transition-[width] duration-200 overflow-hidden ${
           sidebarCollapsed ? 'w-16' : 'w-64'
-        } ${darkMode ? 'bg-[#0A0A0A] border-white/10' : 'bg-white border-gray-200'}`}
+        } ${darkMode ? 'bg-crm border-crm-border' : 'bg-white border-gray-200'}`}
       >
-        <div className={`flex items-center border-b ${sidebarCollapsed ? 'p-3 justify-center' : 'p-4 justify-between'} ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
+        <div className={`flex items-center border-b ${sidebarCollapsed ? 'p-3 justify-center' : 'p-4 justify-between'} ${darkMode ? 'border-crm-border' : 'border-gray-200'}`}>
           {!sidebarCollapsed && (
             <img
               src="https://cdn.prod.website-files.com/677bb760b33b5fd3ff036767/677bbae243140d29ba5e1fc0_Arihant%20W%20Logo.svg"
@@ -307,7 +307,7 @@ const DashboardLayout = () => {
           <button
             type="button"
             onClick={toggleSidebarCollapsed}
-            className={`p-1.5 rounded-md transition-colors ${darkMode ? 'text-[#A1A1AA] hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+            className={`p-1.5 rounded-md transition-colors ${darkMode ? 'text-crm-fg-secondary hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
             data-testid="sidebar-collapse-toggle"
             aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
@@ -325,7 +325,7 @@ const DashboardLayout = () => {
           </nav>
         </TooltipProvider>
 
-        <div className={`border-t ${sidebarCollapsed ? 'p-2' : 'p-3'} ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
+        <div className={`border-t ${sidebarCollapsed ? 'p-2' : 'p-3'} ${darkMode ? 'border-crm-border' : 'border-gray-200'}`}>
           {!sidebarCollapsed ? (
             <>
               <div className="flex items-center gap-2 px-1 py-2">
@@ -334,12 +334,12 @@ const DashboardLayout = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>{user?.full_name || 'User'}</p>
-                  <p className={`text-[10px] truncate ${darkMode ? 'text-[#52525B]' : 'text-gray-500'}`}>{user?.email}</p>
+                  <p className={`text-[10px] truncate ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>{user?.email}</p>
                 </div>
               </div>
               <button
                 onClick={handleLogout}
-                className={`w-full flex items-center gap-2 px-2 py-2 text-sm ${darkMode ? 'text-[#A1A1AA]' : 'text-gray-600'} hover:text-red-500 transition-colors`}
+                className={`w-full flex items-center gap-2 px-2 py-2 text-sm ${darkMode ? 'text-crm-fg-secondary' : 'text-gray-600'} hover:text-red-500 transition-colors`}
                 data-testid="logout-btn"
               >
                 <LogOut size={16} strokeWidth={1.5} />
@@ -352,7 +352,7 @@ const DashboardLayout = () => {
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleLogout}
-                    className={`w-full flex items-center justify-center p-2 rounded-md ${darkMode ? 'text-[#A1A1AA]' : 'text-gray-600'} hover:text-red-500 transition-colors`}
+                    className={`w-full flex items-center justify-center p-2 rounded-md ${darkMode ? 'text-crm-fg-secondary' : 'text-gray-600'} hover:text-red-500 transition-colors`}
                     data-testid="logout-btn"
                     aria-label="Sign out"
                   >
@@ -368,7 +368,7 @@ const DashboardLayout = () => {
 
       {/* Mobile Sidebar */}
       <motion.aside
-        className={`lg:hidden fixed inset-y-0 left-0 z-50 w-64 ${darkMode ? 'bg-[#0A0A0A] border-white/10' : 'bg-white border-gray-200'} border-r ${
+        className={`lg:hidden fixed inset-y-0 left-0 z-50 w-64 ${darkMode ? 'bg-crm border-crm-border' : 'bg-white border-gray-200'} border-r ${
           sidebarOpen ? 'block' : 'hidden'
         }`}
         initial={{ x: -256 }}
@@ -378,14 +378,14 @@ const DashboardLayout = () => {
         {/* Close Button */}
         <button
           onClick={() => setSidebarOpen(false)}
-          className={`absolute top-4 right-4 ${darkMode ? 'text-[#A1A1AA] hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
+          className={`absolute top-4 right-4 ${darkMode ? 'text-crm-fg-secondary hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
           data-testid="close-sidebar-btn"
         >
           <X size={24} />
         </button>
 
         {/* Logo */}
-        <div className={`p-6 border-b ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
+        <div className={`p-6 border-b ${darkMode ? 'border-crm-border' : 'border-gray-200'}`}>
           <img
             src="https://cdn.prod.website-files.com/677bb760b33b5fd3ff036767/677bbae243140d29ba5e1fc0_Arihant%20W%20Logo.svg"
             alt="Arihant"
@@ -405,7 +405,7 @@ const DashboardLayout = () => {
                   isActive
                     ? 'text-[#C5A059] bg-[#C5A059]/10 border-r-2 border-[#C5A059]'
                     : darkMode 
-                      ? 'text-[#A1A1AA] hover:text-white hover:bg-white/5'
+                      ? 'text-crm-fg-secondary hover:text-white hover:bg-white/5'
                       : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                 }`
               }
@@ -417,10 +417,10 @@ const DashboardLayout = () => {
         </nav>
 
         {/* User Section */}
-        <div className={`absolute bottom-0 left-0 right-0 p-4 border-t ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
+        <div className={`absolute bottom-0 left-0 right-0 p-4 border-t ${darkMode ? 'border-crm-border' : 'border-gray-200'}`}>
           <button
             onClick={handleLogout}
-            className={`w-full flex items-center gap-3 px-4 py-2 text-sm ${darkMode ? 'text-[#A1A1AA]' : 'text-gray-600'} hover:text-red-500 transition-colors`}
+            className={`w-full flex items-center gap-3 px-4 py-2 text-sm ${darkMode ? 'text-crm-fg-secondary' : 'text-gray-600'} hover:text-red-500 transition-colors`}
           >
             <LogOut size={18} strokeWidth={1.5} />
             Sign Out
@@ -431,7 +431,7 @@ const DashboardLayout = () => {
       {/* Mobile Overlay */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black/50 z-40"
+          className="lg:hidden fixed inset-0 bg-crm-muted z-40"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -457,12 +457,12 @@ const DashboardLayout = () => {
           </div>
         )}
         {/* Top Bar */}
-        <header className={`sticky top-0 z-30 ${darkMode ? 'bg-[#0A0A0A]/80' : 'bg-white/80'} backdrop-blur-xl border-b ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
+        <header className={`sticky top-0 z-30 ${darkMode ? 'bg-crm' : 'bg-white/80'} backdrop-blur-xl border-b ${darkMode ? 'border-crm-border' : 'border-gray-200'}`}>
           <div className="flex items-center justify-between px-3 lg:px-4 py-3">
             {/* Mobile Menu Button */}
             <button
               onClick={() => setSidebarOpen(true)}
-              className={`lg:hidden ${darkMode ? 'text-[#A1A1AA] hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`lg:hidden ${darkMode ? 'text-crm-fg-secondary hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
               data-testid="open-sidebar-btn"
             >
               <Menu size={24} />
@@ -470,8 +470,8 @@ const DashboardLayout = () => {
 
             {/* Breadcrumb */}
             <div className="hidden lg:flex items-center gap-2 text-sm">
-              <span className={darkMode ? 'text-[#52525B]' : 'text-gray-400'}>Home</span>
-              <ChevronRight size={14} className={darkMode ? 'text-[#52525B]' : 'text-gray-400'} />
+              <span className={darkMode ? 'text-crm-fg-muted' : 'text-gray-400'}>Home</span>
+              <ChevronRight size={14} className={darkMode ? 'text-crm-fg-muted' : 'text-gray-400'} />
               <span className="text-[#C5A059] capitalize">
                 {location.pathname.split('/')[1] || 'Dashboard'}
               </span>
@@ -482,7 +482,7 @@ const DashboardLayout = () => {
               {/* Dark/Light Mode Toggle */}
               <button
                 onClick={toggleDarkMode}
-                className={`p-2 rounded-lg transition-colors ${darkMode ? 'text-[#A1A1AA] hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                className={`p-2 rounded-lg transition-colors ${darkMode ? 'text-crm-fg-secondary hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
                 data-testid="theme-toggle-btn"
                 title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
               >
@@ -493,7 +493,7 @@ const DashboardLayout = () => {
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
-                  className={`relative p-2 rounded-lg transition-colors ${darkMode ? 'text-[#A1A1AA] hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                  className={`relative p-2 rounded-lg transition-colors ${darkMode ? 'text-crm-fg-secondary hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
                   data-testid="notifications-btn"
                 >
                   <Bell size={20} strokeWidth={1.5} />
@@ -516,13 +516,13 @@ const DashboardLayout = () => {
                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className={`absolute right-0 mt-2 w-80 ${darkMode ? 'bg-[#1A1A1A] border-white/10' : 'bg-white border-gray-200'} border rounded-lg shadow-xl overflow-hidden z-50`}
+                      className={`absolute right-0 mt-2 w-80 ${darkMode ? 'bg-crm-elevated border-crm-border' : 'bg-white border-gray-200'} border rounded-lg shadow-xl overflow-hidden z-50`}
                       data-testid="notifications-panel"
                     >
-                      <div className={`px-4 py-3 border-b ${darkMode ? 'border-white/10' : 'border-gray-200'} flex items-center justify-between`}>
+                      <div className={`px-4 py-3 border-b ${darkMode ? 'border-crm-border' : 'border-gray-200'} flex items-center justify-between`}>
                         <div>
                           <h3 className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>Notifications</h3>
-                          <p className={`text-xs ${darkMode ? 'text-[#52525B]' : 'text-gray-500'}`}>
+                          <p className={`text-xs ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>
                             {unreadCount} unread
                           </p>
                         </div>
@@ -533,7 +533,7 @@ const DashboardLayout = () => {
                               handleMarkAllRead();
                             }}
                             disabled={markAllBusy}
-                            className={`text-xs hover:underline ${markAllBusy ? 'opacity-60 cursor-not-allowed text-[#A1A1AA]' : 'text-[#C5A059]'}`}
+                            className={`text-xs hover:underline ${markAllBusy ? 'opacity-60 cursor-not-allowed text-crm-fg-secondary' : 'text-[#C5A059]'}`}
                             data-testid="mark-all-read-btn"
                           >
                             {markAllBusy ? 'Clearing…' : 'Mark all read'}
@@ -544,8 +544,8 @@ const DashboardLayout = () => {
                       <div className="max-h-96 overflow-y-auto">
                         {notifications.length === 0 ? (
                           <div className="p-8 text-center">
-                            <Bell className={`mx-auto ${darkMode ? 'text-[#52525B]' : 'text-gray-300'}`} size={32} />
-                            <p className={`mt-2 text-sm ${darkMode ? 'text-[#52525B]' : 'text-gray-500'}`}>
+                            <Bell className={`mx-auto ${darkMode ? 'text-crm-fg-muted' : 'text-gray-300'}`} size={32} />
+                            <p className={`mt-2 text-sm ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>
                               No pending notifications
                             </p>
                           </div>
@@ -574,7 +574,7 @@ const DashboardLayout = () => {
                                       </p>
                                       {!notification.is_read && <span className="w-2 h-2 rounded-full bg-[#C5A059] flex-shrink-0" />}
                                     </div>
-                                    <p className={`text-xs ${darkMode ? 'text-[#A1A1AA]' : 'text-gray-600'} mt-0.5 line-clamp-2`}>
+                                    <p className={`text-xs ${darkMode ? 'text-crm-fg-secondary' : 'text-gray-600'} mt-0.5 line-clamp-2`}>
                                       {notification.message}
                                     </p>
                                     <CrmBadge variant={urgency.variant} size="xs" uppercase className="mt-1">
@@ -589,7 +589,7 @@ const DashboardLayout = () => {
                       </div>
 
                       {notifications.length > 0 && (
-                        <div className={`px-4 py-2 border-t ${darkMode ? 'border-white/10' : 'border-gray-200'}`}>
+                        <div className={`px-4 py-2 border-t ${darkMode ? 'border-crm-border' : 'border-gray-200'}`}>
                           <button
                             type="button"
                             onClick={() => { setShowNotifications(false); navigate('/notifications'); }}

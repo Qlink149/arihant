@@ -81,7 +81,7 @@ function Field({ label, value }) {
   if (value == null || value === '') return null;
   return (
     <div className="space-y-1">
-      <p className="text-[11px] uppercase tracking-wide text-[#52525B]">{label}</p>
+      <p className="text-[11px] uppercase tracking-wide text-crm-fg-muted">{label}</p>
       <p className="text-sm text-[#E4E4E7] break-words">{value}</p>
     </div>
   );
@@ -507,11 +507,11 @@ const WhatsAppInboxPage = () => {
     <div className="h-[calc(100vh-5.5rem)] min-h-[480px] flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3 shrink-0">
         <div>
-          <h1 className="font-serif text-2xl text-white flex items-center gap-2">
+          <h1 className="font-serif text-2xl text-crm-fg flex items-center gap-2">
             <MessageCircle className="text-green-500" size={24} />
             WhatsApp
           </h1>
-          <p className="text-[#52525B] text-sm mt-0.5">
+          <p className="text-crm-fg-muted text-sm mt-0.5">
             Team inbox — search any lead to start a chat, reply in place
           </p>
         </div>
@@ -521,7 +521,7 @@ const WhatsAppInboxPage = () => {
           size="sm"
           onClick={() => fetchInbox({ skip: 0 })}
           disabled={listLoading}
-          className="border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/5"
+          className="border-crm-border text-crm-fg-secondary hover:text-crm-fg hover:bg-white/5"
         >
           {listLoading ? (
             <Loader2 size={14} className="animate-spin mr-1.5" />
@@ -535,31 +535,31 @@ const WhatsAppInboxPage = () => {
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_260px] gap-3">
         {/* Conversation list */}
         <aside
-          className={`bg-[#141414] border border-white/10 rounded-xl flex flex-col min-h-0 ${
+          className={`bg-crm-elevated border border-crm-border rounded-xl flex flex-col min-h-0 ${
             mobilePane === 'list' ? 'flex' : 'hidden lg:flex'
           }`}
         >
-          <div className="p-3 border-b border-white/10 space-y-2" ref={searchWrapRef}>
+          <div className="p-3 border-b border-crm-border space-y-2" ref={searchWrapRef}>
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525B]" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-crm-fg-muted" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => leadHits.length && setShowLeadDropdown(true)}
                 placeholder="Search chats or any lead"
-                className="w-full h-10 pl-9 pr-3 rounded-lg bg-black/40 border border-white/10 text-sm text-white placeholder:text-[#52525B] focus:border-green-500/60 outline-none"
+                className="w-full h-10 pl-9 pr-3 rounded-lg bg-crm-muted border border-crm-border text-sm text-crm-fg placeholder:text-crm-fg-muted focus:border-green-500/60 outline-none"
               />
               {showLeadDropdown && debouncedQuery.length >= 2 && (
-                <div className="absolute z-20 left-0 right-0 mt-1 rounded-lg border border-white/10 bg-[#1A1A1A] shadow-xl max-h-64 overflow-y-auto">
-                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-[#52525B] border-b border-white/5">
+                <div className="absolute z-20 left-0 right-0 mt-1 rounded-lg border border-crm-border bg-crm-elevated shadow-xl max-h-64 overflow-y-auto">
+                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-crm-fg-muted border-b border-white/5">
                     Start chat with…
                   </p>
                   {leadSearchLoading ? (
-                    <div className="flex items-center gap-2 px-3 py-3 text-xs text-[#52525B]">
+                    <div className="flex items-center gap-2 px-3 py-3 text-xs text-crm-fg-muted">
                       <Loader2 size={12} className="animate-spin" /> Searching leads…
                     </div>
                   ) : leadHits.length === 0 ? (
-                    <p className="px-3 py-3 text-xs text-[#52525B]">No matching leads</p>
+                    <p className="px-3 py-3 text-xs text-crm-fg-muted">No matching leads</p>
                   ) : (
                     leadHits.map((lead) => (
                       <button
@@ -568,8 +568,8 @@ const WhatsAppInboxPage = () => {
                         onClick={() => openLeadChat(lead)}
                         className="w-full text-left px-3 py-2.5 hover:bg-white/5 border-b border-white/5 last:border-0"
                       >
-                        <p className="text-sm text-white truncate">{leadDisplayName(lead)}</p>
-                        <p className="text-[11px] text-[#A1A1AA] truncate">
+                        <p className="text-sm text-crm-fg truncate">{leadDisplayName(lead)}</p>
+                        <p className="text-[11px] text-crm-fg-secondary truncate">
                           {lead.phone || '—'}
                           {lead.project ? ` · ${lead.project}` : ''}
                         </p>
@@ -588,7 +588,7 @@ const WhatsAppInboxPage = () => {
                   className={`flex-1 h-8 rounded-md text-xs transition-colors ${
                     listFilter === f.id
                       ? 'bg-green-600/20 text-green-400 border border-green-500/40'
-                      : 'text-[#A1A1AA] border border-white/10 hover:bg-white/5'
+                      : 'text-crm-fg-secondary border border-crm-border hover:bg-white/5'
                   }`}
                 >
                   {f.label}
@@ -598,14 +598,14 @@ const WhatsAppInboxPage = () => {
           </div>
           <div className="flex-1 overflow-y-auto" ref={listRef} onScroll={onListScroll}>
             {listLoading && !conversations.length ? (
-              <div className="flex items-center justify-center py-16 text-[#52525B]">
+              <div className="flex items-center justify-center py-16 text-crm-fg-muted">
                 <Loader2 className="animate-spin mr-2" size={18} />
                 Loading…
               </div>
             ) : listError ? (
               <div className="p-6 text-center text-sm text-red-400">{listError}</div>
             ) : conversations.length === 0 ? (
-              <div className="p-8 text-center text-[#52525B] text-sm">
+              <div className="p-8 text-center text-crm-fg-muted text-sm">
                 <MessageCircle className="mx-auto mb-2 opacity-50" size={32} />
                 {debouncedQuery
                   ? 'No conversations match — try Start chat with a lead above'
@@ -651,18 +651,18 @@ const WhatsAppInboxPage = () => {
                           <div className="flex items-start justify-between gap-2">
                             <p
                               className={`text-sm truncate ${
-                                unread > 0 ? 'text-white font-semibold' : 'text-white font-medium'
+                                unread > 0 ? 'text-crm-fg font-semibold' : 'text-crm-fg font-medium'
                               }`}
                             >
                               {c.display_name}
                             </p>
-                            <span className="text-[10px] text-[#52525B] shrink-0">
+                            <span className="text-[10px] text-crm-fg-muted shrink-0">
                               {relativeTime(c.last_message_at)}
                             </span>
                           </div>
                           <p
                             className={`text-xs truncate mt-0.5 ${
-                              unread > 0 ? 'text-white/90 font-medium' : 'text-[#A1A1AA]'
+                              unread > 0 ? 'text-crm-fg/90 font-medium' : 'text-crm-fg-secondary'
                             }`}
                           >
                             {c.last_message_preview || '—'}
@@ -681,7 +681,7 @@ const WhatsAppInboxPage = () => {
                   );
                 })}
                 {loadingMore && (
-                  <div className="flex justify-center py-3 text-[#52525B]">
+                  <div className="flex justify-center py-3 text-crm-fg-muted">
                     <Loader2 className="animate-spin" size={16} />
                   </div>
                 )}
@@ -692,27 +692,27 @@ const WhatsAppInboxPage = () => {
 
         {/* Chat thread */}
         <section
-          className={`bg-[#141414] border border-white/10 rounded-xl flex flex-col min-h-0 ${
+          className={`bg-crm-elevated border border-crm-border rounded-xl flex flex-col min-h-0 ${
             mobilePane === 'chat' ? 'flex' : 'hidden lg:flex'
           }`}
         >
           {!selectedKey ? (
-            <div className="flex-1 flex items-center justify-center text-[#52525B] text-sm p-8">
+            <div className="flex-1 flex items-center justify-center text-crm-fg-muted text-sm p-8">
               Select a conversation
             </div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b border-white/10 flex items-start justify-between gap-3 shrink-0">
+              <div className="px-4 py-3 border-b border-crm-border flex items-start justify-between gap-3 shrink-0">
                 <div className="min-w-0">
                   <button
                     type="button"
-                    className="lg:hidden text-xs text-[#A1A1AA] mb-1"
+                    className="lg:hidden text-xs text-crm-fg-secondary mb-1"
                     onClick={() => setMobilePane('list')}
                   >
                     ← Conversations
                   </button>
-                  <h2 className="text-white font-medium truncate">{displayName}</h2>
-                  <p className="text-xs text-[#52525B] truncate">
+                  <h2 className="text-crm-fg font-medium truncate">{displayName}</h2>
+                  <p className="text-xs text-crm-fg-muted truncate">
                     {selected?.phone || selected?.peer_phone}
                     {selected?.is_unmatched ? ' · Not in CRM' : ''}
                   </p>
@@ -733,7 +733,7 @@ const WhatsAppInboxPage = () => {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="lg:hidden text-[#A1A1AA]"
+                    className="lg:hidden text-crm-fg-secondary"
                     onClick={() => setMobilePane('props')}
                   >
                     Details
@@ -744,7 +744,7 @@ const WhatsAppInboxPage = () => {
                     size="sm"
                     onClick={sync}
                     disabled={syncing}
-                    className="border-white/10 text-[#A1A1AA] hover:text-white"
+                    className="border-crm-border text-crm-fg-secondary hover:text-crm-fg"
                   >
                     {syncing ? (
                       <Loader2 size={14} className="animate-spin" />
@@ -757,11 +757,11 @@ const WhatsAppInboxPage = () => {
 
               <div className="wa-chat-thread flex-1 overflow-y-auto px-4 py-4 space-y-3">
                 {threadLoading && !messages.length ? (
-                  <div className="flex justify-center py-16 text-[#52525B]">
+                  <div className="flex justify-center py-16 text-crm-fg-muted">
                     <Loader2 className="animate-spin" size={20} />
                   </div>
                 ) : messages.length === 0 ? (
-                  <div className="text-center py-16 text-[#52525B]">
+                  <div className="text-center py-16 text-crm-fg-muted">
                     <MessageCircle className="mx-auto mb-3 opacity-50" size={36} />
                     <p>No messages yet</p>
                     <p className="text-xs mt-1 max-w-xs mx-auto">
@@ -789,7 +789,7 @@ const WhatsAppInboxPage = () => {
                 <div ref={threadEndRef} />
               </div>
 
-              <div className="border-t border-white/10 p-3 space-y-2 shrink-0">
+              <div className="border-t border-crm-border p-3 space-y-2 shrink-0">
                 {!effectiveSessionOpen && (
                   <div className="text-xs text-amber-300/90 bg-amber-900/20 border border-amber-500/20 rounded-lg px-3 py-2">
                     Outside 24h window — send a template to message this customer.
@@ -803,7 +803,7 @@ const WhatsAppInboxPage = () => {
                       setSelectedTemplate(tpl);
                       if (tpl) setDraft('');
                     }}
-                    className="w-full h-9 px-3 rounded-lg bg-black/50 border border-white/10 text-xs text-white focus:border-green-500 outline-none"
+                    className="w-full h-9 px-3 rounded-lg bg-crm-muted border border-crm-border text-xs text-crm-fg focus:border-green-500 outline-none"
                   >
                     <option value="">— Free text (session) —</option>
                     {waTemplates.map((t) => (
@@ -826,7 +826,7 @@ const WhatsAppInboxPage = () => {
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-7 text-xs border-white/10 text-[#A1A1AA]"
+                        className="h-7 text-xs border-crm-border text-crm-fg-secondary"
                         onClick={() =>
                           runTemplateAction(`${p.label} brochure`, (id) =>
                             whatsappAPI.sendBrochure(id, p.key)
@@ -840,7 +840,7 @@ const WhatsAppInboxPage = () => {
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="h-7 text-xs border-white/10 text-[#A1A1AA]"
+                      className="h-7 text-xs border-crm-border text-crm-fg-secondary"
                       onClick={() => runTemplateAction('Pricing', whatsappAPI.sendPricing)}
                     >
                       Pricing
@@ -849,7 +849,7 @@ const WhatsAppInboxPage = () => {
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="h-7 text-xs border-white/10 text-[#A1A1AA]"
+                      className="h-7 text-xs border-crm-border text-crm-fg-secondary"
                       onClick={() =>
                         runTemplateAction('Site visit request', whatsappAPI.sendSiteVisitRequest)
                       }
@@ -872,7 +872,7 @@ const WhatsAppInboxPage = () => {
                           : 'Select a template above…'
                     }
                     disabled={composerBlocked && !selectedTemplate}
-                    className="flex-1 h-11 px-4 bg-black/50 border border-white/10 rounded-full text-white text-sm placeholder:text-[#52525B] focus:border-green-500 outline-none disabled:opacity-50"
+                    className="flex-1 h-11 px-4 bg-crm-muted border border-crm-border rounded-full text-crm-fg text-sm placeholder:text-crm-fg-muted focus:border-green-500 outline-none disabled:opacity-50"
                   />
                   <Button
                     type="button"
@@ -881,7 +881,7 @@ const WhatsAppInboxPage = () => {
                       sending ||
                       (selectedTemplate ? false : !draft.trim() || composerBlocked)
                     }
-                    className="h-11 w-11 rounded-full bg-green-600 hover:bg-green-700 text-white p-0 disabled:opacity-50"
+                    className="h-11 w-11 rounded-full bg-green-600 hover:bg-green-700 text-white text-on-brand p-0 disabled:opacity-50"
                   >
                     {sending ? (
                       <Loader2 size={18} className="animate-spin" />
@@ -897,28 +897,28 @@ const WhatsAppInboxPage = () => {
 
         {/* Lead properties */}
         <aside
-          className={`bg-[#141414] border border-white/10 rounded-xl flex flex-col min-h-0 ${
+          className={`bg-crm-elevated border border-crm-border rounded-xl flex flex-col min-h-0 ${
             mobilePane === 'props' ? 'flex' : 'hidden lg:flex'
           }`}
         >
-          <div className="px-4 py-3 border-b border-white/10 shrink-0">
+          <div className="px-4 py-3 border-b border-crm-border shrink-0">
             <button
               type="button"
-              className="lg:hidden text-xs text-[#A1A1AA] mb-2"
+              className="lg:hidden text-xs text-crm-fg-secondary mb-2"
               onClick={() => setMobilePane('chat')}
             >
               ← Chat
             </button>
-            <h3 className="text-sm font-medium text-white">
+            <h3 className="text-sm font-medium text-crm-fg">
               {selected?.is_unmatched ? 'Unknown number' : 'Lead details'}
             </h3>
-            <p className="text-[11px] text-[#52525B] mt-0.5">
+            <p className="text-[11px] text-crm-fg-muted mt-0.5">
               {selected?.is_unmatched ? 'Create a CRM lead to link this chat' : 'CRM fields'}
             </p>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {!selectedKey ? (
-              <p className="text-sm text-[#52525B]">No conversation selected</p>
+              <p className="text-sm text-crm-fg-muted">No conversation selected</p>
             ) : selected?.is_unmatched ? (
               <>
                 <div className="flex items-center gap-3">
@@ -926,8 +926,8 @@ const WhatsAppInboxPage = () => {
                     ?
                   </div>
                   <div className="min-w-0">
-                    <p className="text-white font-medium">Unknown</p>
-                    <p className="text-xs text-[#A1A1AA] flex items-center gap-1 truncate">
+                    <p className="text-crm-fg font-medium">Unknown</p>
+                    <p className="text-xs text-crm-fg-secondary flex items-center gap-1 truncate">
                       <Phone size={11} />
                       {selected.phone || selected.peer_phone}
                     </p>
@@ -943,7 +943,7 @@ const WhatsAppInboxPage = () => {
                 </Button>
               </>
             ) : leadLoading && !displayLead ? (
-              <div className="flex justify-center py-10 text-[#52525B]">
+              <div className="flex justify-center py-10 text-crm-fg-muted">
                 <Loader2 className="animate-spin" size={18} />
               </div>
             ) : (
@@ -953,8 +953,8 @@ const WhatsAppInboxPage = () => {
                     {initials(displayName)}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-white font-medium truncate">{displayName}</p>
-                    <p className="text-xs text-[#A1A1AA] flex items-center gap-1 truncate">
+                    <p className="text-crm-fg font-medium truncate">{displayName}</p>
+                    <p className="text-xs text-crm-fg-secondary flex items-center gap-1 truncate">
                       <Phone size={11} />
                       {displayLead?.phone || selected?.phone || '—'}
                     </p>
@@ -1021,7 +1021,7 @@ const WhatsAppInboxPage = () => {
                     <Button
                       type="button"
                       variant="outline"
-                      className="w-full border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/5"
+                      className="w-full border-crm-border text-crm-fg-secondary hover:text-crm-fg hover:bg-white/5"
                       onClick={() => navigate(`/lead/${selected.lead_id}`)}
                     >
                       <ExternalLink size={14} className="mr-2" />
@@ -1036,7 +1036,7 @@ const WhatsAppInboxPage = () => {
       </div>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-md">
+        <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-md">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl flex items-center gap-2">
               <UserPlus className="text-amber-400" size={22} />
@@ -1045,35 +1045,35 @@ const WhatsAppInboxPage = () => {
           </DialogHeader>
           <form onSubmit={submitCreateLead} className="space-y-3">
             <div>
-              <label className="text-[11px] uppercase text-[#52525B]">First name *</label>
+              <label className="text-[11px] uppercase text-crm-fg-muted">First name *</label>
               <input
-                className="mt-1 w-full h-10 px-3 rounded-lg bg-black/50 border border-white/10 text-sm"
+                className="mt-1 w-full h-10 px-3 rounded-lg bg-crm-muted border border-crm-border text-sm"
                 value={createForm.first_name}
                 onChange={(e) => setCreateForm((f) => ({ ...f, first_name: e.target.value }))}
                 required
               />
             </div>
             <div>
-              <label className="text-[11px] uppercase text-[#52525B]">Last name</label>
+              <label className="text-[11px] uppercase text-crm-fg-muted">Last name</label>
               <input
-                className="mt-1 w-full h-10 px-3 rounded-lg bg-black/50 border border-white/10 text-sm"
+                className="mt-1 w-full h-10 px-3 rounded-lg bg-crm-muted border border-crm-border text-sm"
                 value={createForm.last_name}
                 onChange={(e) => setCreateForm((f) => ({ ...f, last_name: e.target.value }))}
               />
             </div>
             <div>
-              <label className="text-[11px] uppercase text-[#52525B]">Phone *</label>
+              <label className="text-[11px] uppercase text-crm-fg-muted">Phone *</label>
               <input
-                className="mt-1 w-full h-10 px-3 rounded-lg bg-black/50 border border-white/10 text-sm"
+                className="mt-1 w-full h-10 px-3 rounded-lg bg-crm-muted border border-crm-border text-sm"
                 value={createForm.phone}
                 onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
                 required
               />
             </div>
             <div>
-              <label className="text-[11px] uppercase text-[#52525B]">Project</label>
+              <label className="text-[11px] uppercase text-crm-fg-muted">Project</label>
               <select
-                className="mt-1 w-full h-10 px-3 rounded-lg bg-black/50 border border-white/10 text-sm"
+                className="mt-1 w-full h-10 px-3 rounded-lg bg-crm-muted border border-crm-border text-sm"
                 value={createForm.project}
                 onChange={(e) => setCreateForm((f) => ({ ...f, project: e.target.value }))}
               >
@@ -1088,7 +1088,7 @@ const WhatsAppInboxPage = () => {
             <Button
               type="submit"
               disabled={createSubmitting}
-              className="w-full bg-green-600 hover:bg-green-700 text-white"
+              className="w-full bg-green-600 hover:bg-green-700 text-white text-on-brand"
             >
               {createSubmitting ? (
                 <Loader2 size={16} className="animate-spin mr-2" />

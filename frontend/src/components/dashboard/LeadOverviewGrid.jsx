@@ -11,7 +11,7 @@ const GRID_CLASS =
 function MetricSkeleton() {
   return (
     <div
-      className="min-h-[120px] bg-[#1A1A1A] border border-white/10 rounded-md p-4 animate-pulse"
+      className="min-h-[120px] bg-crm-elevated border border-crm-border rounded-md p-4 animate-pulse"
       aria-hidden
     >
       <div className="h-6 w-10 bg-white/10 rounded-sm mb-3" />
@@ -55,15 +55,15 @@ export const LeadOverviewGrid = memo(function LeadOverviewGrid({
   if (error) {
     return (
       <div
-        className="rounded-md border border-white/10 bg-[#1A1A1A] p-6 text-center"
+        className="rounded-md border border-crm-border bg-crm-elevated p-6 text-center"
         data-testid="lead-overview-error"
       >
-        <p className="text-sm text-[#A1A1AA] mb-3">{error}</p>
+        <p className="text-sm text-crm-fg-secondary mb-3">{error}</p>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="border-white/10 text-[#EDEDED]"
+          className="border-crm-border text-crm-fg"
           onClick={onRetry}
         >
           Retry

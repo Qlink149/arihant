@@ -153,11 +153,11 @@ const DevDocsPage = () => {
     <div className="space-y-3 max-w-5xl">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-xl font-semibold text-white" data-testid="dev-docs-title">Developer Documentation</h1>
-        <p className="text-[#A1A1AA] mt-1 text-sm">Technical architecture, database schema, API reference, and data flow</p>
-        <p className="text-[#52525B] text-sm mt-4 max-w-3xl leading-relaxed">
-          The React app talks to a FastAPI backend under the <code className="bg-black/50 px-1.5 py-0.5 rounded text-[#C5A059] text-xs">/api</code> prefix.
-          Authenticate with <code className="bg-black/50 px-1 rounded text-xs text-[#C5A059]">POST /api/auth/login</code> (form-encoded username/password), store the JWT, then send{' '}
-          <code className="bg-black/50 px-1 rounded text-xs text-[#C5A059]">Authorization: Bearer &lt;token&gt;</code> on all requests below.
+        <p className="text-crm-fg-secondary mt-1 text-sm">Technical architecture, database schema, API reference, and data flow</p>
+        <p className="text-crm-fg-muted text-sm mt-4 max-w-3xl leading-relaxed">
+          The React app talks to a FastAPI backend under the <code className="bg-crm-muted px-1.5 py-0.5 rounded text-[#C5A059] text-xs">/api</code> prefix.
+          Authenticate with <code className="bg-crm-muted px-1 rounded text-xs text-[#C5A059]">POST /api/auth/login</code> (form-encoded username/password), store the JWT, then send{' '}
+          <code className="bg-crm-muted px-1 rounded text-xs text-[#C5A059]">Authorization: Bearer &lt;token&gt;</code> on all requests below.
           Primary domains: leads (CRM records and timeline), auth, analytics (dashboard + sales rollups), and marketing (spend CRUD + dashboard).
         </p>
       </motion.div>
@@ -173,7 +173,7 @@ const DevDocsPage = () => {
             <div className="w-10 h-10 rounded-lg bg-[#C5A059]/20 flex items-center justify-center"><c.icon className="text-[#C5A059]" size={20} /></div>
             <div>
               <p className="text-white font-medium">{c.value}</p>
-              <p className="text-[#52525B] text-xs">{c.sub}</p>
+              <p className="text-crm-fg-muted text-xs">{c.sub}</p>
             </div>
           </div>
         ))}
@@ -185,7 +185,7 @@ const DevDocsPage = () => {
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {['Facebook/Website Lead', 'Webhook / CSV Upload', 'leads collection', 'Auto-Assignment Engine', 'Sales Rep Dashboard', 'WhatsApp Follow-up', 'Notifications'].map((step, i) => (
             <React.Fragment key={step}>
-              <span className="px-3 py-1.5 bg-black/40 rounded-lg text-white text-xs border border-white/10">{step}</span>
+              <span className="px-3 py-1.5 bg-crm-muted rounded-lg text-white text-xs border border-crm-border">{step}</span>
               {i < 6 && <ArrowRight size={14} className="text-[#C5A059]" />}
             </React.Fragment>
           ))}
@@ -195,23 +195,23 @@ const DevDocsPage = () => {
       {/* Database Schema */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="glass-card rounded-lg p-6">
         <h2 className="font-serif text-xl text-white mb-4 flex items-center gap-2"><Database className="text-[#C5A059]" size={20} /> Database Schema</h2>
-        <p className="text-[#52525B] text-sm mb-4">MongoDB • Connection: <code className="bg-black/50 px-2 py-0.5 rounded text-[#C5A059] text-xs">MONGO_URL</code> env var • DB: <code className="bg-black/50 px-2 py-0.5 rounded text-[#C5A059] text-xs">DB_NAME</code></p>
+        <p className="text-crm-fg-muted text-sm mb-4">MongoDB • Connection: <code className="bg-crm-muted px-2 py-0.5 rounded text-[#C5A059] text-xs">MONGO_URL</code> env var • DB: <code className="bg-crm-muted px-2 py-0.5 rounded text-[#C5A059] text-xs">DB_NAME</code></p>
         <div className="space-y-3">
           {COLLECTIONS.map(col => (
             <div key={col.name} className="border border-white/5 rounded-lg overflow-hidden">
               <button onClick={() => toggle(col.name, setExpandedCollections)} className="w-full flex items-center justify-between p-3 hover:bg-white/5 transition-colors" data-testid={`collection-${col.name}`}>
                 <div className="flex items-center gap-3">
-                  {expandedCollections[col.name] ? <ChevronDown size={14} className="text-[#C5A059]" /> : <ChevronRight size={14} className="text-[#52525B]" />}
+                  {expandedCollections[col.name] ? <ChevronDown size={14} className="text-[#C5A059]" /> : <ChevronRight size={14} className="text-crm-fg-muted" />}
                   <code className="text-[#C5A059] text-sm font-medium">{col.name}</code>
-                  <span className="text-[#52525B] text-xs">— {col.desc}</span>
+                  <span className="text-crm-fg-muted text-xs">— {col.desc}</span>
                 </div>
-                <span className="text-[#52525B] text-xs">{col.fields.length} fields</span>
+                <span className="text-crm-fg-muted text-xs">{col.fields.length} fields</span>
               </button>
               {expandedCollections[col.name] && (
                 <div className="border-t border-white/5 p-3 bg-black/20">
                   <table className="w-full text-xs">
-                    <thead><tr className="text-[#52525B]"><th className="text-left py-1 px-2">Field</th><th className="text-left py-1 px-2">Type</th><th className="text-left py-1 px-2">Description</th></tr></thead>
-                    <tbody>{col.fields.map(f => <tr key={f.name} className="border-t border-white/5"><td className="py-1.5 px-2 text-[#C5A059] font-mono">{f.name}</td><td className="py-1.5 px-2 text-[#A1A1AA]">{f.type}</td><td className="py-1.5 px-2 text-[#52525B]">{f.desc}</td></tr>)}</tbody>
+                    <thead><tr className="text-crm-fg-muted"><th className="text-left py-1 px-2">Field</th><th className="text-left py-1 px-2">Type</th><th className="text-left py-1 px-2">Description</th></tr></thead>
+                    <tbody>{col.fields.map(f => <tr key={f.name} className="border-t border-white/5"><td className="py-1.5 px-2 text-[#C5A059] font-mono">{f.name}</td><td className="py-1.5 px-2 text-crm-fg-secondary">{f.type}</td><td className="py-1.5 px-2 text-crm-fg-muted">{f.desc}</td></tr>)}</tbody>
                   </table>
                 </div>
               )}
@@ -223,16 +223,16 @@ const DevDocsPage = () => {
       {/* API Endpoints */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="glass-card rounded-lg p-6">
         <h2 className="font-serif text-xl text-white mb-4 flex items-center gap-2"><Code className="text-[#C5A059]" size={20} /> API Endpoints</h2>
-        <p className="text-[#52525B] text-sm mb-4">All endpoints are prefixed with <code className="bg-black/50 px-2 py-0.5 rounded text-[#C5A059] text-xs">/api</code> • Auth: Bearer JWT token (except webhook)</p>
+        <p className="text-crm-fg-muted text-sm mb-4">All endpoints are prefixed with <code className="bg-crm-muted px-2 py-0.5 rounded text-[#C5A059] text-xs">/api</code> • Auth: Bearer JWT token (except webhook)</p>
         <div className="space-y-4">
           {API_ENDPOINTS.map(group => (
             <div key={group.group} className="border border-white/5 rounded-lg overflow-hidden">
               <button onClick={() => toggle(group.group, setExpandedGroups)} className="w-full flex items-center justify-between p-3 hover:bg-white/5 transition-colors">
                 <div className="flex items-center gap-3">
-                  {expandedGroups[group.group] ? <ChevronDown size={14} className="text-[#C5A059]" /> : <ChevronRight size={14} className="text-[#52525B]" />}
+                  {expandedGroups[group.group] ? <ChevronDown size={14} className="text-[#C5A059]" /> : <ChevronRight size={14} className="text-crm-fg-muted" />}
                   <span className="text-white text-sm font-medium">{group.group}</span>
                 </div>
-                <span className="text-[#52525B] text-xs">{group.endpoints.length} endpoints</span>
+                <span className="text-crm-fg-muted text-xs">{group.endpoints.length} endpoints</span>
               </button>
               {expandedGroups[group.group] && (
                 <div className="border-t border-white/5 divide-y divide-white/5">
@@ -242,10 +242,10 @@ const DevDocsPage = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <code className="text-white text-xs font-mono">{ep.path}</code>
-                          <button onClick={() => copy(ep.path)} className="text-[#52525B] hover:text-[#C5A059]">{copied === ep.path ? <Check size={12} /> : <Copy size={12} />}</button>
+                          <button onClick={() => copy(ep.path)} className="text-crm-fg-muted hover:text-[#C5A059]">{copied === ep.path ? <Check size={12} /> : <Copy size={12} />}</button>
                         </div>
-                        <p className="text-[#52525B] text-xs mt-0.5">{ep.desc}</p>
-                        <p className="text-[#A1A1AA] text-[10px] mt-0.5">Params: {ep.params}</p>
+                        <p className="text-crm-fg-muted text-xs mt-0.5">{ep.desc}</p>
+                        <p className="text-crm-fg-secondary text-[10px] mt-0.5">Params: {ep.params}</p>
                       </div>
                     </div>
                   ))}
@@ -261,8 +261,8 @@ const DevDocsPage = () => {
         <h2 className="font-serif text-xl text-white mb-4 flex items-center gap-2"><Lock className="text-[#C5A059]" size={20} /> Environment Variables</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead><tr className="text-[#52525B] border-b border-white/10"><th className="text-left py-2 px-3">Variable</th><th className="text-left py-2 px-3">Description</th><th className="text-left py-2 px-3">Example</th></tr></thead>
-            <tbody>{ENV_VARS.map(v => <tr key={v.name} className="border-b border-white/5"><td className="py-2 px-3 text-[#C5A059] font-mono">{v.name}</td><td className="py-2 px-3 text-[#A1A1AA]">{v.desc}</td><td className="py-2 px-3 text-[#52525B]">{v.example}</td></tr>)}</tbody>
+            <thead><tr className="text-crm-fg-muted border-b border-crm-border"><th className="text-left py-2 px-3">Variable</th><th className="text-left py-2 px-3">Description</th><th className="text-left py-2 px-3">Example</th></tr></thead>
+            <tbody>{ENV_VARS.map(v => <tr key={v.name} className="border-b border-white/5"><td className="py-2 px-3 text-[#C5A059] font-mono">{v.name}</td><td className="py-2 px-3 text-crm-fg-secondary">{v.desc}</td><td className="py-2 px-3 text-crm-fg-muted">{v.example}</td></tr>)}</tbody>
           </table>
         </div>
       </motion.div>

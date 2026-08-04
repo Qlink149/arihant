@@ -93,57 +93,57 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-[#0A0A0A]">
+    <div className="min-h-screen relative overflow-hidden bg-crm">
       <Dialog open={pwdModalOpen} onOpenChange={setPwdModalOpen}>
-        <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-md">
+        <DialogContent className="bg-crm-elevated border-crm-border text-white max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-serif text-xl text-[#EDEDED]">Change password</DialogTitle>
-            <p className="text-[#52525B] text-sm font-normal pt-1">
+            <DialogTitle className="font-serif text-xl text-crm-fg">Change password</DialogTitle>
+            <p className="text-crm-fg-muted text-sm font-normal pt-1">
               Enter your account email and current password, then choose a new password. You will stay on this page and can sign in after.
             </p>
           </DialogHeader>
           <form onSubmit={handleChangePasswordFromLogin} className="space-y-4 pt-2">
             <div>
-              <label className="block text-sm text-[#A1A1AA] mb-1">Email</label>
+              <label className="block text-sm text-crm-fg-secondary mb-1">Email</label>
               <Input
                 type="email"
                 value={pwdEmail}
                 onChange={(e) => setPwdEmail(e.target.value)}
-                className="bg-black/50 border-white/10"
+                className="bg-crm-muted border-crm-border"
                 required
                 autoComplete="username"
               />
             </div>
             <div>
-              <label className="block text-sm text-[#A1A1AA] mb-1">Current password</label>
+              <label className="block text-sm text-crm-fg-secondary mb-1">Current password</label>
               <Input
                 type="password"
                 value={pwdCurrent}
                 onChange={(e) => setPwdCurrent(e.target.value)}
-                className="bg-black/50 border-white/10"
+                className="bg-crm-muted border-crm-border"
                 required
                 autoComplete="current-password"
               />
             </div>
             <div>
-              <label className="block text-sm text-[#A1A1AA] mb-1">New password</label>
+              <label className="block text-sm text-crm-fg-secondary mb-1">New password</label>
               <Input
                 type="password"
                 value={pwdNew}
                 onChange={(e) => setPwdNew(e.target.value)}
-                className="bg-black/50 border-white/10"
+                className="bg-crm-muted border-crm-border"
                 required
                 minLength={8}
                 autoComplete="new-password"
               />
             </div>
             <div>
-              <label className="block text-sm text-[#A1A1AA] mb-1">Confirm new password</label>
+              <label className="block text-sm text-crm-fg-secondary mb-1">Confirm new password</label>
               <Input
                 type="password"
                 value={pwdConfirm}
                 onChange={(e) => setPwdConfirm(e.target.value)}
-                className="bg-black/50 border-white/10"
+                className="bg-crm-muted border-crm-border"
                 required
                 autoComplete="new-password"
               />
@@ -178,7 +178,7 @@ const LoginPage = () => {
       <AnimatePresence>
         {showTransition && (
           <motion.div
-            className="fixed inset-0 z-50 bg-[#0A0A0A] flex flex-col items-center justify-center"
+            className="fixed inset-0 z-50 bg-crm flex flex-col items-center justify-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -227,11 +227,11 @@ const LoginPage = () => {
               transition={{ delay: 2 }}
             >
               <h1 className="font-serif text-3xl text-[#C5A059]">Welcome to Arihant</h1>
-              <p className="text-[#A1A1AA] mt-2">Sales Intelligence Dashboard</p>
+              <p className="text-crm-fg-secondary mt-2">Sales Intelligence Dashboard</p>
             </motion.div>
 
             <motion.div
-              className="mt-8 h-1 w-48 bg-[#1A1A1A] rounded-full overflow-hidden"
+              className="mt-8 h-1 w-48 bg-crm-elevated rounded-full overflow-hidden"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 2 }}
@@ -275,20 +275,20 @@ const LoginPage = () => {
             transition={{ delay: 1 }}
           >
             <div className="text-center mb-8">
-              <h1 className="font-serif text-2xl text-[#EDEDED]" data-testid="login-title">
+              <h1 className="font-serif text-2xl text-crm-fg" data-testid="login-title">
                 Sales Intelligence
               </h1>
-              <p className="text-[#A1A1AA] text-sm mt-2">Sign in to access your dashboard</p>
+              <p className="text-crm-fg-secondary text-sm mt-2">Sign in to access your dashboard</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
-                <label className="block text-sm text-[#A1A1AA] mb-2">Email Address</label>
+                <label className="block text-sm text-crm-fg-secondary mb-2">Email Address</label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full h-12 px-4 bg-black/50 border border-white/20 rounded-md text-white focus:border-[#C5A059] transition-colors"
+                  className="w-full h-12 px-4 bg-crm-muted border border-white/20 rounded-md text-white focus:border-[#C5A059] transition-colors"
                   placeholder="you@company.com"
                   required
                   data-testid="login-email-input"
@@ -296,13 +296,13 @@ const LoginPage = () => {
               </div>
 
               <div>
-                <label className="block text-sm text-[#A1A1AA] mb-2">Password</label>
+                <label className="block text-sm text-crm-fg-secondary mb-2">Password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full h-12 px-4 pr-12 bg-black/50 border border-white/20 rounded-md text-white focus:border-[#C5A059] transition-colors"
+                    className="w-full h-12 px-4 pr-12 bg-crm-muted border border-white/20 rounded-md text-white focus:border-[#C5A059] transition-colors"
                     placeholder="Enter your password"
                     required
                     data-testid="login-password-input"
@@ -310,7 +310,7 @@ const LoginPage = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-[#A1A1AA] hover:text-white transition-colors"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-crm-fg-secondary hover:text-white transition-colors"
                     data-testid="toggle-password-btn"
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -361,12 +361,12 @@ const LoginPage = () => {
                 >
                   Change password
                 </button>
-                <span className="text-[#52525B]"> · </span>
-                <span className="text-[#52525B] text-xs">Requires your current password</span>
+                <span className="text-crm-fg-muted"> · </span>
+                <span className="text-crm-fg-muted text-xs">Requires your current password</span>
               </p>
             </form>
 
-            <p className="text-center text-[#52525B] text-xs mt-8">Arihant Spaces - Crafting Memorable Spaces Since 1995</p>
+            <p className="text-center text-crm-fg-muted text-xs mt-8">Arihant Spaces - Crafting Memorable Spaces Since 1995</p>
           </motion.div>
         </motion.div>
       </div>

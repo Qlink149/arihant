@@ -27,7 +27,7 @@ export function TaskDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#1A1A1A] border-white/10 text-white max-w-lg">
+      <DialogContent className="bg-crm-elevated border-crm-border text-white max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-serif text-xl flex items-center gap-2">
             {isSla ? <Flag size={18} className="text-[#C5A059]" /> : null}
@@ -36,18 +36,18 @@ export function TaskDetailModal({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="rounded-lg border border-crm-border bg-black/20 p-3">
             <p className="text-white text-sm break-words">{task?.description || '—'}</p>
 
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#A1A1AA]">
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-crm-fg-secondary">
               {due ? (
-                <span className={overdue ? 'text-red-400' : 'text-[#A1A1AA]'}>
+                <span className={overdue ? 'text-red-400' : 'text-crm-fg-secondary'}>
                   <Calendar size={12} className="inline mr-1" />
                   {due}
                   {overdue ? ' · Overdue' : ''}
                 </span>
               ) : (
-                <span className="text-[#52525B]">No due date</span>
+                <span className="text-crm-fg-muted">No due date</span>
               )}
               {task?.priority ? (
                 <CrmBadge variant={priorityBadge.variant} size="xs" uppercase>
@@ -64,20 +64,20 @@ export function TaskDetailModal({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-              <p className="text-[#52525B] text-xs uppercase tracking-wider">Assigned to</p>
+            <div className="rounded-lg border border-crm-border bg-black/20 p-3">
+              <p className="text-crm-fg-muted text-xs uppercase tracking-wider">Assigned to</p>
               <p className="text-white text-sm mt-1">{task?.assigned_to_name || task?.assigned_to || '—'}</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-              <p className="text-[#52525B] text-xs uppercase tracking-wider">Status</p>
+            <div className="rounded-lg border border-crm-border bg-black/20 p-3">
+              <p className="text-crm-fg-muted text-xs uppercase tracking-wider">Status</p>
               <p className="text-white text-sm mt-1">{task?.status || '—'}</p>
             </div>
           </div>
 
           {task?.lead_id ? (
-            <div className="rounded-lg border border-white/10 bg-black/20 p-3 flex items-center justify-between gap-3">
+            <div className="rounded-lg border border-crm-border bg-black/20 p-3 flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[#52525B] text-xs uppercase tracking-wider">Linked lead</p>
+                <p className="text-crm-fg-muted text-xs uppercase tracking-wider">Linked lead</p>
                 <p className="text-white text-sm mt-1 truncate">
                   {task?.lead_name || task?.lead_id}
                 </p>
@@ -85,7 +85,7 @@ export function TaskDetailModal({
               <Button
                 type="button"
                 variant="outline"
-                className="border-white/10 text-white hover:bg-white/5"
+                className="border-crm-border text-white hover:bg-white/5"
                 onClick={() => onOpenLead?.(task.lead_id)}
               >
                 <ExternalLink size={14} className="mr-2" />
@@ -98,7 +98,7 @@ export function TaskDetailModal({
             <Button
               type="button"
               variant="outline"
-              className="border-white/10 text-white hover:bg-white/5"
+              className="border-crm-border text-white hover:bg-white/5"
               onClick={() => onOpenChange?.(false)}
             >
               Close
@@ -107,7 +107,7 @@ export function TaskDetailModal({
               <Button
                 type="button"
                 variant="outline"
-                className="border-white/10 text-white hover:bg-white/5"
+                className="border-crm-border text-white hover:bg-white/5"
                 onClick={() => onEdit?.(task)}
               >
                 Edit

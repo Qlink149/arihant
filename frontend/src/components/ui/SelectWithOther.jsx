@@ -80,12 +80,12 @@ export function SelectWithOther({
         onValueChange={handleSelectChange}
         disabled={disabled || loading}
       >
-        <SelectTrigger className="bg-black/50 border-white/10 text-white">
+        <SelectTrigger className="bg-crm-muted border-crm-border text-crm-fg">
           <SelectValue placeholder={loading ? loadingLabel : placeholder} />
         </SelectTrigger>
-        <SelectContent className="bg-[#1A1A1A] border-white/10 max-h-60 overflow-y-auto">
+        <SelectContent className="bg-crm-elevated border-crm-border max-h-60 overflow-y-auto">
           {loading ? (
-            <SelectItem value="__loading" disabled className="text-[#52525B]">
+            <SelectItem value="__loading" disabled className="text-crm-fg-muted">
               {loadingLabel}
             </SelectItem>
           ) : (
@@ -94,14 +94,14 @@ export function SelectWithOther({
                 <SelectItem
                   key={name}
                   value={name}
-                  className="text-white hover:bg-[#C5A059]/10"
+                  className="text-crm-fg hover:bg-[#C5A059]/10"
                 >
                   {name}
                 </SelectItem>
               ))}
               <SelectItem
                 value={OTHER_OPTION_VALUE}
-                className="text-white hover:bg-[#C5A059]/10"
+                className="text-crm-fg hover:bg-[#C5A059]/10"
               >
                 Other
               </SelectItem>
@@ -114,7 +114,7 @@ export function SelectWithOther({
           value={otherText}
           onChange={(e) => handleOtherTextChange(e.target.value)}
           placeholder={otherPlaceholder}
-          className="bg-black/50 border-white/10 text-white"
+          className="bg-crm-muted border-crm-border text-crm-fg"
           disabled={disabled}
           data-testid={otherInputTestId}
         />
