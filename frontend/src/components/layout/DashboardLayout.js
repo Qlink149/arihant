@@ -171,13 +171,13 @@ const DashboardLayout = () => {
     };
   }, [fetchNotifications]);
 
-  // Send heartbeat every 2 minutes
+  // Send heartbeat every 1 minute (Active Status "Beat" column)
   useEffect(() => {
     const sendHeartbeat = () => {
       activityAPI.heartbeat().catch(() => {});
     };
     sendHeartbeat();
-    const hbInterval = setInterval(sendHeartbeat, 120000);
+    const hbInterval = setInterval(sendHeartbeat, 60_000);
     return () => clearInterval(hbInterval);
   }, []);
 

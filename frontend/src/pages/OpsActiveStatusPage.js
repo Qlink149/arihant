@@ -70,7 +70,7 @@ const OpsActiveStatusPage = () => {
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Active Status</h1>
             <p className="text-muted-foreground text-sm">
-              Reps + admins — Online = logged in today (IST); SLA runs while on duty during hours
+              Online = on duty today (IST). Beat = last CRM heartbeat (~1 min while the tab is open).
             </p>
           </div>
         </div>
@@ -97,9 +97,9 @@ const OpsActiveStatusPage = () => {
             </CrmBadge>
           </div>
           <p className="text-xs">
-            Online means the user logged in (or was active) today IST. SLA routing pauses for a
-            user only if they are not on duty today, or for everyone outside business hours.
-            Session JWT lasts ~12 hours.
+            SLA auto-routing runs only during business hours and only for users who logged in or
+            sent a beat today (IST). Stale beats do not pause SLA the same day. JWT session lasts
+            ~12 hours (re-login needed for the app, not for duty). Page refreshes every 30s.
           </p>
         </div>
       )}
@@ -115,7 +115,8 @@ const OpsActiveStatusPage = () => {
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Role</th>
                   <th className="px-4 py-3 font-medium">Presence</th>
-                  <th className="px-4 py-3 font-medium">Last login / active</th>
+                  <th className="px-4 py-3 font-medium">Last login</th>
+                  <th className="px-4 py-3 font-medium">Beat</th>
                   <th className="px-4 py-3 font-medium">SLA pause</th>
                   <th className="px-4 py-3 font-medium">Open New</th>
                 </tr>
@@ -123,7 +124,7 @@ const OpsActiveStatusPage = () => {
               <tbody>
                 {reps.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                       No active reps or admins found
                     </td>
                   </tr>
@@ -144,8 +145,13 @@ const OpsActiveStatusPage = () => {
                           {PRESENCE_LABEL[rep.presence] || rep.presence}
                         </CrmBadge>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {formatLastActive(rep.minutes_since_active)}
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                        {formatRelativeMinutes(
+                          rep.minutes_since_login ?? rep.minutes_since_active
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap tabular-nums">
+                        {formatBeat(rep.seconds_since_beat, rep.minutes_since_beat)}
                       </td>
                       <td className="px-4 py-3 max-w-[280px]">
                         <div className="flex flex-col gap-0.5">
@@ -180,7 +186,7 @@ const OpsActiveStatusPage = () => {
   );
 };
 
-function formatLastActive(minutes) {
+function formatRelativeMinutes(minutes) {
   if (minutes == null) return '—';
   if (minutes <= 0) return 'Just now';
   if (minutes < 60) return `${minutes}m ago`;
@@ -188,6 +194,21 @@ function formatLastActive(minutes) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+/** Prefer seconds for fresh heartbeats so 30s poll / 1min beat is visible. */
+function formatBeat(seconds, minutes) {
+  if (seconds == null && minutes == null) return '—';
+  if (seconds != null) {
+    if (seconds < 5) return 'Just now';
+    if (seconds < 60) return `${seconds}s ago`;
+    const mins = Math.floor(seconds / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  }
+  return formatRelativeMinutes(minutes);
 }
 
 export default OpsActiveStatusPage;

@@ -26,6 +26,8 @@ async def record_heartbeat(current_user: dict = Depends(get_current_user)):
                 "full_name": current_user["full_name"],
                 "last_active": now_iso,
                 "last_active_dt": now_dt,
+                "last_heartbeat": now_iso,
+                "last_heartbeat_dt": now_dt,
                 "manual_status": manual,
             }
         },

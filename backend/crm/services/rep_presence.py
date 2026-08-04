@@ -137,6 +137,14 @@ def _minutes_since(last_dt: Optional[datetime], now_dt: datetime) -> Optional[in
     return int((now_dt - last_dt).total_seconds() / 60)
 
 
+def _seconds_since(last_dt: Optional[datetime], now_dt: datetime) -> Optional[int]:
+    if not last_dt:
+        return None
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=timezone.utc)
+    return max(0, int((now_dt - last_dt).total_seconds()))
+
+
 async def list_rep_presence_for_ops() -> List[dict]:
     now_dt = utc_now()
     blocked = await get_blocked_assignee_values()
@@ -168,13 +176,19 @@ async def list_rep_presence_for_ops() -> List[dict]:
             now_dt=now_dt,
         )
 
-        last_dt = (
+        login_dt = (
             coerce_datetime(activity.get("last_login_dt"))
             or coerce_datetime(activity.get("last_login"))
+        )
+        beat_dt = (
+            coerce_datetime(activity.get("last_heartbeat_dt"))
+            or coerce_datetime(activity.get("last_heartbeat"))
             or coerce_datetime(activity.get("last_active_dt"))
             or coerce_datetime(activity.get("last_active"))
         )
-        last_iso = last_dt.astimezone(timezone.utc).isoformat() if last_dt else None
+        # Prefer login for "Last login"; fall back to beat if they never stamped login.
+        last_login_iso = login_dt.astimezone(timezone.utc).isoformat() if login_dt else None
+        last_beat_iso = beat_dt.astimezone(timezone.utc).isoformat() if beat_dt else None
 
         result.append(
             {
@@ -184,8 +198,14 @@ async def list_rep_presence_for_ops() -> List[dict]:
                 "role": (user.get("role") or "").strip().lower() or "rep",
                 "presence": compute_presence_status(activity, now_dt),
                 "manual_status": activity.get("manual_status"),
-                "last_active_dt": last_iso,
-                "minutes_since_active": _minutes_since(last_dt, now_dt),
+                "last_login_dt": last_login_iso,
+                "minutes_since_login": _minutes_since(login_dt, now_dt),
+                "last_beat_dt": last_beat_iso,
+                "seconds_since_beat": _seconds_since(beat_dt, now_dt),
+                "minutes_since_beat": _minutes_since(beat_dt, now_dt),
+                # Back-compat for older UI: login if present, else beat
+                "last_active_dt": last_login_iso or last_beat_iso,
+                "minutes_since_active": _minutes_since(login_dt or beat_dt, now_dt),
                 "routing_eligible": routing_eligible,
                 "routing_ineligible_reason": reason,
                 "open_new_leads": open_new,
