@@ -78,7 +78,10 @@ def test_count_dashboard_operational_metrics_parses_facet():
         mock_db = MagicMock()
         mock_db.leads.aggregate = MagicMock(return_value=mock_cursor)
 
-        with patch("crm.services.lead_overview_service.db", mock_db):
+        with patch("crm.services.lead_overview_service.db", mock_db), patch(
+            "crm.services.lead_overview_service.enrich_follow_up_task_ids",
+            AsyncMock(),
+        ):
             counts = await count_dashboard_operational_metrics(
                 {}, ("missed_follow_up", "rnr")
             )

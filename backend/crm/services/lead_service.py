@@ -22,7 +22,7 @@ from crm.constants.lost_reason import (
     normalize_lost_reason,
 )
 from crm.core.platform_ops import assert_assignee_allowed
-from crm.core.state import db, resolve_project_id, resolve_user_id_by_full_name
+from crm.core.state import db, logger, resolve_project_id, resolve_user_id_by_full_name
 from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
 from crm.services.context_updates import dedupe_context_updates
 from crm.services.lead_projections import (
@@ -660,9 +660,16 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     # After stage change cancels SLA tasks, sync next_action_date unless this
     # transition explicitly set a new follow-up date (Visit Completed / Interested / SV).
     if status_changed and "next_action_date" not in patch:
-        from crm.services.lead_follow_up import recompute_lead_next_action_date
+        try:
+            from crm.services.lead_follow_up import recompute_lead_next_action_date
 
-        await recompute_lead_next_action_date(lead_id)
+            await recompute_lead_next_action_date(lead_id)
+        except Exception as e:
+            logger.warning(
+                "recompute next_action_date after status change failed lead=%s: %s",
+                lead_id,
+                e,
+            )
 
     if is_sla_activation:
         lead_name = f"{existing.get('first_name', '')} {existing.get('last_name', '')}".strip()

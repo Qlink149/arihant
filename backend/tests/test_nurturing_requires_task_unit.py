@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 
 import asyncio
+from unittest.mock import AsyncMock
+
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from crm.api.v1.endpoints.tasks import ContextUpdateCreate, TaskCreate
 from crm.models.schemas.lead_schemas import LeadUpdatePatch
@@ -109,6 +111,7 @@ def test_nurturing_transition_blocks_general_note_until_new_task(monkeypatch):
             await tasks_endpoints.add_context_update(
                 lead_id,
                 ContextUpdateCreate(note="hello", update_type="general_note"),
+                background_tasks=BackgroundTasks(),
                 current_user=current_user,
             )
         assert err.value.status_code == 409
@@ -125,6 +128,28 @@ def test_nurturing_transition_blocks_general_note_until_new_task(monkeypatch):
 
         monkeypatch.setattr(tasks_endpoints, "resolve_user_id_by_full_name", _resolve_user_id_by_full_name)
         monkeypatch.setattr(tasks_endpoints, "log_lead_event", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            "crm.services.lead_follow_up.recompute_lead_next_action_date",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            "crm.services.lead_follow_up.clear_missed_follow_up_after_activity",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            "crm.services.lead_follow_up.complete_overdue_pending_tasks",
+            AsyncMock(return_value=0),
+        )
+        monkeypatch.setattr(
+            tasks_endpoints,
+            "recompute_lead_next_action_date",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            tasks_endpoints,
+            "create_notification",
+            AsyncMock(return_value=None),
+        )
 
         await tasks_endpoints.add_task(
             lead_id,

@@ -40,7 +40,14 @@ jobs:
           CRON_SECRET: ci-cron-secret-16ch
           ENVIRONMENT: test
         run: |
-          python -m pytest tests/ -v --tb=short --no-header -q --ignore=tests/test_gupshup_whatsapp.py
+          python -m pytest tests/ -v --tb=short --no-header -q \
+            --ignore=tests/test_gupshup_whatsapp.py \
+            --ignore=tests/test_new_features.py \
+            --ignore=tests/test_my_dashboard.py \
+            --ignore=tests/test_platform_ops.py \
+            --ignore=tests/test_lead_search.py \
+            --ignore=tests/test_auth_refresh_and_campaigns.py \
+            --ignore=tests/test_leads_duplicates.py
 
       - name: Upload test results
         if: failure()

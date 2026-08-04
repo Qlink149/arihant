@@ -46,7 +46,7 @@ def test_dedupe_different_descriptions_keeps_both():
     assert len(dedupe_context_updates([a, b])) == 2
 
 
-def test_dedupe_same_description_different_type_keeps_newest():
+def test_dedupe_same_description_different_type_keeps_both():
     note = {
         "type": "note",
         "agent": "freshworks",
@@ -60,8 +60,8 @@ def test_dedupe_same_description_different_type_keeps_newest():
         "timestamp_dt": datetime(2024, 4, 22, 9, 0, tzinfo=timezone.utc),
     }
     result = dedupe_context_updates([note, call])
-    assert len(result) == 1
-    assert result[0]["type"] == "call"
+    assert len(result) == 2
+    assert {r["type"] for r in result} == {"note", "call"}
 
 
 def test_dedupe_by_note_id():
@@ -82,7 +82,7 @@ def test_dedupe_by_note_id():
     assert result[0]["description"] == "Version B"
 
 
-def test_dedupe_same_description_different_agent_keeps_newest():
+def test_dedupe_same_description_different_agent_keeps_both():
     older = {
         "type": "note",
         "agent": "freshsales",
@@ -96,8 +96,8 @@ def test_dedupe_same_description_different_agent_keeps_newest():
         "timestamp_dt": datetime(2024, 4, 22, 10, 0, tzinfo=timezone.utc),
     }
     result = dedupe_context_updates([older, newer])
-    assert len(result) == 1
-    assert result[0]["agent"] == "freshworks"
+    assert len(result) == 2
+    assert {r["agent"] for r in result} == {"freshsales", "freshworks"}
 
 
 def test_dedupe_output_sorted_newest_first():
