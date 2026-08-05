@@ -22,9 +22,12 @@ async def get_routing_settings() -> dict:
 
 
 def _new_lead_status_filter() -> dict:
+    """New / blank status (create form used to leave status empty)."""
     return {
         "$or": [
             {"lead_status": {"$regex": r"^\s*new\s*$", "$options": "i"}},
+            {"lead_status": {"$in": [None, ""]}},
+            {"lead_status": {"$exists": False}},
             {
                 "$and": [
                     {"lead_status": {"$regex": r"^\s*open\s*$", "$options": "i"}},
@@ -37,14 +40,19 @@ def _new_lead_status_filter() -> dict:
 
 async def count_open_new_leads(user_id: str, full_name: str) -> int:
     """Active New leads for round-robin load (excludes SLA-paused imports)."""
+    # Must nest status $or and assignee $or — a flat dict would overwrite one $or.
     q = {
-        **_new_lead_status_filter(),
-        "sla_paused": sla_paused_exclusion_clause(),
-        "$or": [
-            {"assigned_user_id": user_id},
-            {"assigned_to": full_name},
-            {"presales_agent": full_name},
-        ],
+        "$and": [
+            _new_lead_status_filter(),
+            {"sla_paused": sla_paused_exclusion_clause()},
+            {
+                "$or": [
+                    {"assigned_user_id": user_id},
+                    {"assigned_to": full_name},
+                    {"presales_agent": full_name},
+                ]
+            },
+        ]
     }
     return await db.leads.count_documents(q)
 

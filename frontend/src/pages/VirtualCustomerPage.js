@@ -175,7 +175,7 @@ const EMPTY_NEW_CUSTOMER = {
   presales_agent: '',
   assigned_user_id: '',
   presales_description: '',
-  lead_status: '',
+  lead_status: 'New',
 };
 
 const parseTotalFromResponse = (response) => {
@@ -980,6 +980,7 @@ const VirtualCustomerPage = () => {
     setSubmittingCustomer(true);
     try {
       const payload = { ...newCustomer };
+      payload.lead_status = (payload.lead_status || '').trim() || 'New';
       if (payload.meta_qualified === 'yes') payload.meta_qualified = true;
       else if (payload.meta_qualified === 'no') payload.meta_qualified = false;
       else if (payload.meta_qualified === 'unset' || payload.meta_qualified === '') payload.meta_qualified = null;

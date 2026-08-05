@@ -120,6 +120,8 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
             raise HTTPException(status_code=400, detail=f"Duplicate lead found with same phone number (ID: {existing['id']})")
 
     lead_dict = lead.model_dump()
+    # UI may send "" when status left unset — treat as New (same as default).
+    lead_dict["lead_status"] = (str(lead_dict.get("lead_status") or "").strip() or "New")
     if lead_dict.get("site_visit_count") is None:
         lead_dict["site_visit_count"] = 0
     else:
