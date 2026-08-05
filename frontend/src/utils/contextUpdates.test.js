@@ -30,4 +30,16 @@ describe('getTimelineForDisplay', () => {
     expect(secondPage).toHaveLength(20);
     expect(secondPage[secondPage.length - 1].description).toBe('Event 0');
   });
+
+  it('prefers _mongo_index over display order for edit PATCH', () => {
+    const updates = [
+      { type: 'created', description: 'Lead created', timestamp: '2024-01-01T00:00:00Z', _mongo_index: 0 },
+      { type: 'note', description: 'Older note', timestamp: '2024-06-01T00:00:00Z', _mongo_index: 1 },
+      { type: 'note', description: 'Newest note', timestamp: '2024-12-01T00:00:00Z', _mongo_index: 2 },
+    ];
+    const timeline = getTimelineForDisplay(updates);
+    expect(timeline[0].description).toBe('Newest note');
+    expect(timeline[0]._source_index).toBe(2);
+    expect(timeline[1]._source_index).toBe(1);
+  });
 });

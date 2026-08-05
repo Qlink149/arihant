@@ -26,6 +26,10 @@ class ContextUpdateCreate(BaseModel):
 
 class ContextUpdatePatch(BaseModel):
     note: str
+    # Optional identity match when display index may not equal Mongo index
+    timestamp: Optional[str] = None
+    entry_type: Optional[str] = None
+    previous_description: Optional[str] = None
 
 
 class TaskCreate(BaseModel):
@@ -160,7 +164,7 @@ async def patch_context_update(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):
-    """Edit an existing timeline note/comment by index in context_updates."""
+    """Edit an existing timeline note/comment by Mongo array index (or identity match)."""
     await resolve_lead_or_403(lead_id, current_user)
     note = (update.note or "").strip()
     if not note:
@@ -172,10 +176,43 @@ async def patch_context_update(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     updates = list(lead.get("context_updates") or [])
-    if entry_index >= len(updates):
+
+    resolved_index = entry_index
+    # Prefer identity match when client sends timestamp/type (survives display reorder).
+    match_ts = (update.timestamp or "").strip()
+    match_type = (update.entry_type or "").strip().lower()
+    match_prev = (update.previous_description or "").strip()
+    if match_ts or match_type or match_prev:
+        found = None
+        for i, row in enumerate(updates):
+            if not isinstance(row, dict):
+                continue
+            row_type = (row.get("type") or row.get("update_type") or "").strip().lower()
+            if match_type and row_type != match_type and match_type not in row_type:
+                continue
+            row_ts = str(row.get("timestamp") or "").strip()
+            row_ts_dt = row.get("timestamp_dt")
+            ts_ok = True
+            if match_ts:
+                ts_ok = (
+                    match_ts == row_ts
+                    or (row_ts_dt is not None and match_ts in str(row_ts_dt))
+                    or match_ts[:19] == row_ts[:19]
+                )
+            if not ts_ok:
+                continue
+            if match_prev and (row.get("description") or "").strip() != match_prev:
+                continue
+            found = i
+            break
+        if found is None:
+            raise HTTPException(status_code=404, detail="Context entry not found")
+        resolved_index = found
+
+    if resolved_index >= len(updates):
         raise HTTPException(status_code=404, detail="Context entry not found")
 
-    entry = updates[entry_index]
+    entry = updates[resolved_index]
     if not isinstance(entry, dict):
         raise HTTPException(status_code=400, detail="Invalid context entry")
 
@@ -194,7 +231,7 @@ async def patch_context_update(
         "edited_by": current_user.get("full_name"),
         "edited_by_user_id": current_user.get("id"),
     }
-    updates[entry_index] = entry
+    updates[resolved_index] = entry
 
     set_fields = {
         "context_updates": updates,
@@ -202,7 +239,7 @@ async def patch_context_update(
         "updated_at_dt": now_dt,
     }
     # Keep stored recent_note in sync only when editing the newest timeline entry
-    if entry_index == len(updates) - 1:
+    if resolved_index == len(updates) - 1:
         set_fields["recent_note"] = note
 
     await db.leads.update_one({"id": lead_id}, {"$set": set_fields})
@@ -211,13 +248,17 @@ async def patch_context_update(
         lead_id=lead_id,
         actor_user_id=current_user.get("id"),
         actor_name=current_user.get("full_name"),
-        payload={"entry_index": entry_index},
+        payload={"entry_index": resolved_index},
     )
 
     from crm.services.ai_lead_regen import schedule_lead_ai_refresh
 
     schedule_lead_ai_refresh(lead_id, background_tasks)
-    return {"message": "Context entry updated", "context_entry": entry, "entry_index": entry_index}
+    return {
+        "message": "Context entry updated",
+        "context_entry": entry,
+        "entry_index": resolved_index,
+    }
 
 
 @router.post("/leads/{lead_id}/tasks")

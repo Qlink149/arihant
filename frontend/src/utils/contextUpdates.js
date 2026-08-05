@@ -44,13 +44,17 @@ export function dedupeContextUpdates(updates) {
 
 /**
  * Timeline entries for UI display: deduped, newest-first.
- * Do not reverse this list — index 0 is the latest activity.
+ * Prefer backend `_mongo_index` (raw array index) for edit PATCH — display order
+ * is newest-first and must not be used as the Mongo index.
  */
 export function getTimelineForDisplay(updates) {
   if (!updates?.length) return [];
-  const withIndex = updates.map((entry, index) =>
-    entry && typeof entry === 'object' ? { ...entry, _source_index: index } : entry
-  );
+  const withIndex = updates.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') return entry;
+    const mongoIndex =
+      typeof entry._mongo_index === 'number' ? entry._mongo_index : index;
+    return { ...entry, _source_index: mongoIndex };
+  });
   return dedupeContextUpdates(withIndex);
 }
 

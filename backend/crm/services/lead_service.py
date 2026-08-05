@@ -69,6 +69,19 @@ def _normalize_context_updates_for_response(updates: List[dict]) -> List[dict]:
     return normalized
 
 
+def _attach_mongo_indices(updates: List[dict]) -> List[dict]:
+    """Stamp original array index before display dedupe/sort (needed for edit PATCH)."""
+    out: List[dict] = []
+    for i, entry in enumerate(updates or []):
+        if isinstance(entry, dict):
+            item = dict(entry)
+            item["_mongo_index"] = i
+            out.append(item)
+        else:
+            out.append(entry)
+    return out
+
+
 def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
     if lead.get("strategic_next_moves") is None:
         lead["strategic_next_moves"] = []
@@ -76,7 +89,7 @@ def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
         apply_list_recent_note(lead)
     else:
         lead["context_updates"] = _normalize_context_updates_for_response(
-            dedupe_context_updates(lead.get("context_updates") or [])
+            dedupe_context_updates(_attach_mongo_indices(lead.get("context_updates") or []))
         )
     dt = lead.get("ai_last_generated_at_dt")
     if isinstance(dt, datetime):

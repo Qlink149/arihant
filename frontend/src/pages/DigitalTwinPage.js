@@ -297,6 +297,7 @@ const DigitalTwinPage = () => {
   const [contextType, setContextType] = useState('general_note');
   const [savingContext, setSavingContext] = useState(false);
   const [editingContextIndex, setEditingContextIndex] = useState(null);
+  const [editingContextMeta, setEditingContextMeta] = useState({});
   const [editContextNote, setEditContextNote] = useState('');
   const [savingEditContext, setSavingEditContext] = useState(false);
   const [waTemplates, setWaTemplates] = useState([]);
@@ -713,9 +714,15 @@ const DigitalTwinPage = () => {
     }
     setSavingEditContext(true);
     try {
-      await leadsAPI.updateContext(leadId, editingContextIndex, { note: editContextNote.trim() });
+      await leadsAPI.updateContext(leadId, editingContextIndex, {
+        note: editContextNote.trim(),
+        timestamp: editingContextMeta.timestamp || undefined,
+        entry_type: editingContextMeta.type || undefined,
+        previous_description: editingContextMeta.previousDescription || undefined,
+      });
       toast.success('Note updated');
       setEditingContextIndex(null);
+      setEditingContextMeta({});
       setEditContextNote('');
       await handleLeadUpdated();
     } catch {
@@ -1149,6 +1156,7 @@ const DigitalTwinPage = () => {
                           className="h-7 text-xs border-crm-border"
                           onClick={() => {
                             setEditingContextIndex(null);
+                            setEditingContextMeta({});
                             setEditContextNote('');
                           }}
                         >
@@ -1166,6 +1174,11 @@ const DigitalTwinPage = () => {
                           title="Edit note"
                           onClick={() => {
                             setEditingContextIndex(update._source_index);
+                            setEditingContextMeta({
+                              timestamp: update.timestamp || update.timestamp_dt || '',
+                              type: update.type || update.update_type || '',
+                              previousDescription: update.description || '',
+                            });
                             setEditContextNote(update.description || '');
                           }}
                         >
