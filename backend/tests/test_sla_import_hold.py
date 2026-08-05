@@ -137,7 +137,7 @@ def test_create_lead_does_not_set_sla_paused():
             leads = _DummyLeads()
 
         with patch.object(lead_service, "db", _DummyDB()), patch.object(
-            lead_service, "assert_assignee_allowed", lambda *_a, **_k: None
+            lead_service, "assert_assignee_allowed", AsyncMock(return_value=None)
         ), patch.object(lead_service, "apply_nurture_temperature_rules", lambda *_a, **_k: None), patch.object(
             lead_service, "determine_lead_intent", lambda *_a, **_k: "Unknown"
         ), patch.object(lead_service, "is_vip_lead", lambda *_a, **_k: False), patch.object(
@@ -151,6 +151,8 @@ def test_create_lead_does_not_set_sla_paused():
             )
 
         assert "sla_paused" not in inserted or inserted.get("sla_paused") is not True
+        assert inserted.get("assigned_to") == "Tester"
+        assert inserted.get("assigned_user_id") == "u1"
 
     asyncio.run(_run())
 

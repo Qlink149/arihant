@@ -138,6 +138,7 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
 
     manual_assignee_name: Optional[str] = None
     manual_assignee_id: Optional[str] = None
+    assigned_to_creator = False
     presales_raw = (lead_dict.get("presales_agent") or "").strip()
     assigned_uid_raw = (lead_dict.get("assigned_user_id") or "").strip()
     if assigned_uid_raw or presales_raw:
@@ -152,9 +153,41 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
             manual_assignee_name = presales_raw
             manual_assignee_id = await resolve_user_id_by_full_name(manual_assignee_name)
         await assert_assignee_allowed(manual_assignee_name)
+    else:
+        creator_name = (current_user.get("full_name") or "").strip()
+        creator_id = (current_user.get("id") or "").strip()
+        if creator_name and creator_id:
+            manual_assignee_name = creator_name
+            manual_assignee_id = creator_id
+            assigned_to_creator = True
+            await assert_assignee_allowed(manual_assignee_name)
 
     now_dt = utc_now()
     now_iso = iso_utc_now()
+    context_updates: List[dict] = [
+        {
+            "type": "created",
+            "timestamp": now_iso,
+            "timestamp_dt": now_dt,
+            "description": "Lead created",
+            "agent": current_user["full_name"],
+            "actor_user_id": current_user.get("id"),
+            "actor_name": current_user.get("full_name"),
+        }
+    ]
+    if assigned_to_creator and manual_assignee_name:
+        context_updates.append(
+            {
+                "type": "assigned",
+                "timestamp": now_iso,
+                "timestamp_dt": now_dt,
+                "description": f"Assigned to {manual_assignee_name} (creator)",
+                "agent": current_user["full_name"],
+                "actor_user_id": current_user.get("id"),
+                "actor_name": current_user.get("full_name"),
+            }
+        )
+
     lead_dict.update(
         {
             "id": lead_id,
@@ -165,22 +198,13 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
             "assigned_user_id": manual_assignee_id,
             "assigned_to_name": manual_assignee_name,
             "presales_agent": manual_assignee_name or lead_dict.get("presales_agent"),
+            "routing_state": "assigned" if manual_assignee_name else None,
             "ai_persona_summary": None,
             "strategic_next_moves": [],
             "ai_grounded_profile": None,
             "ai_last_generated_at": None,
             "ai_last_generated_at_dt": None,
-            "context_updates": [
-                {
-                    "type": "created",
-                    "timestamp": now_iso,
-                    "timestamp_dt": now_dt,
-                    "description": "Lead created",
-                    "agent": current_user["full_name"],
-                    "actor_user_id": current_user.get("id"),
-                    "actor_name": current_user.get("full_name"),
-                }
-            ],
+            "context_updates": context_updates,
             "created_at": now_iso,
             "created_at_dt": now_dt,
             "updated_at": now_iso,
@@ -189,15 +213,6 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     )
 
     await db.leads.insert_one(lead_dict)
-
-    status_val = (lead_dict.get("lead_status") or "New").strip().lower()
-    if status_val == "new" and not manual_assignee_name:
-        from crm.services.assignment_router import route_new_lead
-
-        await route_new_lead(lead_id)
-        refreshed = await db.leads.find_one({"id": lead_id}, {"_id": 0})
-        if refreshed:
-            lead_dict.update(refreshed)
 
     lead_dict["created_at"] = coerce_datetime(lead_dict["created_at"]) or utc_now()
     lead_dict["updated_at"] = coerce_datetime(lead_dict["updated_at"]) or utc_now()
