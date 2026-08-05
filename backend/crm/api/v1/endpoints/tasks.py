@@ -196,7 +196,7 @@ async def patch_context_update(
             if match_ts:
                 ts_ok = (
                     match_ts == row_ts
-                    or (row_ts_dt is not None and match_ts in str(row_ts_dt))
+                    or (row_ts_dt is not None and match_ts[:19] in str(row_ts_dt))
                     or match_ts[:19] == row_ts[:19]
                 )
             if not ts_ok:
@@ -205,9 +205,9 @@ async def patch_context_update(
                 continue
             found = i
             break
-        if found is None:
-            raise HTTPException(status_code=404, detail="Context entry not found")
-        resolved_index = found
+        if found is not None:
+            resolved_index = found
+        # else: keep URL entry_index (mongo index from _mongo_index) as fallback
 
     if resolved_index >= len(updates):
         raise HTTPException(status_code=404, detail="Context entry not found")

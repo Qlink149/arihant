@@ -245,7 +245,15 @@ const DataDnaCard = memo(function DataDnaCard({ field, lead, onEdit, index }) {
           {field.label}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-white text-sm font-medium truncate">{value}</p>
+          <p
+            className={`text-white text-sm truncate ${
+              field.apiKey === 'phone' || field.apiKey === 'work_phone'
+                ? 'font-semibold'
+                : 'font-medium'
+            }`}
+          >
+            {value}
+          </p>
         </div>
       </div>
     );
@@ -272,7 +280,15 @@ const DataDnaCard = memo(function DataDnaCard({ field, lead, onEdit, index }) {
         {field.label}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-white text-sm font-medium truncate">{value}</p>
+        <p
+          className={`text-white text-sm truncate ${
+            field.apiKey === 'phone' || field.apiKey === 'work_phone'
+              ? 'font-semibold'
+              : 'font-medium'
+          }`}
+        >
+          {value}
+        </p>
         {aiValue && (
           <p className="text-[#737373] text-[10px] mt-0.5 truncate" title={`AI: ${aiValue}`}>
             AI: {aiValue}
