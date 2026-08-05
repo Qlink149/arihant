@@ -50,8 +50,12 @@ api.interceptors.response.use(
 
     const cfg = originalRequest || {};
     const skipGlobal = cfg.skipGlobalErrorToast === true;
+    const canceled =
+      error.code === 'ERR_CANCELED' ||
+      error.name === 'CanceledError' ||
+      (typeof axios.isCancel === 'function' && axios.isCancel(error));
 
-    if (!skipGlobal && !error.response) {
+    if (!skipGlobal && !error.response && !canceled) {
       toast.error(
         'Cannot reach API. Check that the backend is running and VITE_BACKEND_URL is set correctly.'
       );
