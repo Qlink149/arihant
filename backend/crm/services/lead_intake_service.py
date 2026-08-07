@@ -6,7 +6,6 @@ Does not use JWT ``create_lead`` (global phone 400 conflicts with soft dedupe).
 
 from __future__ import annotations
 
-import asyncio
 import re
 import uuid
 from collections import defaultdict, deque
@@ -367,7 +366,15 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         try:
             from crm.services.whatsapp_service import send_lead_ack
 
-            asyncio.create_task(send_lead_ack(lead_id, lead_dict))
+            # Await so ack cannot be dropped if the event loop/process exits
+            # right after ingest (CLI backfills, short-lived tasks, etc.).
+            ack = await send_lead_ack(lead_id, lead_dict)
+            if not ack.get("success"):
+                logger.warning(
+                    "intake send_lead_ack unsuccessful lead=%s: %s",
+                    lead_id,
+                    ack.get("error") or ack,
+                )
         except Exception as e:
             logger.warning("intake send_lead_ack failed lead=%s: %s", lead_id, e)
 

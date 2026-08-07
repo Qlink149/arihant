@@ -189,11 +189,11 @@ async def fetch_lead_from_graph(leadgen_id: str) -> dict:
     version = (META_API_VERSION or "v21.0").strip().lstrip("/")
     url = f"https://graph.facebook.com/{version}/{leadgen_id}"
     params = {
-        "access_token": token,
         "fields": "created_time,ad_id,adgroup_id,campaign_id,form_id,field_data",
     }
+    headers = {"Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        resp = await client.get(url, params=params)
+        resp = await client.get(url, params=params, headers=headers)
         resp.raise_for_status()
         return resp.json()
 
