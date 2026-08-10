@@ -125,6 +125,9 @@ def _parse_meta_lead_form_project_map() -> dict:
 
 META_LEAD_FORM_PROJECT_MAP: dict = _parse_meta_lead_form_project_map()
 
+# Webflow form_submission webhook (enquiry forms → CRM)
+WEBFLOW_WEBHOOK_SECRET = os.environ.get("WEBFLOW_WEBHOOK_SECRET", "")
+
 # ── Project → Brochure PDF filename mapping ─────────────────────────────────
 # Keys must match project names/IDs stored on leads (case-insensitive lookup).
 # Filenames must match files in backend/static/.
@@ -428,6 +431,17 @@ async def ensure_db_indexes():
         await db.meta_lead_ads_logs.create_index(
             [("created_at_dt", -1)],
             name="meta_lead_ads_logs_createdAtDt",
+        )
+
+        # webflow_leads_logs — inbound Webflow enquiry webhook audit
+        await db.webflow_leads_logs.create_index(
+            [("submission_id", 1)],
+            unique=True,
+            name="webflow_leads_logs_submission_id_uq",
+        )
+        await db.webflow_leads_logs.create_index(
+            [("created_at_dt", -1)],
+            name="webflow_leads_logs_createdAtDt",
         )
 
         # api_keys — multi-tenant public lead intake

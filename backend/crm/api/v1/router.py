@@ -27,6 +27,7 @@ from crm.api.v1.endpoints import (
     transfers,
     users,
     whatsapp,
+    webflow_leads_webhook,
 )
 
 api_router = APIRouter()
@@ -57,6 +58,7 @@ for r in [
     settings.router,
     meta_capi.router,
     meta_leads_webhook.router,
+    webflow_leads_webhook.router,
     misc.router,
 ]:
     api_router.include_router(r)
