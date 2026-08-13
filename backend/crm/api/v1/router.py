@@ -15,7 +15,6 @@ from crm.api.v1.endpoints import (
     lead_intake,
     marketing,
     meta_capi,
-    meta_leads_webhook,
     misc,
     my_dashboard,
     notifications,
@@ -28,6 +27,7 @@ from crm.api.v1.endpoints import (
     users,
     whatsapp,
     webflow_leads_webhook,
+    zapier_leads_webhook,
 )
 
 api_router = APIRouter()
@@ -57,7 +57,7 @@ for r in [
     cron.router,
     settings.router,
     meta_capi.router,
-    meta_leads_webhook.router,
+    zapier_leads_webhook.router,
     webflow_leads_webhook.router,
     misc.router,
 ]:

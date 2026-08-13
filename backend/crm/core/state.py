@@ -91,13 +91,8 @@ META_ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
 META_API_VERSION = os.environ.get("META_API_VERSION", "v21.0")
 META_TEST_EVENT_CODE = os.environ.get("META_TEST_EVENT_CODE", "")
 
-# Meta Lead Ads webhook (inbound Instant Forms → CRM)
-# Page token is NOT the same as META_ACCESS_TOKEN (CAPI).
-META_APP_ID = os.environ.get("META_APP_ID", "")
-META_APP_SECRET = os.environ.get("META_APP_SECRET", "")
-META_PAGE_ID = os.environ.get("META_PAGE_ID", "")
-META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "")
-META_LEAD_VERIFY_TOKEN = os.environ.get("META_LEAD_VERIFY_TOKEN", "")
+# Meta Instant Form → Zapier → CRM (inbound). Form ID → project.
+# Outbound CRM → Meta is CAPI above (META_ACCESS_TOKEN / META_DATASET_ID).
 
 _DEFAULT_META_LEAD_FORM_PROJECT_MAP = {
     "2124096745052549": "reserve-16",
@@ -124,6 +119,9 @@ def _parse_meta_lead_form_project_map() -> dict:
 
 
 META_LEAD_FORM_PROJECT_MAP: dict = _parse_meta_lead_form_project_map()
+
+# Zapier Meta Instant Form webhook (Meta → Zap → CRM)
+ZAPIER_WEBHOOK_SECRET = os.environ.get("ZAPIER_WEBHOOK_SECRET", "")
 
 # Webflow form_submission webhook (enquiry forms → CRM)
 WEBFLOW_WEBHOOK_SECRET = os.environ.get("WEBFLOW_WEBHOOK_SECRET", "")
@@ -422,15 +420,15 @@ async def ensure_db_indexes():
             name="meta_capi_logs_eventId",
         )
 
-        # meta_lead_ads_logs — inbound Lead Ads webhook audit
-        await db.meta_lead_ads_logs.create_index(
+        # zapier_leads_logs — inbound Meta→Zapier webhook audit
+        await db.zapier_leads_logs.create_index(
             [("leadgen_id", 1)],
             unique=True,
-            name="meta_lead_ads_logs_leadgen_id_uq",
+            name="zapier_leads_logs_leadgen_id_uq",
         )
-        await db.meta_lead_ads_logs.create_index(
+        await db.zapier_leads_logs.create_index(
             [("created_at_dt", -1)],
-            name="meta_lead_ads_logs_createdAtDt",
+            name="zapier_leads_logs_createdAtDt",
         )
 
         # webflow_leads_logs — inbound Webflow enquiry webhook audit
