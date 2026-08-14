@@ -94,6 +94,15 @@ def _split_full_name(full: str) -> Tuple[str, str]:
     return parts[0], parts[1]
 
 
+def _collapse_duplicate_name(first: str, last: str) -> Tuple[str, str]:
+    """If Zap mapped full name into both first and last, split once."""
+    f = (first or "").strip()
+    l = (last or "").strip()
+    if f and l and f.casefold() == l.casefold() and " " in f:
+        return _split_full_name(f)
+    return f, l
+
+
 def project_from_form_id(form_id: Optional[str]) -> Optional[Dict[str, str]]:
     if not form_id:
         return None
@@ -117,6 +126,8 @@ def map_zap_payload_to_intake(
     full = _lookup(fields, _FULL_NAME_KEYS) or ""
     if not first and full:
         first, last = _split_full_name(full)
+    else:
+        first, last = _collapse_duplicate_name(first, last)
 
     email = _lookup(fields, _EMAIL_KEYS)
     phone = _lookup(fields, _PHONE_KEYS)

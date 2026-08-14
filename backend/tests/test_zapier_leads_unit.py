@@ -90,6 +90,21 @@ def test_map_zap_client_field_names():
     assert body["meta"]["created_at"] == "2026-08-13T10:00:00+05:30"
 
 
+def test_map_zap_duplicate_full_name_split():
+    body = zls.map_zap_payload_to_intake(
+        {
+            "Form ID": "1874174036585908",
+            "First Name": "Iyda Robert",
+            "Last Name": "Iyda Robert",
+            "Phone Number": "916382848893",
+        },
+        leadgen_id="lg-dup",
+        form_id="1874174036585908",
+    )
+    assert body["first_name"] == "Iyda"
+    assert body["last_name"] == "Robert"
+
+
 @pytest.mark.asyncio
 async def test_process_unmapped_form_skips_ingest(monkeypatch):
     monkeypatch.setattr(zls, "META_LEAD_FORM_PROJECT_MAP", {"1": "melange"})

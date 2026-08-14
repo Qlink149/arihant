@@ -218,6 +218,52 @@ async def test_create_new_lead_skips_routing_when_spam(monkeypatch):
             ack.assert_not_called()
 
 
+def test_intake_actor_zapier_meta():
+    actor_id, name, created, resub = intake._intake_actor({"id": "zapier-meta:mira"})
+    assert actor_id == "system-zapier-meta"
+    assert name == "Zapier Meta Lead"
+    assert "Zapier" in created
+    assert "Zapier" in resub
+    _, website, website_created, _ = intake._intake_actor({"id": "some-real-key"})
+    assert website == "Website Intake"
+    assert website_created == "Lead created via website intake"
+
+
+@pytest.mark.asyncio
+async def test_create_new_lead_zapier_meta_actor(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.leads.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.assignment_router.route_new_lead", new_callable=AsyncMock):
+        with patch("crm.services.whatsapp_service.send_lead_ack", new_callable=AsyncMock):
+            await intake._create_new_lead(
+                {
+                    "first_name": "Lydia",
+                    "last_name": "Robert",
+                    "email": "a@b.com",
+                    "phone": "999",
+                    "budget": None,
+                    "schedule_visit": None,
+                    "consent": True,
+                    "meta": {"via": "zapier"},
+                    "intake_spam": False,
+                },
+                api_key={
+                    "id": "zapier-meta:mira",
+                    "project_name": "Mira",
+                    "project_id": "mira",
+                },
+                source="Facebook Lead Form",
+            )
+    inserted = mock_db.leads.insert_one.await_args.args[0]
+    created = inserted["context_updates"][0]
+    assert created["agent"] == "Zapier Meta Lead"
+    assert created["description"] == "Lead created via Zapier (Meta Instant Form)"
+    assert created["actor_name"] == "Zapier Meta Lead"
+
+
+
 @pytest.mark.asyncio
 async def test_resolve_api_key_looks_up_hash(monkeypatch):
     plaintext = "arihant_testkey"

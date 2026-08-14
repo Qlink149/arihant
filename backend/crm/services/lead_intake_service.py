@@ -35,6 +35,29 @@ IDEMPOTENCY_SECONDS = 10
 ACTOR_NAME = "Website Intake"
 ACTOR_ID = "system-intake"
 
+ZAPIER_META_ACTOR_NAME = "Zapier Meta Lead"
+ZAPIER_META_ACTOR_ID = "system-zapier-meta"
+ZAPIER_META_CREATED = "Lead created via Zapier (Meta Instant Form)"
+ZAPIER_META_RESUB = "Meta Instant Form resubmission via Zapier"
+
+
+def _intake_actor(api_key: Optional[dict]) -> Tuple[str, str, str, str]:
+    """Return actor_id, actor_name, created_description, resub_description."""
+    key_id = str((api_key or {}).get("id") or "")
+    if key_id.startswith("zapier-meta:"):
+        return (
+            ZAPIER_META_ACTOR_ID,
+            ZAPIER_META_ACTOR_NAME,
+            ZAPIER_META_CREATED,
+            ZAPIER_META_RESUB,
+        )
+    return (
+        ACTOR_ID,
+        ACTOR_NAME,
+        "Lead created via website intake",
+        "Website form resubmission",
+    )
+
 # In-memory per-key rate limit (single Docker host).
 _rate_buckets: Dict[str, Deque[float]] = defaultdict(deque)
 _rate_lock = Lock()
@@ -254,10 +277,13 @@ async def _find_recent_lead(
     return await db.leads.find_one(q, {"_id": 0}, sort=[("updated_at_dt", -1)])
 
 
-async def _update_existing_submission(existing: dict, data: Dict[str, Any], source: str) -> str:
+async def _update_existing_submission(
+    existing: dict, data: Dict[str, Any], source: str, *, api_key: Optional[dict] = None
+) -> str:
     lead_id = existing["id"]
     now_dt = utc_now()
     now_iso = iso_utc_now()
+    actor_id, actor_name, _, resub_desc = _intake_actor(api_key)
     patch: Dict[str, Any] = {
         "updated_at": now_iso,
         "updated_at_dt": now_dt,
@@ -284,10 +310,10 @@ async def _update_existing_submission(existing: dict, data: Dict[str, Any], sour
         "type": "intake_resubmission",
         "timestamp": now_iso,
         "timestamp_dt": now_dt,
-        "description": "Website form resubmission",
-        "agent": ACTOR_NAME,
-        "actor_user_id": ACTOR_ID,
-        "actor_name": ACTOR_NAME,
+        "description": resub_desc,
+        "agent": actor_name,
+        "actor_user_id": actor_id,
+        "actor_name": actor_name,
     }
     await db.leads.update_one(
         {"id": lead_id},
@@ -304,6 +330,7 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
     lead_id = str(uuid.uuid4())
     now_dt = utc_now()
     now_iso = iso_utc_now()
+    actor_id, actor_name, created_desc, _ = _intake_actor(api_key)
     lead_dict: Dict[str, Any] = {
         "id": lead_id,
         "first_name": data["first_name"],
@@ -336,10 +363,10 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
                 "type": "created",
                 "timestamp": now_iso,
                 "timestamp_dt": now_dt,
-                "description": "Lead created via website intake",
-                "agent": ACTOR_NAME,
-                "actor_user_id": ACTOR_ID,
-                "actor_name": ACTOR_NAME,
+                "description": created_desc,
+                "agent": actor_name,
+                "actor_user_id": actor_id,
+                "actor_name": actor_name,
             }
         ],
         "created_at": now_iso,
@@ -431,7 +458,7 @@ async def ingest_lead(
         within_days=DEDUPE_WINDOW_DAYS,
     )
     if existing:
-        lead_id = await _update_existing_submission(existing, data, source)
+        lead_id = await _update_existing_submission(existing, data, source, api_key=api_key)
         await write_intake_log(
             project_name=project_name,
             project_id=project_id,
@@ -453,7 +480,7 @@ async def ingest_lead(
         if normalized:
             existing_phone = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
         if existing_phone:
-            lead_id = await _update_existing_submission(existing_phone, data, source)
+            lead_id = await _update_existing_submission(existing_phone, data, source, api_key=api_key)
             await write_intake_log(
                 project_name=project_name,
                 project_id=project_id,
