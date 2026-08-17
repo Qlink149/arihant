@@ -2,9 +2,9 @@
 
 Public entry point: ``send_qualified_lead_event(lead)``.
 
-No automatic CRM trigger is wired yet. Call this from the admin test endpoint
-(``POST /api/internal/meta-capi/test``) or invoke it manually once the client
-finalizes when a lead counts as qualified.
+CRM auto-trigger: Meta Facebook leads that become ``meta_qualified=True``
+(status enters Contacted/Interested, or an agent ticks the flag). Sends at most
+once per lead after a successful POST. Admin test: ``POST /api/internal/meta-capi/test``.
 """
 
 from __future__ import annotations
@@ -170,17 +170,43 @@ async def _post_once(url: str, payload: dict) -> httpx.Response:
         )
 
 
+async def _already_sent_successfully(lead_id: str) -> bool:
+    if not lead_id or lead_id == "unknown":
+        return False
+    try:
+        doc = await db.meta_capi_logs.find_one(
+            {"lead_id": lead_id, "success": True},
+            {"_id": 1},
+        )
+        return doc is not None
+    except Exception as e:
+        logger.warning("meta_capi_logs success lookup failed lead=%s: %s", lead_id, e)
+        return False
+
+
 async def send_qualified_lead_event(lead: dict) -> dict:
     """Hash lead PII, POST QualifiedLead to Meta CAPI, audit-log the attempt.
 
     Never throws to the caller. On network error or HTTP 5xx, retries once after
     2 seconds. Failures are logged and returned as ``{success: False, ...}``.
+    Skips the POST when this lead already has a successful ``meta_capi_logs`` row.
     """
     lead_id = str((lead or {}).get("id") or "").strip() or "unknown"
     event_id = ""
     user_data_keys: List[str] = []
 
     try:
+        if await _already_sent_successfully(lead_id):
+            logger.info("Meta CAPI skipped; already sent for lead %s", lead_id)
+            return {
+                "success": True,
+                "skipped": True,
+                "event_id": "",
+                "response_status": None,
+                "response_body": None,
+                "error_message": None,
+            }
+
         if not META_DATASET_ID or not META_ACCESS_TOKEN:
             msg = "META_DATASET_ID or META_ACCESS_TOKEN not configured"
             logger.error("Meta CAPI skipped for lead %s: %s", lead_id, msg)

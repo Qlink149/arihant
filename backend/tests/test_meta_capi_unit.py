@@ -94,6 +94,16 @@ def _mock_response(status_code: int, payload=None, text: str = ""):
     return resp
 
 
+def _mock_capi_db(monkeypatch, *, existing_success=None):
+    insert = AsyncMock()
+    find_one = AsyncMock(return_value=existing_success)
+    mock_db = MagicMock()
+    mock_db.meta_capi_logs.insert_one = insert
+    mock_db.meta_capi_logs.find_one = find_one
+    monkeypatch.setattr(capi, "db", mock_db)
+    return insert, find_one
+
+
 @pytest.mark.asyncio
 async def test_send_qualified_lead_event_success_writes_log(monkeypatch):
     monkeypatch.setattr(capi, "META_DATASET_ID", "dataset1")
@@ -101,10 +111,7 @@ async def test_send_qualified_lead_event_success_writes_log(monkeypatch):
     monkeypatch.setattr(capi, "META_API_VERSION", "v21.0")
     monkeypatch.setattr(capi, "META_TEST_EVENT_CODE", "")
 
-    insert = AsyncMock()
-    mock_db = MagicMock()
-    mock_db.meta_capi_logs.insert_one = insert
-    monkeypatch.setattr(capi, "db", mock_db)
+    insert, _find = _mock_capi_db(monkeypatch)
 
     meta_body = {"events_received": 1}
     monkeypatch.setattr(
@@ -142,10 +149,7 @@ async def test_send_qualified_lead_event_5xx_retries_once(monkeypatch):
     monkeypatch.setattr(capi, "META_API_VERSION", "v21.0")
     monkeypatch.setattr(capi, "RETRY_DELAY_SECONDS", 0)
 
-    insert = AsyncMock()
-    mock_db = MagicMock()
-    mock_db.meta_capi_logs.insert_one = insert
-    monkeypatch.setattr(capi, "db", mock_db)
+    insert, _find = _mock_capi_db(monkeypatch)
 
     post = AsyncMock(
         side_effect=[
@@ -168,10 +172,7 @@ async def test_send_qualified_lead_event_network_error_does_not_throw(monkeypatc
     monkeypatch.setattr(capi, "META_ACCESS_TOKEN", "tok")
     monkeypatch.setattr(capi, "RETRY_DELAY_SECONDS", 0)
 
-    insert = AsyncMock()
-    mock_db = MagicMock()
-    mock_db.meta_capi_logs.insert_one = insert
-    monkeypatch.setattr(capi, "db", mock_db)
+    insert, _find = _mock_capi_db(monkeypatch)
 
     post = AsyncMock(side_effect=httpx.ConnectError("boom"))
     monkeypatch.setattr(capi, "_post_once", post)
@@ -191,13 +192,51 @@ async def test_send_qualified_lead_event_missing_config_does_not_throw(monkeypat
     monkeypatch.setattr(capi, "META_DATASET_ID", "")
     monkeypatch.setattr(capi, "META_ACCESS_TOKEN", "")
 
-    insert = AsyncMock()
-    mock_db = MagicMock()
-    mock_db.meta_capi_logs.insert_one = insert
-    monkeypatch.setattr(capi, "db", mock_db)
+    insert, _find = _mock_capi_db(monkeypatch)
 
     result = await capi.send_qualified_lead_event({"id": "lead-cfg"})
 
     assert result["success"] is False
     assert "not configured" in (result["error_message"] or "").lower()
     insert.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_send_qualified_lead_event_skips_when_already_successful(monkeypatch):
+    monkeypatch.setattr(capi, "META_DATASET_ID", "dataset1")
+    monkeypatch.setattr(capi, "META_ACCESS_TOKEN", "tok")
+
+    insert, find_one = _mock_capi_db(
+        monkeypatch,
+        existing_success={"_id": "log-1", "lead_id": "lead-dup", "success": True},
+    )
+    post = AsyncMock()
+    monkeypatch.setattr(capi, "_post_once", post)
+
+    result = await capi.send_qualified_lead_event({"id": "lead-dup", "first_name": "Dup"})
+
+    assert result["success"] is True
+    assert result.get("skipped") is True
+    post.assert_not_awaited()
+    insert.assert_not_awaited()
+    find_one.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_qualified_lead_event_posts_again_after_prior_failure(monkeypatch):
+    monkeypatch.setattr(capi, "META_DATASET_ID", "dataset1")
+    monkeypatch.setattr(capi, "META_ACCESS_TOKEN", "tok")
+    monkeypatch.setattr(capi, "META_API_VERSION", "v21.0")
+    monkeypatch.setattr(capi, "META_TEST_EVENT_CODE", "")
+
+    insert, find_one = _mock_capi_db(monkeypatch, existing_success=None)
+    post = AsyncMock(return_value=_mock_response(200, {"events_received": 1}))
+    monkeypatch.setattr(capi, "_post_once", post)
+
+    result = await capi.send_qualified_lead_event({"id": "lead-retry-fail", "first_name": "R"})
+
+    assert result["success"] is True
+    assert result.get("skipped") is not True
+    post.assert_awaited_once()
+    insert.assert_awaited_once()
+    find_one.assert_awaited()

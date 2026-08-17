@@ -1,4 +1,4 @@
-"""Admin-only Meta CAPI test endpoint (no automatic CRM trigger)."""
+"""Admin-only Meta CAPI test endpoint (also used to retry a send)."""
 
 from __future__ import annotations
 

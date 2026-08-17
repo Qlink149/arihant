@@ -36,6 +36,11 @@ from crm.services.lead_projections import (
 from crm.services.lead_events import log_lead_event
 from crm.services.notification_service import create_notification
 from crm.services.lead_list_query import compose_leads_list_query
+from crm.services.meta_qualified_trigger import (
+    schedule_qualified_lead_capi,
+    should_auto_set_meta_qualified,
+    should_send_qualified_lead_capi,
+)
 from crm.services.nurture_temperature import apply_nurture_temperature_rules
 from crm.services.sla_helpers import create_sla_task_for_lead
 from crm.utils.helpers import (
@@ -225,12 +230,21 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
         }
     )
 
+    if should_auto_set_meta_qualified(
+        lead_dict,
+        status_changed=True,
+        next_status=lead_dict.get("lead_status"),
+    ):
+        lead_dict["meta_qualified"] = True
+
+    created_meta_qualified = lead_dict.get("meta_qualified")
+
     await db.leads.insert_one(lead_dict)
 
     lead_dict["created_at"] = coerce_datetime(lead_dict["created_at"]) or utc_now()
     lead_dict["updated_at"] = coerce_datetime(lead_dict["updated_at"]) or utc_now()
     normalize_lead_for_response(lead_dict)
-    
+
     # Template 1: Auto-ack WhatsApp only for New leads (fire and forget).
     # Blank status is treated as New — same default routing uses.
     status_norm = (lead_dict.get("lead_status") or "New").strip().lower()
@@ -238,7 +252,14 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
         from crm.services.whatsapp_service import send_lead_ack
 
         asyncio.create_task(send_lead_ack(lead_id, lead_dict))
-    
+
+    if should_send_qualified_lead_capi(
+        lead_dict,
+        previous_meta_qualified=None,
+        next_meta_qualified=created_meta_qualified,
+    ):
+        schedule_qualified_lead_capi(lead_dict)
+
     return LeadResponse(**lead_dict)
 
 
@@ -427,6 +448,13 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     next_status = (patch.get("lead_status") or prev_status).strip()
     status_changed = ("lead_status" in patch) and (prev_status.lower() != next_status.lower())
     is_sla_activation = False
+    previous_meta_qualified = existing.get("meta_qualified")
+    if should_auto_set_meta_qualified(
+        {**existing, **patch},
+        status_changed=status_changed,
+        next_status=next_status,
+    ):
+        patch["meta_qualified"] = True
 
     # Contacted outcome logging (client confirmed): structured enum, not free text.
     if "logged_outcome" in patch or "logged_outcome_reason" in patch:
@@ -774,6 +802,13 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     updated["created_at"] = coerce_datetime(updated.get("created_at")) or utc_now()
     updated["updated_at"] = coerce_datetime(updated.get("updated_at")) or utc_now()
     normalize_lead_for_response(updated)
+
+    if should_send_qualified_lead_capi(
+        updated,
+        previous_meta_qualified=previous_meta_qualified,
+        next_meta_qualified=updated.get("meta_qualified"),
+    ):
+        schedule_qualified_lead_capi(updated)
 
     return LeadResponse(**updated)
 
