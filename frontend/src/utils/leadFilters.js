@@ -308,11 +308,16 @@ export const snapshotFiltersForView = (filters, search) => ({
 });
 
 export const applyViewFiltersToState = (viewFilters) => {
+  let projects = [...(viewFilters.projects || [])];
+  if (projects.length === 0 && viewFilters.project) {
+    projects = parseCommaList(viewFilters.project);
+  }
+
   const filters = {
     ...emptyLeadFilters(),
     budgets: [...(viewFilters.budgets || [])],
     locations: [...(viewFilters.locations || [])],
-    projects: [...(viewFilters.projects || [])],
+    projects,
     statuses: [...(viewFilters.statuses || [])],
     sources: [...(viewFilters.sources || [])],
     sales_owners: [...(viewFilters.sales_owners || [])],

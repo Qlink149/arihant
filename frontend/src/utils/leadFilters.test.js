@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyViewFiltersToState,
   buildLeadListParams,
   countActiveFilters,
   emptyLeadFilters,
@@ -170,5 +171,10 @@ describe('leadFilters', () => {
 
     const listParams = buildLeadListParams({ ...emptyLeadFilters(), re_enquiry: true });
     expect(listParams.re_enquiry).toBe(true);
+  });
+
+  it('applyViewFiltersToState migrates legacy project string to projects array', () => {
+    const { filters } = applyViewFiltersToState({ project: 'Tower A, Tower B' });
+    expect(filters.projects).toEqual(['Tower A', 'Tower B']);
   });
 });
