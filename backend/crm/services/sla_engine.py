@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from pymongo import InsertOne, ReturnDocument, UpdateOne
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 
-from crm.constants.lead_kpi import RNR_STATUS_REGEX
+from crm.constants.lead_kpi import RNR_STATUS_REGEX, fw_status_indicates_rnr
 from crm.constants.task import TASK_REMINDER_METHOD_DEFAULT
 from crm.constants.lead_status import (
     SV_FOLLOWUP_1_STATUS_QUERY,
@@ -26,7 +26,6 @@ from crm.core.state import db, logger
 from crm.services.assignment_router import reassign_new_lead
 from crm.services.lead_sla_utils import is_booking_progress_status
 from crm.services.notifications_stream import notifications_stream
-from crm.services.sla_helpers import assign_lead_to_admin
 from crm.utils.business_time import business_seconds_elapsed, is_business_hours_ist as _bh_ist
 from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now, ist_wall_to_utc_dt
 
@@ -83,13 +82,18 @@ def _new_lead_filter() -> dict:
 
 
 def _rnr_status_filter() -> dict:
-    return {
-        "$or": [
-            {"is_rnr": True},
-            {"lead_status": {"$regex": RNR_STATUS_REGEX}},
-            {"original_fw_status": {"$regex": RNR_STATUS_REGEX}},
-        ]
-    }
+    """Current pipeline stage is RNR — not historical original_fw_status or stale is_rnr."""
+    return {"lead_status": {"$regex": RNR_STATUS_REGEX, "$options": "i"}}
+
+
+def _and_query(*parts: dict) -> dict:
+    """Combine Mongo clauses with $and so sibling $or keys are not overwritten."""
+    clauses = [p for p in parts if p]
+    if not clauses:
+        return {}
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": list(clauses)}
 
 
 def _flag_not_set(dot_path: str) -> dict:
@@ -108,6 +112,19 @@ def _entered_at_or_updated_fallback(field: str, cutoff: datetime) -> dict:
             {field: None, "updated_at_dt": {"$lt": cutoff}},
         ],
     }
+
+
+def _rnr_escalate_match(cutoff: datetime, flag: str) -> dict:
+    """RNR status AND elapsed-time fallback AND escalate flag not yet set."""
+    return _and_query(
+        _rnr_status_filter(),
+        _entered_at_or_updated_fallback("rnr_entered_at_dt", cutoff),
+        _flag_not_set(flag),
+    )
+
+
+def _lead_is_current_rnr(lead: dict) -> bool:
+    return fw_status_indicates_rnr(lead.get("lead_status"))
 
 
 # Max RNR reminder buckets per RNR stay (4 business hours each).
@@ -524,6 +541,8 @@ class SLAEngineService:
         query_reminder = self._rule_query(status_base)
         async for batch in _paginate_leads(db.leads, query_reminder):
             for lead in batch:
+                if not _lead_is_current_rnr(lead):
+                    continue
                 updated = coerce_datetime(lead.get("rnr_entered_at_dt")) or coerce_datetime(lead.get("updated_at_dt")) or now_dt
                 if updated.tzinfo is None:
                     updated = updated.replace(tzinfo=timezone.utc)
@@ -567,15 +586,11 @@ class SLAEngineService:
         ):
             cutoff = now_dt - timedelta(hours=hours)
             flag = f"sla_flags.rnr.escalate_{threshold}_at_dt"
-            query = self._rule_query(
-                {
-                    **status_base,
-                    **_entered_at_or_updated_fallback("rnr_entered_at_dt", cutoff),
-                    **_flag_not_set(flag),
-                }
-            )
+            query = self._rule_query(_rnr_escalate_match(cutoff, flag))
             async for batch in _paginate_leads(db.leads, query):
                 for lead in batch:
+                    if not _lead_is_current_rnr(lead):
+                        continue
                     priority = "high" if threshold == "15d" else "medium"
                     dedupe = f"sla:rnr:escalate:{threshold}:{lead['id']}"
                     self._queue_task(
@@ -592,18 +607,6 @@ class SLAEngineService:
                         sla_rule="rnr",
                         sla_threshold=threshold,
                     )
-                    if threshold in ("48h", "15d"):
-                        try:
-                            await assign_lead_to_admin(
-                                lead["id"], reason=f"rnr_escalate_{threshold}"
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "RNR admin ownership transfer failed for lead %s (%s): %s",
-                                lead.get("id"),
-                                threshold,
-                                e,
-                            )
 
     async def _process_rule_contacted(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         for hours, threshold, desc, priority, target in (

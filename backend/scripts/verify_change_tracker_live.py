@@ -79,10 +79,11 @@ def main() -> int:
         str(utc_dt),
     )
 
-    # 6) SLA engine source has 3600 + assign_lead_to_admin for RNR
+    # 6) SLA engine source has 3600; RNR 48h/15d escalate as tasks only (no ownership transfer)
     src = Path(inspect.getsourcefile(sla_mod)).read_text(encoding="utf-8")
     check("sla reassign uses 3600", "3600" in src and "reassign_1h_at_dt" in src)
-    check("sla RNR calls assign_lead_to_admin", "assign_lead_to_admin" in src and '"48h"' in src and '"15d"' in src)
+    check("sla RNR does not call assign_lead_to_admin", "assign_lead_to_admin" not in src)
+    check("sla RNR still has 48h and 15d escalate tasks", '"48h"' in src and '"15d"' in src)
 
     # 7) Task create uses ist helper in source
     tsrc = Path(inspect.getsourcefile(tasks_mod)).read_text(encoding="utf-8")
