@@ -27,6 +27,8 @@ import {
 import { ChatMessageBubble, useLeadWhatsAppThread } from '../components/whatsapp';
 import { CANONICAL_PROJECTS } from '../constants/leadPicklists';
 import { parseApiDate } from '../utils/datetime';
+import { formatLeadProjects, primaryLeadProject } from '../utils/leadProjects';
+import { MultiSelectWithOther } from '../components/ui/MultiSelectWithOther';
 
 const PAGE_SIZE = 40;
 const FILTERS = [
@@ -114,7 +116,7 @@ const WhatsAppInboxPage = () => {
     first_name: '',
     last_name: '',
     phone: '',
-    project: '',
+    projects: [],
     lead_source: 'WhatsApp',
   });
 
@@ -370,7 +372,7 @@ const WhatsAppInboxPage = () => {
           peer_phone: phone,
           display_name: leadDisplayName(lead),
           phone,
-          project: lead.project,
+          project: formatLeadProjects(lead, ''),
           assigned_to_name: lead.assigned_to_name,
           status: lead.lead_status || lead.status,
           budget: lead.budget,
@@ -455,7 +457,7 @@ const WhatsAppInboxPage = () => {
       first_name: '',
       last_name: '',
       phone: selected?.phone || selected?.peer_phone || '',
-      project: '',
+      projects: [],
       lead_source: 'WhatsApp',
     });
     setCreateOpen(true);
@@ -473,7 +475,9 @@ const WhatsAppInboxPage = () => {
         first_name: createForm.first_name.trim(),
         last_name: createForm.last_name.trim() || '',
         phone: createForm.phone.trim(),
-        project: createForm.project || undefined,
+        ...(Array.isArray(createForm.projects) && createForm.projects.length
+          ? { projects: createForm.projects }
+          : {}),
         lead_source: createForm.lead_source || 'WhatsApp',
         lead_status: 'New',
       });
@@ -571,7 +575,7 @@ const WhatsAppInboxPage = () => {
                         <p className="text-sm text-crm-fg truncate">{leadDisplayName(lead)}</p>
                         <p className="text-[11px] text-crm-fg-secondary truncate">
                           {lead.phone || '—'}
-                          {lead.project ? ` · ${lead.project}` : ''}
+                          {formatLeadProjects(lead, '') ? ` · ${formatLeadProjects(lead)}` : ''}
                         </p>
                       </button>
                     ))
@@ -1072,18 +1076,15 @@ const WhatsAppInboxPage = () => {
             </div>
             <div>
               <label className="text-[11px] uppercase text-crm-fg-muted">Project</label>
-              <select
-                className="mt-1 w-full h-10 px-3 rounded-lg bg-crm-muted border border-crm-border text-sm"
-                value={createForm.project}
-                onChange={(e) => setCreateForm((f) => ({ ...f, project: e.target.value }))}
-              >
-                <option value="">— Select —</option>
-                {CANONICAL_PROJECTS.filter((p) => p !== 'All projects').map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+              <div className="mt-1">
+                <MultiSelectWithOther
+                  value={Array.isArray(createForm.projects) ? createForm.projects : []}
+                  onChange={(projects) => setCreateForm((f) => ({ ...f, projects }))}
+                  options={CANONICAL_PROJECTS.filter((p) => p !== 'All projects')}
+                  placeholder="Select project"
+                  otherPlaceholder="Enter project name"
+                />
+              </div>
             </div>
             <Button
               type="submit"

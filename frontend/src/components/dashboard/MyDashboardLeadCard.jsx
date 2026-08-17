@@ -9,6 +9,7 @@ import { Button } from '../ui/button';
 import { LeadStatusBadge } from '../leads/LeadStatusBadge';
 import { CrmBadge } from '../ui/CrmBadge';
 import { getLeadInitials } from '../../utils/leadTable';
+import { formatLeadProjects } from '../../utils/leadProjects';
 
 export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
   lead,
@@ -58,7 +59,7 @@ export const MyDashboardLeadCard = memo(function MyDashboardLeadCard({
           </div>
           <div className="flex items-center gap-3 mt-1">
             <span className="text-crm-fg-muted text-xs flex items-center gap-1">
-              <Building size={11} /> {lead.project || 'No project'}
+              <Building size={11} /> {formatLeadProjects(lead, 'No project')}
             </span>
             {isManager && (lead.assigned_to || lead.assigned_to_name) && (
               <span className="text-crm-fg-muted text-xs flex items-center gap-1">

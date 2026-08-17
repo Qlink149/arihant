@@ -149,7 +149,7 @@ describe('leadFilters', () => {
     })).toBe(1);
   });
 
-  it('maps updated date_field days preset to updated_from/to', () => {
+    it('maps updated date_field days preset to updated_from/to', () => {
     const listParams = buildLeadListParams({
       ...emptyLeadFilters(),
       date_field: 'updated',
@@ -158,5 +158,17 @@ describe('leadFilters', () => {
     expect(listParams.days).toBeUndefined();
     expect(listParams.updated_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(listParams.updated_to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('parses and encodes re_enquiry like VIP', () => {
+    const filters = filtersFromSearchParams(new URLSearchParams('re_enquiry=1'));
+    expect(filters.re_enquiry).toBe(true);
+    expect(countActiveFilters(filters)).toBe(1);
+
+    const encoded = filtersToSearchParams({ ...emptyLeadFilters(), re_enquiry: true }, '');
+    expect(encoded.get('re_enquiry')).toBe('1');
+
+    const listParams = buildLeadListParams({ ...emptyLeadFilters(), re_enquiry: true });
+    expect(listParams.re_enquiry).toBe(true);
   });
 });

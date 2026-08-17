@@ -16,7 +16,12 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 from pymongo.errors import DuplicateKeyError
 
 from crm.core.state import db, iso_utc_now, logger, utc_now
-from crm.services.lead_service import _apply_contact_phones
+from crm.services.lead_project_fields import (
+    RE_ENGAGED_STATUS,
+    append_incoming_project,
+    incoming_slug_on_lead,
+    should_reengage_status,
+)
 from crm.services.nurture_temperature import apply_nurture_temperature_rules
 from crm.utils.helpers import determine_lead_intent, is_vip_lead, normalize_phone
 
@@ -250,13 +255,35 @@ async def write_intake_log(
         logger.error("lead_intake_logs insert failed: %s", e)
 
 
-def _match_query(project_id: str, email: Optional[str], normalized_phone: Optional[str]) -> Dict[str, Any]:
+def _match_query(
+    project_id: str,
+    email: Optional[str],
+    normalized_phone: Optional[str],
+    *,
+    require_project_id: bool = True,
+    phone_only: bool = False,
+) -> Dict[str, Any]:
+    if phone_only and normalized_phone:
+        return {"normalized_phone": normalized_phone}
     or_clauses: List[Dict[str, Any]] = []
     if email:
         or_clauses.append({"email": email})
     if normalized_phone:
         or_clauses.append({"normalized_phone": normalized_phone})
-    return {"project_id": project_id, "$or": or_clauses}
+    if not or_clauses:
+        contact: Dict[str, Any] = {}
+    elif len(or_clauses) == 1:
+        contact = or_clauses[0]
+    else:
+        contact = {"$or": or_clauses}
+    if require_project_id:
+        project_clause: Dict[str, Any] = {
+            "$or": [{"project_id": project_id}, {"project_ids": project_id}]
+        }
+        if contact:
+            return {"$and": [project_clause, contact]}
+        return project_clause
+    return contact
 
 
 async def _find_recent_lead(
@@ -266,15 +293,68 @@ async def _find_recent_lead(
     normalized_phone: Optional[str],
     within_seconds: Optional[int] = None,
     within_days: Optional[int] = None,
+    require_project_id: bool = True,
+    phone_only: bool = False,
 ) -> Optional[dict]:
-    if not email and not normalized_phone:
+    if phone_only:
+        if not normalized_phone:
+            return None
+    elif not email and not normalized_phone:
         return None
-    q = _match_query(project_id, email, normalized_phone)
+    q = _match_query(
+        project_id,
+        email,
+        normalized_phone,
+        require_project_id=require_project_id,
+        phone_only=phone_only,
+    )
+    if not q:
+        return None
     if within_seconds is not None:
         q["updated_at_dt"] = {"$gte": utc_now() - timedelta(seconds=within_seconds)}
     elif within_days is not None:
         q["created_at_dt"] = {"$gte": utc_now() - timedelta(days=within_days)}
     return await db.leads.find_one(q, {"_id": 0}, sort=[("updated_at_dt", -1)])
+
+
+async def _apply_reengage_transition(lead_id: str, existing: dict, patch: Dict[str, Any], now_dt) -> bool:
+    """Closed Lost / Unqualified / Gone Cold → Re-engaged with the same side effects as update_lead."""
+    if not should_reengage_status(existing.get("lead_status")):
+        return False
+    patch["lead_status"] = RE_ENGAGED_STATUS
+    patch["reengaged_at_dt"] = now_dt
+    tasks_coll = getattr(db, "tasks", None)
+    if tasks_coll is not None:
+        await tasks_coll.update_many(
+            {"lead_id": lead_id, "source": "sla", "status": "pending"},
+            {"$set": {"status": "cancelled", "updated_at": iso_utc_now(), "updated_at_dt": now_dt}},
+        )
+    await db.leads.update_one({"id": lead_id}, {"$unset": {"sla_flags.reengaged": ""}})
+    return True
+
+
+async def _notify_re_enquiry(existing: dict, project_label: str) -> None:
+    assignee_id = (existing.get("assigned_user_id") or "").strip()
+    if not assignee_id:
+        return
+    lead_name = f"{existing.get('first_name', '')} {existing.get('last_name', '')}".strip() or "Lead"
+    try:
+        from crm.services.notification_service import create_notification
+
+        await create_notification(
+            recipient_user_id=assignee_id,
+            recipient_name=existing.get("assigned_to_name") or existing.get("assigned_to") or "",
+            title="Re-enquiry",
+            message=f"{lead_name} submitted again for {project_label or 'a project'}",
+            notification_type="lead_status_changed",
+            lead_id=existing.get("id") or "",
+            lead_name=lead_name,
+            severity="medium",
+            urgency="action_needed",
+            dedupe_key=f"re_enquiry:{existing.get('id')}:{iso_utc_now()[:16]}",
+        )
+    except Exception as e:
+        logger.warning("re-enquiry notify failed lead=%s: %s", existing.get("id"), e)
 
 
 async def _update_existing_submission(
@@ -284,12 +364,30 @@ async def _update_existing_submission(
     now_dt = utc_now()
     now_iso = iso_utc_now()
     actor_id, actor_name, _, resub_desc = _intake_actor(api_key)
+    incoming_name = (api_key or {}).get("project_name")
+    incoming_id = (api_key or {}).get("project_id")
+    merged = append_incoming_project(
+        existing, incoming_name=incoming_name, incoming_id=incoming_id
+    )
+    already = bool(merged.get("already")) or incoming_slug_on_lead(existing, incoming_id)
+    label = str(incoming_name or "").strip() or "project"
+    if merged.get("appended"):
+        timeline_desc = f"Re-enquiry — added {label}"
+    else:
+        timeline_desc = f"Re-enquiry — {label} (existing project)"
+
     patch: Dict[str, Any] = {
         "updated_at": now_iso,
         "updated_at_dt": now_dt,
         "most_recent_source": source,
         "consent": data["consent"],
+        "re_enquiry": True,
+        "re_enquired_at": now_dt,
+        "projects": merged.get("projects") or [],
+        "project_ids": merged.get("project_ids") or [],
     }
+    if merged.get("project"):
+        patch["project"] = merged["project"]
     if data.get("budget"):
         patch["budget"] = data["budget"]
     if data.get("schedule_visit"):
@@ -306,23 +404,53 @@ async def _update_existing_submission(
         patch["phone"] = data["phone"]
         patch["normalized_phone"] = normalize_phone(data["phone"])
 
+    reengaged = await _apply_reengage_transition(lead_id, existing, patch, now_dt)
+
     context_entry = {
         "type": "intake_resubmission",
         "timestamp": now_iso,
         "timestamp_dt": now_dt,
-        "description": resub_desc,
+        "description": timeline_desc,
         "agent": actor_name,
         "actor_user_id": actor_id,
         "actor_name": actor_name,
     }
-    await db.leads.update_one(
-        {"id": lead_id},
-        {
-            "$set": patch,
-            "$inc": {"submission_count": 1},
-            "$push": {"context_updates": context_entry},
-        },
-    )
+    add_to_set: Dict[str, Any] = {}
+    if merged.get("appended") and incoming_name and not already:
+        add_to_set["projects"] = str(incoming_name).strip()
+        if incoming_id:
+            add_to_set["project_ids"] = str(incoming_id).strip()
+
+    update_doc: Dict[str, Any] = {
+        "$set": patch,
+        "$inc": {"submission_count": 1},
+        "$push": {"context_updates": context_entry},
+    }
+    if add_to_set and isinstance(existing.get("projects"), list) and existing.get("projects"):
+        update_doc["$addToSet"] = add_to_set
+        # Avoid setting the same array fields we $addToSet
+        patch.pop("projects", None)
+        patch.pop("project_ids", None)
+
+    await db.leads.update_one({"id": lead_id}, update_doc)
+
+    if reengaged:
+        try:
+            from crm.services.sla_helpers import create_sla_task_for_lead
+
+            merged_lead = {**existing, **patch, "lead_status": RE_ENGAGED_STATUS}
+            await create_sla_task_for_lead(
+                merged_lead,
+                description="Re-engaged lead — qualify intent",
+                dedupe_key=f"sla:reengaged:qualify:{lead_id}",
+                sla_rule="reengaged",
+                sla_threshold="t0",
+                stage="reengaged",
+            )
+        except Exception as e:
+            logger.warning("intake re-engage SLA task failed lead=%s: %s", lead_id, e)
+
+    await _notify_re_enquiry(existing, label)
     return lead_id
 
 
@@ -345,6 +473,8 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         "submission_count": 1,
         "project": api_key.get("project_name"),
         "project_id": api_key.get("project_id"),
+        "projects": [api_key["project_name"]] if api_key.get("project_name") else None,
+        "project_ids": [api_key["project_id"]] if api_key.get("project_id") else None,
         "lead_status": "New",
         "lead_source": source,
         "original_source": source,
@@ -374,7 +504,11 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         "updated_at": now_iso,
         "updated_at_dt": now_dt,
     }
-    _apply_contact_phones(lead_dict)
+    if not lead_dict.get("projects"):
+        lead_dict.pop("projects", None)
+    if not lead_dict.get("project_ids"):
+        lead_dict.pop("project_ids", None)
+    lead_dict["normalized_phone"] = normalize_phone(data.get("phone")) if data.get("phone") else None
     temp_patch = {"lead_status": "New"}
     apply_nurture_temperature_rules({}, temp_patch, is_create=True)
     lead_dict["temperature"] = temp_patch.get("temperature")
@@ -429,12 +563,13 @@ async def ingest_lead(
     source = data.get("source") or project_name
     normalized = normalize_phone(data["phone"]) if data.get("phone") else None
 
-    # 10s double-click idempotency
+    # 10s double-click idempotency (same project only)
     recent = await _find_recent_lead(
         project_id=project_id,
         email=data.get("email"),
         normalized_phone=normalized,
         within_seconds=IDEMPOTENCY_SECONDS,
+        require_project_id=True,
     )
     if recent:
         await write_intake_log(
@@ -450,13 +585,24 @@ async def ingest_lead(
         )
         return {"success": True, "lead_id": recent["id"], "deduped": True}, 200
 
-    # 30-day soft dedupe (same project)
-    existing = await _find_recent_lead(
-        project_id=project_id,
-        email=data.get("email"),
-        normalized_phone=normalized,
-        within_days=DEDUPE_WINDOW_DAYS,
-    )
+    # 30-day merge: phone is global; email-only stays same-project
+    if normalized:
+        existing = await _find_recent_lead(
+            project_id=project_id,
+            email=None,
+            normalized_phone=normalized,
+            within_days=DEDUPE_WINDOW_DAYS,
+            require_project_id=False,
+            phone_only=True,
+        )
+    else:
+        existing = await _find_recent_lead(
+            project_id=project_id,
+            email=data.get("email"),
+            normalized_phone=None,
+            within_days=DEDUPE_WINDOW_DAYS,
+            require_project_id=True,
+        )
     if existing:
         lead_id = await _update_existing_submission(existing, data, source, api_key=api_key)
         await write_intake_log(

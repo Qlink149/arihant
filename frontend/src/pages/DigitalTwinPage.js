@@ -16,6 +16,7 @@ import {
   TIMELINE_LOAD_MORE_STEP,
 } from '../utils/contextUpdates';
 import { formatTimeIST, parseApiDate } from '../utils/datetime';
+import { primaryLeadProject } from '../utils/leadProjects';
 import {
   Accordion,
   AccordionContent,
@@ -514,7 +515,7 @@ const DigitalTwinPage = () => {
         template_parameters: selectedTemplate
           ? [
               { name: 'name', value: lead.first_name || lead.phone },
-              { name: 'project', value: lead.project || 'Arihant' },
+              { name: 'project', value: primaryLeadProject(lead, 'Arihant') },
             ]
           : undefined,
         broadcast_name: selectedTemplate ? 'arihant_crm' : undefined,
@@ -660,10 +661,10 @@ const DigitalTwinPage = () => {
 
   const handleQuickMessage = (template) => {
     const messages = {
-      greeting: `Hi ${lead.first_name}, thank you for your interest in Arihant ${lead.project}. I'm reaching out to assist you with your property requirements.`,
-      followup: `Hi ${lead.first_name}, hope you're doing well! Just following up on our conversation about ${lead.project}. Would you like to schedule a site visit?`,
-      brochure: `Hi ${lead.first_name}, here's the brochure for ${lead.project}. Feel free to reach out if you have any questions!`,
-      sitevisit: `Hi ${lead.first_name}, we'd love to show you ${lead.project} in person. When would be a convenient time for a site visit?`
+      greeting: `Hi ${lead.first_name}, thank you for your interest in Arihant ${primaryLeadProject(lead, 'our project')}. I'm reaching out to assist you with your property requirements.`,
+      followup: `Hi ${lead.first_name}, hope you're doing well! Just following up on our conversation about ${primaryLeadProject(lead, 'the project')}. Would you like to schedule a site visit?`,
+      brochure: `Hi ${lead.first_name}, here's the brochure for ${primaryLeadProject(lead, 'the project')}. Feel free to reach out if you have any questions!`,
+      sitevisit: `Hi ${lead.first_name}, we'd love to show you ${primaryLeadProject(lead, 'the project')} in person. When would be a convenient time for a site visit?`
     };
     setMessageText(messages[template] || '');
   };

@@ -17,6 +17,7 @@ import {
 import { TemperatureBadge } from './TemperatureBadge';
 import { CrmBadge } from '../ui/CrmBadge';
 import { Button } from '../ui/button';
+import { formatLeadProjects } from '../../utils/leadProjects';
 import { useAuth } from '../../context/AuthContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
@@ -440,10 +441,10 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             />
           </button>
         )}
-        {compact && lead.project && (
+        {compact && formatLeadProjects(lead, '') && (
           <span className="text-crm-fg-muted text-xs flex items-center gap-1">
             <Building size={12} className="text-[#C5A059]" />
-            {lead.project}
+            {formatLeadProjects(lead)}
           </span>
         )}
         {contactSlot}
@@ -474,6 +475,39 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
             data-testid="change-nurture-label"
           >
             {lead.temperature ? 'Change label' : 'Set label'}
+          </Button>
+        )}
+        {lead.re_enquiry && (
+          <CrmBadge
+            variant="info"
+            size={compact ? 'xs' : 'sm'}
+            data-testid="re-enquiry-badge"
+          >
+            Re Enquiry
+          </CrmBadge>
+        )}
+        {lead.re_enquiry && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={savingStatus}
+            className="h-7 px-2 text-xs text-crm-fg-secondary hover:text-crm-fg hover:bg-white/5"
+            data-testid="clear-re-enquiry"
+            onClick={async () => {
+              setSavingStatus(true);
+              try {
+                await leadsAPI.update(leadId, { re_enquiry: false });
+                toast.success('Re Enquiry cleared');
+                await onLeadUpdated?.();
+              } catch {
+                toast.error('Failed to clear Re Enquiry');
+              } finally {
+                setSavingStatus(false);
+              }
+            }}
+          >
+            Clear Re Enquiry
           </Button>
         )}
         {lead.vip && (

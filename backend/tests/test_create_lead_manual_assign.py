@@ -107,3 +107,45 @@ async def _create_lead_assigns_to_creator_when_no_assignee():
     ]
     assert len(assigned_ctx) == 1
     assert "creator" in assigned_ctx[0].get("description", "").lower()
+
+
+def test_create_lead_dual_writes_projects_array():
+    asyncio.run(_create_lead_dual_writes_projects_array())
+
+
+async def _create_lead_dual_writes_projects_array():
+    lead = LeadCreate(
+        first_name="Test",
+        last_name="User",
+        phone="9999999997",
+        lead_status="New",
+        projects=["OMR - Vivriti"],
+    )
+    current_user = {"id": "rep-anusha", "full_name": "Anusha Omprakash"}
+
+    inserted = {}
+
+    async def fake_insert_one(doc):
+        inserted.update(doc)
+
+    mock_db = MagicMock()
+    mock_db.leads.find_one = AsyncMock(return_value=None)
+    mock_db.leads.insert_one = AsyncMock(side_effect=fake_insert_one)
+
+    with patch.object(lead_service, "db", mock_db):
+        with patch.object(lead_service, "normalize_phone", return_value="9999999997"):
+            with patch.object(lead_service, "determine_lead_intent", return_value="Unknown"):
+                with patch.object(lead_service, "is_vip_lead", return_value=False):
+                    with patch.object(lead_service, "apply_nurture_temperature_rules"):
+                        with patch.object(
+                            lead_service, "assert_assignee_allowed", new_callable=AsyncMock
+                        ):
+                            with patch(
+                                "crm.services.assignment_router.route_new_lead",
+                                new_callable=AsyncMock,
+                            ):
+                                await lead_service.create_lead(lead, current_user)
+
+    assert inserted.get("projects") == ["OMR - Vivriti"]
+    assert inserted.get("project") == "OMR - Vivriti"
+    assert "vivriti" in (inserted.get("project_ids") or [])

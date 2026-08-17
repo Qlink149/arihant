@@ -23,6 +23,7 @@ class LeadFilterViewFilters(BaseModel):
     sources: List[str] = Field(default_factory=list)
     sales_owners: List[str] = Field(default_factory=list)
     vip: Optional[bool] = None
+    re_enquiry: Optional[bool] = None
     intent: str = ""
     temperature: str = ""
     days: str = ""

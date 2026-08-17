@@ -52,6 +52,13 @@ def test_trim_context_updates_for_list_empty_when_no_descriptions():
     assert trim_context_updates_for_list(updates) == []
 
 
+def test_list_lead_projection_includes_projects_and_re_enquiry():
+    assert LIST_LEAD_PROJECTION.get("projects") == 1
+    assert LIST_LEAD_PROJECTION.get("project_ids") == 1
+    assert LIST_LEAD_PROJECTION.get("re_enquiry") == 1
+    assert LIST_LEAD_PROJECTION.get("re_enquired_at") == 1
+
+
 def test_minimal_lead_validates_as_lead_response():
     now = datetime(2024, 1, 1, tzinfo=timezone.utc)
     lead = {

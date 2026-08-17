@@ -53,3 +53,9 @@ def test_overview_drill_metrics_include_my_dashboard_tiles():
     assert is_overview_drill_metric("active_pipeline")
     assert not is_overview_drill_metric("deals_won")
     assert not is_overview_drill_metric("site_visits")
+
+
+def test_compose_leads_list_query_re_enquiry():
+    q = compose_leads_list_query({}, re_enquiry=True)
+    body = str(q)
+    assert "re_enquiry" in body

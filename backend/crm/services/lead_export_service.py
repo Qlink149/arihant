@@ -148,7 +148,12 @@ def _field_value(lead: dict, key: str) -> Any:
         if val is False:
             return "No"
         return ""
-    raw = lead.get(key)
+    if key == "project":
+        from crm.services.lead_project_fields import format_projects_display, coalesce_projects
+        names = coalesce_projects(lead)
+        if names:
+            return format_projects_display(names)
+        return lead.get("project") or ""
     if raw is None:
         return ""
     return raw
@@ -240,6 +245,7 @@ async def create_export_job(
         locations=filters.get("locations"),
         intent=filters.get("intent"),
         vip=filters.get("vip"),
+        re_enquiry=filters.get("re_enquiry"),
         status=filters.get("status"),
         statuses=filters.get("statuses"),
         search=filters.get("search"),

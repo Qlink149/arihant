@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import { formatStatusDisplay } from '../../utils/nurtureLabel';
+import { formatLeadProjects } from '../../utils/leadProjects';
 
 export const SalesDrilldownLeadRow = memo(function SalesDrilldownLeadRow({
   lead,
@@ -19,7 +20,7 @@ export const SalesDrilldownLeadRow = memo(function SalesDrilldownLeadRow({
         <p className="text-white text-sm font-medium truncate group-hover:text-[#C5A059] transition-colors">
           {lead.first_name} {lead.last_name}
         </p>
-        <p className="text-[#52525B] text-xs truncate">{lead.project || 'No project'}</p>
+        <p className="text-[#52525B] text-xs truncate">{formatLeadProjects(lead, 'No project')}</p>
       </div>
       <span className="text-[#A1A1AA] text-xs">
         {formatStatusDisplay(lead.lead_status, lead.temperature)}

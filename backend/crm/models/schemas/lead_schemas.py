@@ -12,6 +12,10 @@ class LeadBase(BaseModel):
     email: Optional[str] = None
     project: Optional[str] = None
     project_id: Optional[str] = None
+    projects: Optional[List[str]] = None
+    project_ids: Optional[List[str]] = None
+    re_enquiry: Optional[bool] = None
+    re_enquired_at: Optional[datetime] = None
     pipeline_category: Optional[str] = None
     lead_status: Optional[str] = "New"
     lead_source: Optional[str] = None
@@ -57,6 +61,8 @@ class LeadUpdatePatch(BaseModel):
     work_phone: Optional[str] = None
     email: Optional[str] = None
     project: Optional[str] = None
+    projects: Optional[List[str]] = None
+    re_enquiry: Optional[bool] = None
     pipeline_category: Optional[str] = None
     lead_status: Optional[str] = None
     lead_source: Optional[str] = None

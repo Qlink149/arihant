@@ -13,7 +13,8 @@ import {
   mergePicklistWithApi,
   picklistNames,
 } from '../../constants/leadPicklists';
-import { formatDateTimeIST } from '../../utils/datetime';
+import { formatLeadProjects, getLeadProjects } from '../../utils/leadProjects';
+import { MultiSelectWithOther } from '../ui/MultiSelectWithOther';
 import {
   Accordion,
   AccordionContent,
@@ -47,10 +48,10 @@ const FIELD_CONFIG = [
     id: 'project',
     label: 'Project',
     icon: Building,
-    apiKey: 'project',
+    apiKey: 'projects',
     aiKey: null,
-    type: 'project',
-    display: (lead) => lead.project || 'Not specified',
+    type: 'projects',
+    display: (lead) => formatLeadProjects(lead, 'Not specified'),
   },
   {
     id: 'budget',
@@ -364,6 +365,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
   const [selectMode, setSelectMode] = useState('preset');
   const [presetValue, setPresetValue] = useState('');
   const [otherText, setOtherText] = useState('');
+  const [projectDraft, setProjectDraft] = useState([]);
   const [saving, setSaving] = useState(false);
   const [locations, setLocations] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -371,7 +373,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
   const [loadingOptions, setLoadingOptions] = useState(false);
 
   useEffect(() => {
-    if (!editingField || !['location', 'project', 'source'].includes(editingField.type)) return undefined;
+    if (!editingField || !['location', 'projects', 'source'].includes(editingField.type)) return undefined;
     let alive = true;
     setLoadingOptions(true);
     leadsAPI
@@ -397,7 +399,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
 
   useEffect(() => {
     if (!editingField || loadingOptions) return;
-    if (!['location', 'project', 'source'].includes(editingField.type)) return;
+    if (!['location', 'source'].includes(editingField.type)) return;
     const current = lead[editingField.apiKey] || '';
     const options =
       editingField.type === 'location'
@@ -425,6 +427,11 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
     if (field.type === 'number') {
       const n = lead.site_visit_count;
       setDraftValue(n === 0 || n ? String(n) : '0');
+      return;
+    }
+
+    if (field.type === 'projects') {
+      setProjectDraft(getLeadProjects(lead));
       return;
     }
 
@@ -482,7 +489,15 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
 
   const handleSave = async (valueOverride) => {
     if (!editingField) return;
-    const value = valueOverride !== undefined ? valueOverride : resolveSaveValue();
+    let value = valueOverride !== undefined ? valueOverride : resolveSaveValue();
+    if (editingField.type === 'projects') {
+      const next = Array.isArray(valueOverride) ? valueOverride : projectDraft;
+      if (!next.length) {
+        toast.error('Select at least one project');
+        return;
+      }
+      value = next;
+    }
     setSaving(true);
     try {
       await leadsAPI.update(leadId, { [editingField.apiKey]: value });
@@ -529,18 +544,15 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
             disabled={loadingOptions}
           />
         );
-      case 'project':
+      case 'projects':
         return (
-          <NativeSelectWithOther
-            optionNames={picklistNames(projects)}
-            mode={selectMode}
-            presetValue={presetValue}
-            otherText={otherText}
-            onModeChange={setSelectMode}
-            onPresetChange={setPresetValue}
-            onOtherTextChange={setOtherText}
+          <MultiSelectWithOther
+            value={projectDraft}
+            onChange={setProjectDraft}
+            options={picklistNames(projects)}
             placeholder={loadingOptions ? 'Loading projects…' : 'Select project'}
             otherPlaceholder="Enter project name"
+            loading={loadingOptions}
             disabled={loadingOptions}
           />
         );

@@ -20,6 +20,7 @@ import {
   getRecentNote,
 } from '../../utils/leadTable';
 import { formatDateIST } from '../../utils/datetime';
+import { formatLeadProjects } from '../../utils/leadProjects';
 import { CrmBadge } from '../ui/CrmBadge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import {
@@ -147,6 +148,16 @@ const LeadTableRow = memo(function LeadTableRow({
               {lead.vip && (
                 <Crown className="text-purple-500 flex-shrink-0" size={14} aria-label="VIP" />
               )}
+              {lead.re_enquiry && (
+                <CrmBadge
+                  variant="info"
+                  size="xs"
+                  title={lead.re_enquired_at ? `Last re-enquiry ${formatDateIST(lead.re_enquired_at)}` : 'Re Enquiry'}
+                  data-testid={`re-enquiry-badge-${lead.id}`}
+                >
+                  Re Enquiry
+                </CrmBadge>
+              )}
             </div>
           </div>
         </div>
@@ -205,8 +216,8 @@ const LeadTableRow = memo(function LeadTableRow({
         )}
       </TableCell>
       <TableCell className={`${cellPy} max-w-[200px]`}>
-        <span className={`text-crm-fg-secondary ${textSize} truncate block`} title={lead.project || ''}>
-          {lead.project || '—'}
+        <span className={`text-crm-fg-secondary ${textSize} truncate block`} title={formatLeadProjects(lead, '')}>
+          {formatLeadProjects(lead)}
         </span>
       </TableCell>
       <TableCell className={`${cellPy} max-w-[140px]`}>

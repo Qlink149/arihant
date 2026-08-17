@@ -261,6 +261,253 @@ async def test_create_new_lead_zapier_meta_actor(monkeypatch):
     assert created["agent"] == "Zapier Meta Lead"
     assert created["description"] == "Lead created via Zapier (Meta Instant Form)"
     assert created["actor_name"] == "Zapier Meta Lead"
+    assert inserted["projects"] == ["Mira"]
+    assert inserted["project_ids"] == ["mira"]
+    assert inserted["project"] == "Mira"
+    assert inserted["project_id"] == "mira"
+
+
+def test_match_query_phone_only_is_global():
+    q = intake._match_query("melange", "a@b.com", "9198", phone_only=True, require_project_id=False)
+    assert q == {"normalized_phone": "9198"}
+
+
+def test_match_query_email_only_is_project_scoped():
+    q = intake._match_query("melange", "a@b.com", None, require_project_id=True)
+    assert "$and" in q
+    assert {"$or": [{"project_id": "melange"}, {"project_ids": "melange"}]} in q["$and"]
+    assert {"email": "a@b.com"} in q["$and"]
+
+
+def test_match_query_10s_same_project_includes_array():
+    q = intake._match_query("melange", "a@b.com", "9198", require_project_id=True)
+    assert any("project_ids" in str(part) for part in q["$and"])
+
+
+def _intake_resub_data(**overrides):
+    data = {
+        "consent": True,
+        "first_name": "Priya",
+        "last_name": "S",
+        "email": "priya@example.com",
+        "phone": "919876543210",
+        "budget": None,
+        "schedule_visit": None,
+        "meta": None,
+    }
+    data.update(overrides)
+    return data
+
+
+@pytest.mark.asyncio
+async def test_ingest_10s_does_not_flag_re_enquiry(monkeypatch):
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "key-1",
+        "project_name": "Mélange",
+        "project_id": "melange",
+        "rate_limit_per_min": 60,
+    }
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr(intake, "_find_recent_lead", AsyncMock(return_value={"id": "recent-1"}))
+    update = AsyncMock()
+    monkeypatch.setattr(intake, "_update_existing_submission", update)
+
+    result, status = await intake.ingest_lead(
+        body={"first_name": "A", "phone": "919999999999", "consent": True},
+        api_key=api_key,
+    )
+    assert status == 200
+    assert result["deduped"] is True
+    update.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ingest_30d_phone_merge_is_global(monkeypatch):
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "key-1",
+        "project_name": "Vivriti",
+        "project_id": "vivriti",
+        "rate_limit_per_min": 60,
+    }
+    existing = {"id": "existing-1"}
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+    find = AsyncMock(side_effect=[None, existing])
+    monkeypatch.setattr(intake, "_find_recent_lead", find)
+    monkeypatch.setattr(intake, "_update_existing_submission", AsyncMock(return_value="existing-1"))
+
+    await intake.ingest_lead(
+        body={"first_name": "Priya", "phone": "919876543210", "consent": True},
+        api_key=api_key,
+    )
+    assert find.await_count == 2
+    first, second = find.await_args_list
+    assert first.kwargs["require_project_id"] is True
+    assert first.kwargs["within_seconds"] == 10
+    assert second.kwargs["phone_only"] is True
+    assert second.kwargs["require_project_id"] is False
+
+
+@pytest.mark.asyncio
+async def test_ingest_email_only_stays_same_project(monkeypatch):
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "key-1",
+        "project_name": "Mélange",
+        "project_id": "melange",
+        "rate_limit_per_min": 60,
+    }
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+    find = AsyncMock(side_effect=[None, None])
+    monkeypatch.setattr(intake, "_find_recent_lead", find)
+    monkeypatch.setattr(intake, "_create_new_lead", AsyncMock(return_value="new-1"))
+
+    await intake.ingest_lead(
+        body={"first_name": "Priya", "email": "priya@example.com", "consent": True},
+        api_key=api_key,
+    )
+    second = find.await_args_list[1]
+    assert second.kwargs["require_project_id"] is True
+    assert second.kwargs.get("phone_only") is not True
+    assert second.kwargs["email"] == "priya@example.com"
+
+
+@pytest.mark.asyncio
+async def test_update_existing_appends_project_without_duplicate_slug(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "lead_status": "Contacted",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": ["reserve-16"],
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(),
+            "Reserve 16",
+            api_key={"project_name": "Reserve 16", "project_id": "reserve-16"},
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    assert main["$set"]["re_enquiry"] is True
+    assert "lead_status" not in main["$set"]
+    assert main["$set"]["projects"] == ["ECR - Reserve 16"]
+    assert "$addToSet" not in main
+
+
+@pytest.mark.asyncio
+async def test_update_existing_phone_merge_appends_new_project(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "lead_status": "Nurturing",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "assigned_user_id": "u1",
+        "assigned_to_name": "Rep",
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(),
+            "Vivriti",
+            api_key={"project_name": "Vivriti", "project_id": "vivriti"},
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    assert main["$set"]["re_enquiry"] is True
+    assert "ECR - Reserve 16" in main["$set"]["projects"]
+    assert "Vivriti" in main["$set"]["projects"]
+    assert "vivriti" in main["$set"]["project_ids"]
+    assert "lead_status" not in main["$set"]
+    assert main["$set"]["project"].startswith("ECR - Reserve 16")
+
+
+@pytest.mark.asyncio
+async def test_update_existing_closed_lost_reengages_and_creates_task(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "lead_status": "Closed Lost",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "assigned_user_id": "u1",
+        "assigned_to_name": "Rep",
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+    sla = AsyncMock()
+
+    with patch("crm.services.sla_helpers.create_sla_task_for_lead", sla):
+        with patch("crm.services.notification_service.create_notification", AsyncMock()):
+            await intake._update_existing_submission(
+                existing,
+                _intake_resub_data(),
+                "Vivriti",
+                api_key={"project_name": "Vivriti", "project_id": "vivriti"},
+            )
+
+    main = mock_db.leads.update_one.await_args_list[-1].args[1]
+    assert main["$set"]["lead_status"] == "Re-engaged"
+    assert main["$set"]["re_enquiry"] is True
+    sla.assert_awaited()
+    mock_db.tasks.update_many.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_update_existing_junk_badge_only(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "lead_status": "Junk",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+    sla = AsyncMock()
+
+    with patch("crm.services.sla_helpers.create_sla_task_for_lead", sla):
+        with patch("crm.services.notification_service.create_notification", AsyncMock()):
+            await intake._update_existing_submission(
+                existing,
+                _intake_resub_data(),
+                "Vivriti",
+                api_key={"project_name": "Vivriti", "project_id": "vivriti"},
+            )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    assert main["$set"]["re_enquiry"] is True
+    assert "lead_status" not in main["$set"]
+    sla.assert_not_awaited()
 
 
 

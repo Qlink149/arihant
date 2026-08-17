@@ -28,6 +28,7 @@ import {
   Filter,
   ChevronDown,
   Crown,
+  Repeat,
   User,
   Building,
   MapPin,
@@ -61,6 +62,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { SelectWithOther } from '../components/ui/SelectWithOther';
+import { MultiSelectWithOther } from '../components/ui/MultiSelectWithOther';
 import {
   Select,
   SelectContent,
@@ -68,6 +70,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import { formatLeadProjects } from '../utils/leadProjects';
 import { isOtherModeWithEmptyText } from '../utils/selectWithOther';
 import {
   TABLE_DENSITY_STORAGE_KEY,
@@ -162,7 +165,7 @@ const EMPTY_NEW_CUSTOMER = {
   phone: '',
   work_phone: '',
   email: '',
-  project: '',
+  projects: [],
   budget: '',
   reason_for_purchase: '',
   location: '',
@@ -965,7 +968,6 @@ const VirtualCustomerPage = () => {
     }
 
     const otherFieldChecks = [
-      { key: 'project', label: 'Interested Project', mode: addCustomerFieldModes.project },
       { key: 'budget', label: 'Budget', mode: addCustomerFieldModes.budget },
       { key: 'location', label: 'Location', mode: addCustomerFieldModes.location },
       { key: 'lead_source', label: 'Lead Source', mode: addCustomerFieldModes.lead_source },
@@ -980,6 +982,12 @@ const VirtualCustomerPage = () => {
     setSubmittingCustomer(true);
     try {
       const payload = { ...newCustomer };
+      if (Array.isArray(payload.projects) && payload.projects.length) {
+        payload.projects = payload.projects.filter(Boolean);
+      } else {
+        delete payload.projects;
+      }
+      delete payload.project;
       payload.lead_status = (payload.lead_status || '').trim() || 'New';
       if (payload.meta_qualified === 'yes') payload.meta_qualified = true;
       else if (payload.meta_qualified === 'no') payload.meta_qualified = false;
@@ -1443,6 +1451,21 @@ const VirtualCustomerPage = () => {
               VIP / HNI
             </Button>
 
+            <Button
+              variant="outline"
+              onClick={() => {
+                setActiveFilterViewId(null);
+                setFilters({ ...filters, re_enquiry: filters.re_enquiry === true ? null : true });
+              }}
+              className={`bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5 ${
+                filters.re_enquiry === true ? 'border-[#C5A059] text-[#C5A059]' : ''
+              }`}
+              data-testid="re-enquiry-filter"
+            >
+              <Repeat size={14} className="mr-2" />
+              Re Enquiry
+            </Button>
+
             {/* Clear Filters */}
             {activeFiltersCount > 0 && (
               <Button
@@ -1503,7 +1526,7 @@ const VirtualCustomerPage = () => {
                         </div>
                         <div>
                           <p className="text-crm-fg font-medium">{lead.first_name} {lead.last_name}</p>
-                          <p className="text-crm-fg-muted text-xs">{lead.project}</p>
+                          <p className="text-crm-fg-muted text-xs">{formatLeadProjects(lead)}</p>
                         </div>
                       </div>
                       <p className="text-crm-fg-secondary text-sm">{lead.phone}</p>
@@ -1687,17 +1710,13 @@ const VirtualCustomerPage = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-crm-fg-secondary text-sm mb-2 block">Interested Project</label>
-                <SelectWithOther
-                  value={newCustomer.project}
-                  onChange={(value) => setNewCustomer({ ...newCustomer, project: value })}
-                  onModeChange={(mode) =>
-                    setAddCustomerFieldModes((prev) => ({ ...prev, project: mode }))
-                  }
+                <MultiSelectWithOther
+                  value={Array.isArray(newCustomer.projects) ? newCustomer.projects : []}
+                  onChange={(projects) => setNewCustomer({ ...newCustomer, projects })}
                   options={picklistNames(projectOptions)}
                   placeholder="Select Project"
                   otherPlaceholder="Enter project name"
                   loading={filterOptionsLoading}
-                  loadingLabel="Loading projects…"
                   otherInputTestId="add-customer-project-other"
                 />
               </div>

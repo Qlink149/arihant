@@ -24,6 +24,12 @@ from crm.constants.lost_reason import (
 from crm.core.platform_ops import assert_assignee_allowed
 from crm.core.state import db, logger, resolve_project_id, resolve_user_id_by_full_name
 from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
+from crm.services.lead_project_fields import (
+    EmptyProjectsError,
+    TooManyProjectsError,
+    apply_coalesce_for_response,
+    normalize_lead_projects,
+)
 from crm.services.context_updates import dedupe_context_updates
 from crm.services.lead_projections import (
     DUPLICATE_GROUP_PUSH,
@@ -105,6 +111,7 @@ def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
         )
     else:
         lead["ai_last_generated_at"] = None
+    apply_coalesce_for_response(lead)
     return lead
 
 
@@ -145,7 +152,21 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     else:
         lead_dict["site_visit_count"] = _validate_site_visit_count(lead_dict["site_visit_count"])
     _apply_contact_phones(lead_dict)
-    if not lead_dict.get("project_id"):
+    try:
+        project_fields = normalize_lead_projects(
+            projects=lead_dict.get("projects"),
+            project=lead_dict.get("project"),
+            caller_project_id=lead_dict.get("project_id"),
+            reject_empty=False,
+        )
+    except TooManyProjectsError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    lead_dict.update(project_fields)
+    if not lead_dict.get("projects"):
+        lead_dict.pop("projects", None)
+    if not lead_dict.get("project_ids"):
+        lead_dict.pop("project_ids", None)
+    if not lead_dict.get("project_id") and lead_dict.get("project") and not project_fields:
         lead_dict["project_id"] = resolve_project_id(lead_dict.get("project"))
 
     temp_patch = {"lead_status": lead_dict.get("lead_status", "New")}
@@ -274,6 +295,7 @@ async def list_leads(
     locations: Optional[list] = None,
     intent: Optional[str] = None,
     vip: Optional[bool] = None,
+    re_enquiry: Optional[bool] = None,
     status: Optional[str] = None,
     statuses: Optional[list] = None,
     search: Optional[str] = None,
@@ -307,6 +329,7 @@ async def list_leads(
         locations=locations,
         intent=intent,
         vip=vip,
+        re_enquiry=re_enquiry,
         status=status,
         statuses=statuses,
         days=days,
@@ -428,8 +451,26 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     if "site_visit_count" in patch:
         patch["site_visit_count"] = _validate_site_visit_count(patch["site_visit_count"])
 
-    if "project" in patch and patch.get("project"):
-        patch["project_id"] = resolve_project_id(patch.get("project"))
+    if "projects" in patch or "project" in patch:
+        if "projects" in patch:
+            raw_projects = patch.get("projects")
+            if raw_projects is not None and len(list(raw_projects)) == 0:
+                raise HTTPException(status_code=400, detail="projects must contain at least one name")
+        try:
+            project_fields = normalize_lead_projects(
+                projects=patch.get("projects") if "projects" in patch else None,
+                project=None if "projects" in patch else patch.get("project"),
+                existing=existing,
+                caller_project_id=existing.get("project_id"),
+                reject_empty="projects" in patch,
+            )
+        except EmptyProjectsError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except TooManyProjectsError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        if "projects" in patch and not project_fields:
+            raise HTTPException(status_code=400, detail="projects must contain at least one name")
+        patch.update(project_fields)
 
     if "assigned_to" in patch and "assigned_to_name" not in patch:
         patch["assigned_to_name"] = patch["assigned_to"]
@@ -659,6 +700,10 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
         "ai_generation_pending",
     }
     diff_candidate_fields = {k for k in patch.keys() if k not in diff_ignore}
+    if "projects" in diff_candidate_fields:
+        diff_candidate_fields.discard("project")
+        diff_candidate_fields.discard("project_id")
+        diff_candidate_fields.discard("project_ids")
     # Ensure we capture nurture label changes even when auto-populated by rules.
     if "lead_status" in patch or "temperature" in patch:
         diff_candidate_fields.add("lead_status")
@@ -928,6 +973,16 @@ async def import_csv(
             }
 
             _apply_contact_phones(lead_dict)
+            try:
+                lead_dict.update(
+                    normalize_lead_projects(
+                        project=lead_dict.get("project"),
+                        caller_project_id=lead_dict.get("project_id"),
+                    )
+                )
+            except TooManyProjectsError as e:
+                errors.append(str(e))
+                continue
 
             if lead_dict.get("normalized_phone"):
                 existing = await db.leads.find_one({"normalized_phone": lead_dict["normalized_phone"]})

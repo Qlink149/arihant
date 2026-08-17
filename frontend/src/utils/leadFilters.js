@@ -36,6 +36,7 @@ export const emptyLeadFilters = () => ({
   sales_owners: [],
   intent: '',
   vip: null,
+  re_enquiry: null,
   temperature: '',
   days: '',
   created_from: '',
@@ -67,6 +68,11 @@ export const filtersFromSearchParams = (searchParams) => {
   if (vipRaw === '1' || vipRaw === 'true') vip = true;
   if (vipRaw === '0' || vipRaw === 'false') vip = false;
 
+  const reEnquiryRaw = searchParams.get('re_enquiry');
+  let re_enquiry = null;
+  if (reEnquiryRaw === '1' || reEnquiryRaw === 'true') re_enquiry = true;
+  if (reEnquiryRaw === '0' || reEnquiryRaw === 'false') re_enquiry = false;
+
   const updated_from = searchParams.get('updated_from') || '';
   const updated_to = searchParams.get('updated_to') || '';
   const dateFieldRaw = searchParams.get('date_field');
@@ -85,6 +91,7 @@ export const filtersFromSearchParams = (searchParams) => {
     sales_owners,
     intent: searchParams.get('intent') || '',
     vip,
+    re_enquiry,
     temperature: searchParams.get('temperature') || '',
     days: searchParams.get('days') || '',
     created_from: searchParams.get('created_from') || '',
@@ -120,6 +127,8 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   if (filters.intent) params.set('intent', filters.intent);
   if (filters.vip === true) params.set('vip', '1');
   if (filters.vip === false) params.set('vip', '0');
+  if (filters.re_enquiry === true) params.set('re_enquiry', '1');
+  if (filters.re_enquiry === false) params.set('re_enquiry', '0');
   if (filters.temperature) params.set('temperature', filters.temperature);
   if (filters.days) params.set('days', String(filters.days));
 
@@ -163,6 +172,7 @@ export const buildLeadListParams = (filters, search = '') => {
 
   if (filters.intent) params.intent = filters.intent;
   if (filters.vip !== null && filters.vip !== undefined) params.vip = filters.vip;
+  if (filters.re_enquiry !== null && filters.re_enquiry !== undefined) params.re_enquiry = filters.re_enquiry;
   if (filters.temperature) params.temperature = filters.temperature;
   if (filters.dormant) params.dormant = true;
 
@@ -204,6 +214,7 @@ export const countActiveFilters = (filters, { includeDuplicates = false } = {}) 
   }
   if (filters.intent) count += 1;
   if (filters.vip !== null && filters.vip !== undefined) count += 1;
+  if (filters.re_enquiry !== null && filters.re_enquiry !== undefined) count += 1;
   if (filters.temperature) count += 1;
   if (
     filters.days
@@ -231,6 +242,7 @@ const normalizeFilterSnapshot = (filters = {}) => ({
   sales_owners: [...(filters.sales_owners || [])].map(String).sort(),
   intent: filters.intent || '',
   vip: filters.vip ?? null,
+  re_enquiry: filters.re_enquiry ?? null,
   temperature: filters.temperature || '',
   days: filters.days || '',
   created_from: filters.created_from || '',
@@ -279,6 +291,7 @@ export const snapshotFiltersForView = (filters, search) => ({
   sources: [...(filters.sources || [])],
   sales_owners: [...(filters.sales_owners || [])],
   vip: filters.vip ?? null,
+  re_enquiry: filters.re_enquiry ?? null,
   intent: filters.intent || '',
   temperature: filters.temperature || '',
   days: filters.days || '',
@@ -305,6 +318,7 @@ export const applyViewFiltersToState = (viewFilters) => {
     sales_owners: [...(viewFilters.sales_owners || [])],
     intent: viewFilters.intent || '',
     vip: viewFilters.vip ?? null,
+    re_enquiry: viewFilters.re_enquiry ?? null,
     temperature: viewFilters.temperature || '',
     days: viewFilters.days || '',
     created_from: viewFilters.created_from || '',

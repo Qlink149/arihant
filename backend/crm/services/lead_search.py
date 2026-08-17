@@ -225,6 +225,7 @@ def build_leads_list_query(
     locations: Optional[Sequence[str]] = None,
     intent: Optional[str] = None,
     vip: Optional[bool] = None,
+    re_enquiry: Optional[bool] = None,
     status: Optional[str] = None,
     statuses: Optional[Sequence[str]] = None,
     days_cutoff_iso: Optional[str] = None,
@@ -251,7 +252,7 @@ def build_leads_list_query(
     sales_owner_values = resolve_multi_filter_values(sales_owners, sales_owner)
 
     if project_id:
-        extra.append({"project_id": project_id})
+        extra.append({"$or": [{"project_id": project_id}, {"project_ids": project_id}]})
     if project_values:
         extra.append(case_insensitive_regex_or_filter("project", project_values))
     if temperature and temperature.lower() != "all":
@@ -272,6 +273,8 @@ def build_leads_list_query(
         extra.append({"intent": intent})
     if vip is not None:
         extra.append({"vip": vip})
+    if re_enquiry is not None:
+        extra.append({"re_enquiry": re_enquiry})
     if status_values:
         extra.append(case_insensitive_regex_or_filter("lead_status", status_values, exact=True))
     if days_cutoff_iso:

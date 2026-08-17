@@ -241,6 +241,12 @@ async def ensure_db_indexes():
         # leads
         await db.leads.create_index([("id", 1)], unique=True, name="leads_id_uq")
         await db.leads.create_index([("project_id", 1), ("updated_at", -1)], name="leads_projectId_updatedAt")
+        await db.leads.create_index([("project_ids", 1)], name="leads_projectIds")
+        await db.leads.create_index(
+            [("re_enquiry", 1)],
+            sparse=True,
+            name="leads_reEnquiry_sparse",
+        )
         await db.leads.create_index([("assigned_user_id", 1), ("updated_at_dt", -1)], name="leads_assignedUser_updatedAtDt")
         await db.leads.create_index(
             [("normalized_phone", 1)],

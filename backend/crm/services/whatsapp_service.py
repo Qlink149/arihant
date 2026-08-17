@@ -22,7 +22,7 @@ from typing import Optional
 from urllib.parse import quote, unquote, urlparse
 
 import httpx
-from fastapi import HTTPException
+from crm.services.lead_project_fields import primary_project_label
 
 from crm.core.state import (
     # WATI (active)
@@ -2048,7 +2048,7 @@ async def send_lead_ack(lead_id: str, lead: dict) -> dict:
             template_name="arihant_new_lead_ack_v1",
             template_parameters=[
                 {"name": "1", "value": lead.get("first_name") or lead.get("name", "Customer")},
-                {"name": "2", "value": lead.get("project") or "Arihant Spaces"},
+                {"name": "2", "value": primary_project_label(lead) or "Arihant Spaces"},
             ]
         )
         # Use a system fallback user for auto-ack
@@ -2078,7 +2078,7 @@ async def send_pricing(lead_id: str, current_user: dict) -> dict:
         template_name="arihant_pricing_v1",
         template_parameters=[
             {"name": "1", "value": lead.get("first_name") or lead.get("name", "Customer")},
-            {"name": "2", "value": lead.get("project") or "Arihant Spaces"},
+            {"name": "2", "value": primary_project_label(lead) or "Arihant Spaces"},
             {"name": "3", "value": price_str},
         ]
     )

@@ -184,3 +184,18 @@ def test_build_leads_list_query_sales_owners():
     parts = q["$and"] if "$and" in q else [q]
     owner_part = next(p for p in parts if "$or" in p and "assigned_to" in str(p))
     assert len(owner_part["$or"]) == 6  # 2 names × 3 fields
+
+
+def test_build_leads_list_query_project_id_matches_array():
+    q = build_leads_list_query(project_id="reserve-16")
+    parts = q["$and"] if "$and" in q else [q]
+    clause = next(p for p in parts if "$or" in p and "project_ids" in str(p))
+    assert {"project_id": "reserve-16"} in clause["$or"]
+    assert {"project_ids": "reserve-16"} in clause["$or"]
+
+
+def test_build_leads_list_query_re_enquiry():
+    q = build_leads_list_query(re_enquiry=True)
+    parts = q["$and"] if "$and" in q else [q]
+    flag_part = next(p for p in parts if "re_enquiry" in p)
+    assert flag_part["re_enquiry"] is True
