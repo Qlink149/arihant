@@ -403,6 +403,7 @@ const DigitalTwinPage = () => {
     setTaskForm((prev) => ({
       ...prev,
       assigned_to: prev.assigned_to || matching?.full_name || defaultName,
+      due_time: prev.due_time || '09:00',
     }));
   }, [showTaskModal, lead, assignees]);
 

@@ -4,9 +4,24 @@ import { parseTimeTo24h, splitTimeForRole } from '../../utils/datetime';
 const selectClass =
   'h-10 px-2 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm';
 
-const HOURS_12 = Array.from({ length: 12 }, (_, i) => String(i + 1));
+const HOURS_12_PERIOD = [
+  ...[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((h) => ({
+    hour: String(h),
+    period: 'AM',
+    label: `${h} AM`,
+  })),
+  ...[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((h) => ({
+    hour: String(h),
+    period: 'PM',
+    label: `${h} PM`,
+  })),
+];
 const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+
+function hourPeriodValue(hour, period) {
+  return `${hour}|${period}`;
+}
 
 export function RoleBasedTimeInput({ value, onChange, isAdmin, testId }) {
   const parts = useMemo(() => splitTimeForRole(value, isAdmin), [value, isAdmin]);
@@ -23,13 +38,18 @@ export function RoleBasedTimeInput({ value, onChange, isAdmin, testId }) {
     return (
       <div className="flex gap-1" data-testid={testId}>
         <select
-          value={parts.hour}
-          onChange={(e) => update({ ...parts, hour: e.target.value })}
+          value={hourPeriodValue(parts.hour, parts.period)}
+          onChange={(e) => {
+            const [hour, period] = e.target.value.split('|');
+            update({ ...parts, hour, period });
+          }}
           className={`${selectClass} flex-1`}
           aria-label="Hour"
         >
-          {HOURS_12.map((h) => (
-            <option key={h} value={h}>{h}</option>
+          {HOURS_12_PERIOD.map((opt) => (
+            <option key={hourPeriodValue(opt.hour, opt.period)} value={hourPeriodValue(opt.hour, opt.period)}>
+              {opt.label}
+            </option>
           ))}
         </select>
         <select
@@ -41,15 +61,6 @@ export function RoleBasedTimeInput({ value, onChange, isAdmin, testId }) {
           {MINUTES.map((m) => (
             <option key={m} value={m}>{m}</option>
           ))}
-        </select>
-        <select
-          value={parts.period}
-          onChange={(e) => update({ ...parts, period: e.target.value })}
-          className={`${selectClass} flex-1`}
-          aria-label="AM or PM"
-        >
-          <option value="AM">AM</option>
-          <option value="PM">PM</option>
         </select>
       </div>
     );

@@ -4,6 +4,8 @@ import {
   formatDateIST,
   formatTimeIST,
   formatDueDateTime,
+  parseTimeTo24h,
+  splitTimeForRole,
 } from './datetime';
 
 describe('parseApiDate', () => {
@@ -72,5 +74,29 @@ describe('formatDueDateTime', () => {
     const formatted = formatDueDateTime('2025-05-27', '');
     expect(formatted).toMatch(/27/);
     expect(formatted).not.toMatch(/am|pm/i);
+  });
+});
+
+describe('parseTimeTo24h', () => {
+  it('maps 12 PM to noon', () => {
+    expect(parseTimeTo24h(12, 0, 'PM')).toBe('12:00');
+  });
+
+  it('maps 12 AM to midnight', () => {
+    expect(parseTimeTo24h(12, 0, 'AM')).toBe('00:00');
+  });
+
+  it('maps 1 PM to 13:00', () => {
+    expect(parseTimeTo24h(1, 0, 'PM')).toBe('13:00');
+  });
+});
+
+describe('splitTimeForRole', () => {
+  it('splits noon as 12 PM for admin', () => {
+    expect(splitTimeForRole('12:00', true)).toEqual({ hour: '12', minute: '00', period: 'PM' });
+  });
+
+  it('splits midnight as 12 AM for admin', () => {
+    expect(splitTimeForRole('00:00', true)).toEqual({ hour: '12', minute: '00', period: 'AM' });
   });
 });
