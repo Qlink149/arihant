@@ -53,6 +53,9 @@ def test_validate_fields_preserves_catalog_order():
 def test_field_value_formats_dates_and_notes():
     lead = {
         "first_name": "Ada",
+        "email": "ada@example.com",
+        "phone": "9999999999",
+        "lead_status": "New",
         "created_at": "2024-05-27T06:04:39Z",
         "vip": True,
         "context_updates": [
@@ -67,6 +70,10 @@ def test_field_value_formats_dates_and_notes():
         ],
     }
     assert _field_value(lead, "first_name") == "Ada"
+    assert _field_value(lead, "email") == "ada@example.com"
+    assert _field_value(lead, "phone") == "9999999999"
+    assert _field_value(lead, "lead_status") == "New"
+    assert _field_value(lead, "missing_field") == ""
     assert "2024-05-27" in _field_value(lead, "created_at")
     assert _field_value(lead, "vip") == "Yes"
     assert _field_value(lead, "note_count") == 2
