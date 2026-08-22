@@ -40,6 +40,8 @@ export const CANONICAL_PROJECTS = [
   'Venus Colony - Saraswathi',
   'Sold Out Enquiry',
   'Chamiers Road - Project',
+  'Guindy',
+  'Thoraipakkam',
 ];
 
 export const CANONICAL_LOCATIONS = [

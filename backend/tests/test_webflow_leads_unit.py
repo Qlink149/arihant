@@ -31,10 +31,43 @@ def test_project_from_form_name_all_five():
     assert wls.project_from_form_name("Unknown Form") is None
 
 
+def test_project_from_form_name_new_projects():
+    assert wls.project_from_form_name("Chamiers Road Enquiry Form")["id"] == "chamiers-road"
+    assert wls.project_from_form_name("Flowers Road Enquiry Form")["id"] == "flowers-road"
+    assert wls.project_from_form_name("Guindy Enquiry Form")["id"] == "guindy"
+    assert wls.project_from_form_name("Thoraipakkam Enquiry Form")["id"] == "thoraipakkam"
+
+
 def test_project_from_project_name_melange_accent():
     assert wls.project_from_project_name_field("Melange")["id"] == "melange"
     assert wls.project_from_project_name_field("Mélange")["id"] == "melange"
     assert wls.project_from_project_name_field("Reserve 16")["id"] == "reserve-16"
+
+
+def test_project_from_project_name_new_webflow_labels():
+    assert wls.project_from_project_name_field("Chamiers Road")["id"] == "chamiers-road"
+    assert wls.project_from_project_name_field("Chamiers Road")["name"] == "Chamiers Road - Project"
+    assert wls.project_from_project_name_field("Flowers Road")["id"] == "flowers-road"
+    assert wls.project_from_project_name_field("Flowers Road")["name"] == "Flowers Road - Kilpauk"
+    assert wls.project_from_project_name_field("Guindy")["id"] == "guindy"
+    assert wls.project_from_project_name_field("Thoraipakkam")["id"] == "thoraipakkam"
+    assert wls.project_from_project_name_field("Select one...") is None
+
+
+def test_resolve_webflow_project_prefers_project_name():
+    project = wls.resolve_webflow_project(
+        "Melange Enquiry Form",
+        {"Project-Name": "Chamiers Road", "First-Name": "A"},
+    )
+    assert project["id"] == "chamiers-road"
+
+
+def test_resolve_webflow_project_falls_back_to_form_name():
+    project = wls.resolve_webflow_project(
+        "Melange Enquiry Form",
+        {"Project-Name": "Select one...", "First-Name": "A"},
+    )
+    assert project["id"] == "melange"
 
 
 def test_map_webflow_data_client_field_names():
@@ -83,24 +116,34 @@ def test_map_webflow_data_label_variants():
     assert body["source"] == "Mira Website"
 
 
-@pytest.mark.asyncio
-async def test_process_unmapped_form_skips_ingest(monkeypatch):
+def _mock_webflow_db():
     mock_db = MagicMock()
     mock_db.webflow_leads_logs.find_one = AsyncMock(return_value=None)
     mock_db.webflow_leads_logs.update_one = AsyncMock()
-    monkeypatch.setattr(wls, "db", mock_db)
+    return mock_db
+
+
+def _submission(form_name, data, submission_id="sub-1"):
+    return {
+        "triggerType": "form_submission",
+        "payload": {
+            "name": form_name,
+            "id": submission_id,
+            "formId": "f1",
+            "siteId": "s1",
+            "data": data,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_process_unmapped_form_skips_ingest(monkeypatch):
+    monkeypatch.setattr(wls, "db", _mock_webflow_db())
     ingest = AsyncMock()
     monkeypatch.setattr(wls, "ingest_lead", ingest)
 
     result = await wls.process_form_submission(
-        {
-            "triggerType": "form_submission",
-            "payload": {
-                "name": "Unknown Enquiry Form",
-                "id": "sub-x",
-                "data": {"First-Name": "X", "phone": "1"},
-            },
-        }
+        _submission("Unknown Enquiry Form", {"First-Name": "X", "phone": "1"}, "sub-x")
     )
     assert result["reason"] == "unmapped_form"
     ingest.assert_not_awaited()
@@ -117,14 +160,7 @@ async def test_process_already_processed(monkeypatch):
     monkeypatch.setattr(wls, "ingest_lead", ingest)
 
     result = await wls.process_form_submission(
-        {
-            "triggerType": "form_submission",
-            "payload": {
-                "name": "Mira Enquiry Form",
-                "id": "sub1",
-                "data": {"First-Name": "A", "Cust-EMail": "a@b.com"},
-            },
-        }
+        _submission("Mira Enquiry Form", {"First-Name": "A", "Cust-EMail": "a@b.com"}, "sub1")
     )
     assert result["reason"] == "already_processed"
     assert result["lead_id"] == "L1"
@@ -133,10 +169,7 @@ async def test_process_already_processed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_process_happy_path_melange(monkeypatch):
-    mock_db = MagicMock()
-    mock_db.webflow_leads_logs.find_one = AsyncMock(return_value=None)
-    mock_db.webflow_leads_logs.update_one = AsyncMock()
-    monkeypatch.setattr(wls, "db", mock_db)
+    monkeypatch.setattr(wls, "db", _mock_webflow_db())
     monkeypatch.setattr(
         wls,
         "ingest_lead",
@@ -144,23 +177,18 @@ async def test_process_happy_path_melange(monkeypatch):
     )
 
     result = await wls.process_form_submission(
-        {
-            "triggerType": "form_submission",
-            "payload": {
-                "name": "Melange Enquiry Form",
-                "id": "sub-happy",
-                "formId": "f1",
-                "siteId": "s1",
-                "data": {
-                    "Project-Name": "Melange",
-                    "First-Name": "Priya",
-                    "Last-Name": "Sharma",
-                    "phone": "9876543210",
-                    "Cust-EMail": "priya@example.com",
-                    "Message": "Call me",
-                },
+        _submission(
+            "Melange Enquiry Form",
+            {
+                "Project-Name": "Melange",
+                "First-Name": "Priya",
+                "Last-Name": "Sharma",
+                "phone": "9876543210",
+                "Cust-EMail": "priya@example.com",
+                "Message": "Call me",
             },
-        }
+            "sub-happy",
+        )
     )
     assert result["reason"] == "ingested"
     assert result["lead_id"] == "L99"
@@ -174,10 +202,7 @@ async def test_process_happy_path_melange(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_process_fallback_project_name_field(monkeypatch):
-    mock_db = MagicMock()
-    mock_db.webflow_leads_logs.find_one = AsyncMock(return_value=None)
-    mock_db.webflow_leads_logs.update_one = AsyncMock()
-    monkeypatch.setattr(wls, "db", mock_db)
+    monkeypatch.setattr(wls, "db", _mock_webflow_db())
     monkeypatch.setattr(
         wls,
         "ingest_lead",
@@ -185,18 +210,42 @@ async def test_process_fallback_project_name_field(monkeypatch):
     )
 
     result = await wls.process_form_submission(
-        {
-            "triggerType": "form_submission",
-            "payload": {
-                "name": "Some Misc Form",
-                "id": "sub-fb",
-                "data": {
-                    "Project-Name": "Krsna",
-                    "First-Name": "Dev",
-                    "phone": "9000000000",
-                },
+        _submission(
+            "Some Misc Form",
+            {
+                "Project-Name": "Krsna",
+                "First-Name": "Dev",
+                "phone": "9000000000",
             },
-        }
+            "sub-fb",
+        )
     )
     assert result["reason"] == "ingested"
     assert result["project_id"] == "krsna"
+
+
+@pytest.mark.asyncio
+async def test_process_new_project_name_dropdown(monkeypatch):
+    monkeypatch.setattr(wls, "db", _mock_webflow_db())
+    monkeypatch.setattr(
+        wls,
+        "ingest_lead",
+        AsyncMock(return_value=({"success": True, "lead_id": "L3", "deduped": False}, 201)),
+    )
+
+    result = await wls.process_form_submission(
+        _submission(
+            "Homepage Enquiry Form",
+            {
+                "Project-Name": "Chamiers Road",
+                "First-Name": "Ravi",
+                "phone": "9888888888",
+            },
+            "sub-chamiers",
+        )
+    )
+    assert result["reason"] == "ingested"
+    assert result["project_id"] == "chamiers-road"
+    call_kwargs = wls.ingest_lead.await_args.kwargs
+    assert call_kwargs["api_key"]["id"] == "webflow:chamiers-road"
+    assert call_kwargs["api_key"]["project_name"] == "Chamiers Road - Project"

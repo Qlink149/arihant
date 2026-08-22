@@ -33,8 +33,26 @@ Set on the droplet in `/opt/arihant/.env`, then recreate the container (`/opt/ar
 | Reserve 16 Enquiry Form | Reserve 16 |
 | Vivriti Enquiry Form | Vivriti |
 | Krsna Enquiry Form | Krsna |
+| Chamiers Road Enquiry Form | Chamiers Road - Project |
+| Flowers Road Enquiry Form | Flowers Road - Kilpauk |
+| Guindy Enquiry Form | Guindy |
+| Thoraipakkam Enquiry Form | Thoraipakkam |
 
-If the form name is unknown, the adapter falls back to the submitted **`Project-Name`** field (handles `Melange` / `Mélange`).
+**`Project-Name` is preferred** when present (shared / homepage forms). Form name is the fallback.
+
+| Webflow `Project-Name` | CRM project |
+|------------------------|-------------|
+| Melange / Mélange | Mélange |
+| Mira | Mira |
+| Reserve 16 | Reserve 16 |
+| Vivriti | Vivriti |
+| Krsna | Krsna |
+| Chamiers Road | Chamiers Road - Project |
+| Flowers Road | Flowers Road - Kilpauk |
+| Guindy | Guindy |
+| Thoraipakkam | Thoraipakkam |
+
+Placeholder values like `Select one...` are ignored.
 
 ## Field map (all forms)
 

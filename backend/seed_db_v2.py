@@ -114,8 +114,10 @@ PROJECT_ID_MAP: Dict[str, str] = {
     "Abhiramapuram - Krishna": "krsna",
     "OMR - Vivriti": "vivriti",
     "Saligramam Melange": "melange",
-    # Kilpauk currently not in backend PROJECT_REGISTRY; keep project_id None.
-    "Flowers Road - Kilpauk": None,  # type: ignore[assignment]
+    "Flowers Road - Kilpauk": "flowers-road",
+    "Chamiers Road - Project": "chamiers-road",
+    "Guindy": "guindy",
+    "Thoraipakkam": "thoraipakkam",
 }
 
 PROJECT_TO_LOCATION = {
@@ -124,6 +126,9 @@ PROJECT_TO_LOCATION = {
     "OMR - Vivriti": "OMR",
     "Abhiramapuram - Krishna": "Abhiramapuram",
     "Flowers Road - Kilpauk": "Kilpauk",
+    "Chamiers Road - Project": "Chamiers Road",
+    "Guindy": "Guindy",
+    "Thoraipakkam": "Thoraipakkam",
 }
 
 

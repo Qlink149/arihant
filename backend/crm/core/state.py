@@ -170,6 +170,11 @@ _PROJECT_KEY_TOKENS: list = [
     ("mira",       "mira"),
     ("vipassanā",  "vipassana"),
     ("vipassana",  "vipassana"),
+    ("chamiers",   "chamiers-road"),
+    ("flowers road", "flowers-road"),
+    ("kilpauk",    "flowers-road"),
+    ("guindy",     "guindy"),
+    ("thoraipakkam", "thoraipakkam"),
 ]
 
 
@@ -181,7 +186,18 @@ def resolve_lead_project_key(lead: dict) -> str:
     lead.project display string. Returns '' when no known project matches.
     """
     pid = (lead.get("project_id") or "").strip().lower()
-    if pid in ("melange", "reserve-16", "vivriti", "krsna", "mira", "vipassana"):
+    if pid in (
+        "melange",
+        "reserve-16",
+        "vivriti",
+        "krsna",
+        "mira",
+        "vipassana",
+        "chamiers-road",
+        "flowers-road",
+        "guindy",
+        "thoraipakkam",
+    ):
         return pid
     text = (lead.get("project") or "").lower()
     if not text:
@@ -214,6 +230,10 @@ PROJECT_REGISTRY = [
     {"id": "melange", "name": "Mélange"},
     {"id": "mira", "name": "Mira"},
     {"id": "vipassana", "name": "Vipassanā"},
+    {"id": "chamiers-road", "name": "Chamiers Road - Project"},
+    {"id": "flowers-road", "name": "Flowers Road - Kilpauk"},
+    {"id": "guindy", "name": "Guindy"},
+    {"id": "thoraipakkam", "name": "Thoraipakkam"},
 ]
 
 

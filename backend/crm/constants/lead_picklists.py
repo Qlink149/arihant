@@ -49,6 +49,8 @@ CANONICAL_PROJECTS: List[str] = [
     "Venus Colony - Saraswathi",
     "Sold Out Enquiry",
     "Chamiers Road - Project",
+    "Guindy",
+    "Thoraipakkam",
 ]
 
 CANONICAL_LOCATIONS: List[str] = [

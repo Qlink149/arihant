@@ -25,6 +25,37 @@ _DEFAULT_FORM_NAME_PROJECT_MAP = {
     "reserve 16 enquiry form": "reserve-16",
     "vivriti enquiry form": "vivriti",
     "krsna enquiry form": "krsna",
+    "chamiers road enquiry form": "chamiers-road",
+    "flowers road enquiry form": "flowers-road",
+    "guindy enquiry form": "guindy",
+    "thoraipakkam enquiry form": "thoraipakkam",
+}
+
+_PLACEHOLDER_PROJECT_NAMES = frozenset(
+    {
+        "select one...",
+        "select one",
+        "select",
+        "-",
+    }
+)
+
+# Webflow Project-Name dropdown / aliases → CRM project id.
+_PROJECT_NAME_ALIASES = {
+    "melange": "melange",
+    "reserve16": "reserve-16",
+    "reserve-16": "reserve-16",
+    "reserve 16": "reserve-16",
+    "chamiers road": "chamiers-road",
+    "chamiers-road": "chamiers-road",
+    "chamiers road - project": "chamiers-road",
+    "chamiers road project": "chamiers-road",
+    "flowers road": "flowers-road",
+    "flowers-road": "flowers-road",
+    "flowers road - kilpauk": "flowers-road",
+    "flowers road kilpauk": "flowers-road",
+    "guindy": "guindy",
+    "thoraipakkam": "thoraipakkam",
 }
 
 # Defensive aliases for payload.data keys (normalized).
@@ -88,26 +119,34 @@ def project_from_form_name(form_name: Optional[str]) -> Optional[Dict[str, str]]
 
 
 def project_from_project_name_field(project_name: Optional[str]) -> Optional[Dict[str, str]]:
-    """Resolve Project-Name field (handles Melange vs Mélange)."""
+    """Resolve Project-Name field (handles Melange vs Mélange, plus location labels)."""
     raw = (project_name or "").strip()
     if not raw:
         return None
     folded = _fold_name(raw)
+    if folded in _PLACEHOLDER_PROJECT_NAMES:
+        return None
     for p in PROJECT_REGISTRY:
         if p["id"] == folded or _fold_name(p["name"]) == folded:
             return {"id": p["id"], "name": p["name"]}
-    # Common aliases without accents / spacing
-    aliases = {
-        "melange": "melange",
-        "reserve16": "reserve-16",
-        "reserve-16": "reserve-16",
-        "reserve 16": "reserve-16",
-    }
-    compact = folded.replace(" ", "")
-    mapped = aliases.get(folded) or aliases.get(compact)
+    compact = folded.replace(" ", "").replace("-", "")
+    mapped = _PROJECT_NAME_ALIASES.get(folded) or _PROJECT_NAME_ALIASES.get(compact)
     if mapped:
         return _project_by_id(mapped)
     return None
+
+
+def resolve_webflow_project(
+    form_name: Optional[str],
+    data: Any,
+) -> Optional[Dict[str, str]]:
+    """Prefer Project-Name when present; fall back to the Webflow form name."""
+    fields = data if isinstance(data, dict) else {}
+    project_name_field = _data_lookup(fields, _PROJECT_NAME_KEYS)
+    project = project_from_project_name_field(project_name_field)
+    if project:
+        return project
+    return project_from_form_name(form_name)
 
 
 def _data_lookup(data: Dict[str, Any], candidates: tuple) -> Optional[str]:
@@ -251,10 +290,7 @@ async def process_form_submission(body: dict) -> Dict[str, Any]:
             "deduped": True,
         }
 
-    project = project_from_form_name(form_name)
-    if not project:
-        project_name_field = _data_lookup(data, _PROJECT_NAME_KEYS)
-        project = project_from_project_name_field(project_name_field)
+    project = resolve_webflow_project(form_name, data)
 
     if not project:
         await _write_log(
