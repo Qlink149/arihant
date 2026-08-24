@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from crm.core.platform_ops import get_platform_operator_email, require_platform_operator
+from crm.core.platform_ops import get_platform_operator_emails, require_platform_operator
 from crm.core.state import (
     db,
     create_access_token,
@@ -23,7 +23,7 @@ class ImpersonateRequest(BaseModel):
 
 @router.get("/ops/users")
 async def list_ops_users(operator: dict = Depends(require_platform_operator)):
-    operator_email = get_platform_operator_email()
+    operator_emails = get_platform_operator_emails()
     projection = {
         "_id": 0,
         "id": 1,
@@ -36,7 +36,7 @@ async def list_ops_users(operator: dict = Depends(require_platform_operator)):
     result = []
     for u in users:
         email = (u.get("email") or "").strip().lower()
-        if email == operator_email:
+        if email in operator_emails:
             continue
         result.append(
             {

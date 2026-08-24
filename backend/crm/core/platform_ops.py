@@ -1,5 +1,5 @@
 import os
-from typing import Optional, Set
+from typing import List, Optional, Set
 
 from fastapi import Depends, HTTPException, status
 
@@ -9,11 +9,18 @@ DEFAULT_PLATFORM_OPERATOR_EMAIL = "yogansh@claraai.tech"
 _startup_warned_missing_env = False
 
 
+def get_platform_operator_emails() -> Set[str]:
+    """All configured platform operator emails (comma-separated in env), lowercased."""
+    explicit = os.environ.get("PLATFORM_OPERATOR_EMAIL") or ""
+    emails = {e.strip().lower() for e in explicit.split(",") if e.strip()}
+    if emails:
+        return emails
+    return {DEFAULT_PLATFORM_OPERATOR_EMAIL.strip().lower()}
+
+
 def get_platform_operator_email() -> str:
-    explicit = (os.environ.get("PLATFORM_OPERATOR_EMAIL") or "").strip().lower()
-    if explicit:
-        return explicit
-    return DEFAULT_PLATFORM_OPERATOR_EMAIL.strip().lower()
+    """Back-compat single-value accessor: one representative platform operator email."""
+    return sorted(get_platform_operator_emails())[0]
 
 
 def warn_if_platform_operator_env_missing() -> None:
@@ -29,31 +36,27 @@ def warn_if_platform_operator_env_missing() -> None:
 
 
 def is_platform_operator(user: dict) -> bool:
-    allowed = get_platform_operator_email()
+    allowed = get_platform_operator_emails()
     if not allowed:
         return False
     email = (user.get("email") or "").strip().lower()
-    return email == allowed
+    return email in allowed
 
 
-async def get_platform_operator_identity() -> Optional[dict]:
-    email = get_platform_operator_email()
-    if not email:
-        return None
-    return await db.users.find_one(
-        {"email": {"$regex": f"^{email}$", "$options": "i"}},
+async def get_platform_operator_identities() -> List[dict]:
+    emails = get_platform_operator_emails()
+    if not emails:
+        return []
+    return await db.users.find(
+        {"email": {"$in": [{"$regex": f"^{e}$", "$options": "i"} for e in emails]}},
         {"_id": 0, "id": 1, "email": 1, "full_name": 1},
-    )
+    ).to_list(len(emails))
 
 
 async def get_blocked_assignee_values() -> Set[str]:
     """Lowercase names/emails that must not receive leads, tasks, or transfers."""
-    blocked: Set[str] = set()
-    email = get_platform_operator_email()
-    if email:
-        blocked.add(email)
-    identity = await get_platform_operator_identity()
-    if identity:
+    blocked: Set[str] = set(get_platform_operator_emails())
+    for identity in await get_platform_operator_identities():
         if identity.get("email"):
             blocked.add(identity["email"].strip().lower())
         if identity.get("full_name"):

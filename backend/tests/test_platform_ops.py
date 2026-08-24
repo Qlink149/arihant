@@ -9,7 +9,7 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 TEST_EMAIL = "roshini@arihant.com"
 TEST_PASSWORD = "arihant123"
-OPS_EMAIL = os.environ.get("PLATFORM_OPERATOR_EMAIL", "yogansh@claraai.tech").strip().lower()
+OPS_EMAIL = os.environ.get("PLATFORM_OPERATOR_EMAIL", "yogansh@claraai.tech").split(",")[0].strip().lower()
 OPS_PASSWORD = os.environ.get("SEED_DEFAULT_PASSWORD", "Arihant@2026")
 
 

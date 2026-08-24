@@ -9,7 +9,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from crm.core.rate_limit import limiter
 from pydantic import BaseModel, Field
 
-from crm.core.platform_ops import get_platform_operator_email, is_platform_operator
+from crm.core.platform_ops import get_platform_operator_emails, is_platform_operator
 from crm.models.schemas.user_schemas import AdminUserCreate, UserRegister
 from crm.core.state import (
     db,
@@ -54,8 +54,8 @@ async def _create_user_doc(
     password: str,
     role: str,
 ) -> UserResponse:
-    reserved = get_platform_operator_email()
-    if reserved and email.strip().lower() == reserved:
+    reserved = get_platform_operator_emails()
+    if reserved and email.strip().lower() in reserved:
         raise HTTPException(status_code=403, detail="Registration not allowed for this email")
 
     existing = await db.users.find_one({"email": email})

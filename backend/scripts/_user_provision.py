@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from crm.core.platform_ops import get_platform_operator_email
+from crm.core.platform_ops import get_platform_operator_emails
 from crm.core.state import hash_password, iso_utc_now, utc_now
 
 ALLOWED_ROLES = frozenset({"admin", "manager", "rep"})
@@ -19,8 +19,8 @@ def normalize_role(role: str) -> str:
 
 
 def assert_email_allowed(email: str) -> None:
-    reserved = get_platform_operator_email()
-    if reserved and email.strip().lower() == reserved:
+    reserved = get_platform_operator_emails()
+    if reserved and email.strip().lower() in reserved:
         raise ValueError(f"Cannot provision platform operator email: {email}")
 
 
