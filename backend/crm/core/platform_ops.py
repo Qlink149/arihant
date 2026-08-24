@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List, Optional, Set
 
 from fastapi import Depends, HTTPException, status
@@ -47,8 +48,9 @@ async def get_platform_operator_identities() -> List[dict]:
     emails = get_platform_operator_emails()
     if not emails:
         return []
+    patterns = [re.compile(f"^{re.escape(e)}$", re.IGNORECASE) for e in emails]
     return await db.users.find(
-        {"email": {"$in": [{"$regex": f"^{e}$", "$options": "i"} for e in emails]}},
+        {"email": {"$in": patterns}},
         {"_id": 0, "id": 1, "email": 1, "full_name": 1},
     ).to_list(len(emails))
 
