@@ -772,6 +772,7 @@ const DigitalTwinPage = () => {
   const changeLabel = (field) => {
     if (field === 'lead_status') return 'Lead Status';
     if (field === 'temperature') return 'Nurture Label';
+    if (field === 'schedule_visit') return 'Site Visit Preference';
     if (!field) return 'Updated';
     return String(field)
       .replace(/_/g, ' ')
@@ -781,6 +782,10 @@ const DigitalTwinPage = () => {
   const changeValue = (v) => {
     if (v === null || v === undefined || v === '') return '—';
     if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+    if (Array.isArray(v)) {
+      const joined = v.map((item) => String(item || '').trim()).filter(Boolean).join('; ');
+      return joined || '—';
+    }
     return String(v);
   };
 
@@ -1122,7 +1127,7 @@ const DigitalTwinPage = () => {
                   <p className="text-[#C5A059] text-xs font-medium mt-1" data-testid="timeline-attribution">
                     {attribution.label}
                   </p>
-                  {update.type === 'updated' && Array.isArray(update.changes) && update.changes.length > 0 ? (
+                  {Array.isArray(update.changes) && update.changes.length > 0 ? (
                     <div className="mt-2 space-y-1.5" data-testid="timeline-changes">
                       {update.changes.map((c, i) => (
                         <div key={`${c.field || 'field'}-${i}`} className="text-sm text-crm-fg/90 flex flex-wrap gap-2">

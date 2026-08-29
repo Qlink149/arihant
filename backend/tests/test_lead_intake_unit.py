@@ -554,6 +554,215 @@ def test_next_submission_count_null_and_numeric():
     assert intake._next_submission_count({"submission_count": 3}) == 4
 
 
+def _pushed_ctx(update_doc):
+    return update_doc["$push"]["context_updates"]
+
+
+@pytest.mark.asyncio
+async def test_update_existing_overwrites_email_when_different(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "email": "old@example.com",
+        "phone": "9876543210",
+        "lead_status": "Contacted",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": ["reserve-16"],
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(email="new@example.com"),
+            "Reserve 16",
+            api_key={"project_name": "Reserve 16", "project_id": "reserve-16"},
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    assert main["$set"]["email"] == "new@example.com"
+    email_change = next(c for c in _pushed_ctx(main)["changes"] if c["field"] == "email")
+    assert email_change["from"] == "old@example.com"
+    assert email_change["to"] == "new@example.com"
+
+
+@pytest.mark.asyncio
+async def test_update_existing_skips_email_when_same_or_missing(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "email": "priya@example.com",
+        "lead_status": "Contacted",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": ["reserve-16"],
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(email="Priya@Example.com"),
+            "Reserve 16",
+            api_key={"project_name": "Reserve 16", "project_id": "reserve-16"},
+        )
+    same = mock_db.leads.update_one.await_args.args[1]
+    assert "email" not in same["$set"]
+    assert not any(c["field"] == "email" for c in _pushed_ctx(same)["changes"])
+
+    mock_db.leads.update_one.reset_mock()
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(email=None),
+            "Reserve 16",
+            api_key={"project_name": "Reserve 16", "project_id": "reserve-16"},
+        )
+    missing = mock_db.leads.update_one.await_args.args[1]
+    assert "email" not in missing["$set"]
+
+
+@pytest.mark.asyncio
+async def test_update_existing_never_overwrites_phone(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "phone": "+919876543210",
+        "normalized_phone": "9876543210",
+        "lead_status": "Contacted",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": ["reserve-16"],
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(phone="911111111111"),
+            "Reserve 16",
+            api_key={"project_name": "Reserve 16", "project_id": "reserve-16"},
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    assert "phone" not in main["$set"]
+    assert "normalized_phone" not in main["$set"]
+    assert not any(c["field"] == "phone" for c in _pushed_ctx(main)["changes"])
+
+
+@pytest.mark.asyncio
+async def test_update_existing_name_trim_equal_is_not_a_change(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Madhu  ",
+        "last_name": "",
+        "lead_status": "RNR",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": ["reserve-16"],
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(first_name="Madhu", last_name=""),
+            "Facebook Lead Form",
+            api_key={"project_name": "Reserve 16", "project_id": "reserve-16"},
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    assert "first_name" not in main["$set"]
+    assert "last_name" not in main["$set"]
+    assert not any(c["field"] == "name" for c in _pushed_ctx(main)["changes"])
+
+
+@pytest.mark.asyncio
+async def test_update_existing_logs_new_project_name_in_changes(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "lead_status": "Nurturing",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": ["reserve-16"],
+        "assigned_user_id": "u1",
+        "assigned_to_name": "Rep",
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(),
+            "Vivriti",
+            api_key={"project_name": "Vivriti", "project_id": "vivriti"},
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    ctx = _pushed_ctx(main)
+    assert ctx["description"] == "Re-enquiry — added Vivriti"
+    proj = next(c for c in ctx["changes"] if c["field"] == "projects")
+    assert "ECR - Reserve 16" in proj["from"]
+    assert "Vivriti" in proj["to"]
+
+
+@pytest.mark.asyncio
+async def test_update_existing_slug_only_does_not_claim_project_added(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "lead_status": "Contacted",
+        "project": "ECR - Reserve 16",
+        "project_id": None,
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": [],
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(),
+            "Facebook Lead Form",
+            api_key={"project_name": "ECR - Reserve 16", "project_id": "reserve-16"},
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    ctx = _pushed_ctx(main)
+    assert ctx["description"] == "Re-enquiry — ECR - Reserve 16 (existing project)"
+    assert not any(c["field"] == "projects" for c in ctx["changes"])
+
+
 @pytest.mark.asyncio
 async def test_resolve_api_key_looks_up_hash(monkeypatch):
     plaintext = "arihant_testkey"

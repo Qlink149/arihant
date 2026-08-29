@@ -19,6 +19,7 @@ from crm.core.state import db, iso_utc_now, logger, utc_now
 from crm.services.lead_project_fields import (
     RE_ENGAGED_STATUS,
     append_incoming_project,
+    coalesce_projects,
     incoming_slug_on_lead,
     should_reengage_status,
 )
@@ -367,6 +368,34 @@ def _next_submission_count(existing: dict) -> int:
     return max(n, 0) + 1
 
 
+def _blank_to_none(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _full_name(first: Any, last: Any) -> str:
+    parts = [p for p in (_blank_to_none(first), _blank_to_none(last)) if p]
+    return " ".join(parts)
+
+
+def _name_key(first: Any, last: Any) -> str:
+    return _full_name(first, last).casefold()
+
+
+def _email_key(value: Any) -> str:
+    return (_blank_to_none(value) or "").casefold()
+
+
+def _text_changed(before: Any, after: Any) -> bool:
+    return (_blank_to_none(before) or "") != (_blank_to_none(after) or "")
+
+
+def _append_change(changes: List[Dict[str, Any]], field: str, before: Any, after: Any) -> None:
+    changes.append({"field": field, "from": before, "to": after})
+
+
 async def _update_existing_submission(
     existing: dict, data: Dict[str, Any], source: str, *, api_key: Optional[dict] = None
 ) -> str:
@@ -381,11 +410,17 @@ async def _update_existing_submission(
     )
     already = bool(merged.get("already")) or incoming_slug_on_lead(existing, incoming_id)
     label = str(incoming_name or "").strip() or "project"
-    if merged.get("appended"):
+    old_project_names = coalesce_projects(existing)
+    new_project_names = merged.get("projects") or []
+    name_appended = {n.casefold() for n in new_project_names} - {n.casefold() for n in old_project_names}
+    if name_appended:
         timeline_desc = f"Re-enquiry — added {label}"
-    else:
+    elif incoming_name:
         timeline_desc = f"Re-enquiry — {label} (existing project)"
+    else:
+        timeline_desc = "Re-enquiry"
 
+    changes: List[Dict[str, Any]] = []
     patch: Dict[str, Any] = {
         "updated_at": now_iso,
         "updated_at_dt": now_dt,
@@ -394,34 +429,80 @@ async def _update_existing_submission(
         "re_enquiry": True,
         "re_enquired_at": now_dt,
         "submission_count": _next_submission_count(existing),
-        "projects": merged.get("projects") or [],
+        "projects": new_project_names,
         "project_ids": merged.get("project_ids") or [],
     }
     if merged.get("project"):
         patch["project"] = merged["project"]
     if data.get("budget"):
         patch["budget"] = data["budget"]
+        if _text_changed(existing.get("budget"), data["budget"]):
+            _append_change(
+                changes,
+                "budget",
+                _blank_to_none(existing.get("budget")),
+                _blank_to_none(data["budget"]),
+            )
     if data.get("schedule_visit"):
         patch["schedule_visit"] = data["schedule_visit"]
+        if _text_changed(existing.get("schedule_visit"), data["schedule_visit"]):
+            _append_change(
+                changes,
+                "schedule_visit",
+                _blank_to_none(existing.get("schedule_visit")),
+                _blank_to_none(data["schedule_visit"]),
+            )
     if data.get("meta") is not None:
         patch["intake_meta"] = data["meta"]
-    if data.get("first_name"):
-        patch["first_name"] = data["first_name"]
-    if data.get("last_name") is not None:
-        patch["last_name"] = data["last_name"]
-    if data.get("email") and not existing.get("email"):
-        patch["email"] = data["email"]
+
+    inc_first = data.get("first_name")
+    inc_last = data.get("last_name")
+    has_incoming_name = bool(_blank_to_none(inc_first) or _blank_to_none(inc_last))
+    if has_incoming_name:
+        new_first = (inc_first or "").strip() if inc_first is not None else (existing.get("first_name") or "")
+        new_last = (inc_last or "").strip() if inc_last is not None else (existing.get("last_name") or "")
+        if _name_key(new_first, new_last) != _name_key(existing.get("first_name"), existing.get("last_name")):
+            patch["first_name"] = new_first
+            patch["last_name"] = new_last
+            _append_change(
+                changes,
+                "name",
+                _full_name(existing.get("first_name"), existing.get("last_name")) or None,
+                _full_name(new_first, new_last) or None,
+            )
+
+    incoming_email = _blank_to_none(data.get("email"))
+    if incoming_email and _email_key(incoming_email) != _email_key(existing.get("email")):
+        patch["email"] = incoming_email.lower()
+        _append_change(
+            changes,
+            "email",
+            _blank_to_none(existing.get("email")),
+            incoming_email.lower(),
+        )
+
     if data.get("phone") and not existing.get("phone"):
         patch["phone"] = data["phone"]
         patch["normalized_phone"] = normalize_phone(data["phone"])
 
+    if name_appended:
+        _append_change(
+            changes,
+            "projects",
+            old_project_names or None,
+            new_project_names,
+        )
+
     reengaged = await _apply_reengage_transition(lead_id, existing, patch, now_dt)
+    if patch.get("lead_status") and patch.get("lead_status") != existing.get("lead_status"):
+        _append_change(changes, "lead_status", existing.get("lead_status"), patch.get("lead_status"))
 
     context_entry = {
         "type": "intake_resubmission",
         "timestamp": now_iso,
         "timestamp_dt": now_dt,
         "description": timeline_desc,
+        "changes": changes,
         "agent": actor_name,
         "actor_user_id": actor_id,
         "actor_name": actor_name,
