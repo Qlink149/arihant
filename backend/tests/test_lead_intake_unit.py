@@ -510,6 +510,49 @@ async def test_update_existing_junk_badge_only(monkeypatch):
     sla.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_update_existing_null_submission_count_sets_re_enquiry(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Madhu  ",
+        "last_name": "",
+        "lead_status": "RNR",
+        "project": "ECR - Reserve 16",
+        "project_id": None,
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": [],
+        "submission_count": None,
+        "assigned_user_id": "u1",
+        "assigned_to_name": "Rep",
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(first_name="Madhu  ", last_name=""),
+            "Facebook Lead Form",
+            api_key={
+                "id": "zapier-meta:melange",
+                "project_name": "Mélange",
+                "project_id": "melange",
+            },
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    assert "$inc" not in main
+    assert main["$set"]["submission_count"] == 1
+    assert main["$set"]["re_enquiry"] is True
+
+
+def test_next_submission_count_null_and_numeric():
+    assert intake._next_submission_count({"submission_count": None}) == 1
+    assert intake._next_submission_count({}) == 1
+    assert intake._next_submission_count({"submission_count": 3}) == 4
+
 
 @pytest.mark.asyncio
 async def test_resolve_api_key_looks_up_hash(monkeypatch):

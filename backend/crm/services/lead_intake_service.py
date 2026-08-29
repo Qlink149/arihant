@@ -357,6 +357,16 @@ async def _notify_re_enquiry(existing: dict, project_label: str) -> None:
         logger.warning("re-enquiry notify failed lead=%s: %s", existing.get("id"), e)
 
 
+def _next_submission_count(existing: dict) -> int:
+    """Imported leads store submission_count as BSON null; Mongo $inc rejects that."""
+    raw = existing.get("submission_count")
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = 0
+    return max(n, 0) + 1
+
+
 async def _update_existing_submission(
     existing: dict, data: Dict[str, Any], source: str, *, api_key: Optional[dict] = None
 ) -> str:
@@ -383,6 +393,7 @@ async def _update_existing_submission(
         "consent": data["consent"],
         "re_enquiry": True,
         "re_enquired_at": now_dt,
+        "submission_count": _next_submission_count(existing),
         "projects": merged.get("projects") or [],
         "project_ids": merged.get("project_ids") or [],
     }
@@ -423,7 +434,6 @@ async def _update_existing_submission(
 
     update_doc: Dict[str, Any] = {
         "$set": patch,
-        "$inc": {"submission_count": 1},
         "$push": {"context_updates": context_entry},
     }
     if add_to_set and isinstance(existing.get("projects"), list) and existing.get("projects"):
