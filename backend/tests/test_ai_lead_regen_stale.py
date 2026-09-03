@@ -67,6 +67,37 @@ def test_transcript_includes_whatsapp():
     assert "Called customer" in body
 
 
+def test_transcript_includes_transfer_and_task():
+    lead = {
+        "context_updates": [
+            {
+                "type": "transfer",
+                "timestamp": "2026-07-20T12:00:00Z",
+                "description": "Transferred from A to B. Notes: enquired for vivriti",
+                "agent": "System",
+            },
+            {
+                "type": "task",
+                "timestamp": "2026-07-21T10:00:00Z",
+                "description": "Task: Call Back in 5 Months Time",
+                "agent": "Rep",
+            },
+            {
+                "update_type": "general_note",
+                "timestamp": "2026-07-21T11:00:00Z",
+                "description": "Will resume later",
+                "agent": "Rep",
+            },
+        ],
+        "recent_note": "Will resume later",
+    }
+    body = build_masked_transcript(lead)
+    assert "transfer" in body
+    assert "vivriti" in body.lower()
+    assert "Call Back in 5 Months" in body
+    assert "Will resume later" in body
+
+
 def test_crm_hints_include_overview_dna():
     hints = build_crm_hints(
         {
@@ -75,12 +106,14 @@ def test_crm_hints_include_overview_dna():
             "location": "Abiramapuram",
             "lead_status": "New",
             "configuration": "3 BHK",
+            "recent_note": "Busy this month",
         }
     )
     assert "OMR - Vivriti" in hints
     assert "2-5 Cr" in hints
     assert "Abiramapuram" in hints
     assert "3 BHK" in hints
+    assert "Busy this month" in hints
 
 
 def test_patch_touches_ai_overview():

@@ -30,6 +30,9 @@ SLA_PAUSED_ALLOWED_TYPES = frozenset({
     "lead_transferred",
     "lead_status_changed",
     "whatsapp_reply",
+    "admin_nudge",
+    "lead_note",
+    "lead_note_mention",
 })
 
 

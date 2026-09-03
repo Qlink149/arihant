@@ -8,7 +8,7 @@ class UserBase(BaseModel):
     email: EmailStr
     full_name: str
     phone: Optional[str] = None
-    role: Literal["admin", "manager", "rep"] = "rep"
+    role: Literal["admin", "manager", "general_manager", "rep"] = "rep"
 
 
 class UserRegister(BaseModel):
@@ -29,7 +29,7 @@ class AdminUserCreate(BaseModel):
     full_name: str
     phone: Optional[str] = None
     password: str
-    role: Literal["admin", "manager", "rep"] = "rep"
+    role: Literal["admin", "manager", "general_manager", "rep"] = "rep"
 
 
 class UserCreate(UserRegister):

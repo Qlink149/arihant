@@ -85,9 +85,6 @@ export function buildVirtualCustomerDrillPath(tile, dashboardFilters) {
     case 'todays_leads':
       params.set('metric', 'todays_leads');
       break;
-    case 'dormant':
-      params.set('dormant', '1');
-      break;
     case 'vip':
       params.set('vip', 'true');
       break;

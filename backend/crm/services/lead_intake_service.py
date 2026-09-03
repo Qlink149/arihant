@@ -64,6 +64,33 @@ def _intake_actor(api_key: Optional[dict]) -> Tuple[str, str, str, str]:
         "Website form resubmission",
     )
 
+
+def _is_zapier_meta(api_key: Optional[dict]) -> bool:
+    return str((api_key or {}).get("id") or "").startswith("zapier-meta:")
+
+
+def _zapier_timeline_meta(api_key: Optional[dict]) -> Dict[str, Any]:
+    """Structured project/form fields for Zapier Meta context entries."""
+    out: Dict[str, Any] = {}
+    project_name = str((api_key or {}).get("project_name") or "").strip()
+    project_id = str((api_key or {}).get("project_id") or "").strip()
+    form_id = str((api_key or {}).get("form_id") or "").strip()
+    if project_name:
+        out["project_name"] = project_name
+    if project_id:
+        out["project_id"] = project_id
+    if form_id:
+        out["form_id"] = form_id
+    return out
+
+
+def _zapier_created_description(api_key: Optional[dict], base: str) -> str:
+    project_name = str((api_key or {}).get("project_name") or "").strip()
+    if _is_zapier_meta(api_key) and project_name:
+        return f"{base} — {project_name}"
+    return base
+
+
 # In-memory per-key rate limit (single Docker host).
 _rate_buckets: Dict[str, Deque[float]] = defaultdict(deque)
 _rate_lock = Lock()
@@ -413,12 +440,16 @@ async def _update_existing_submission(
     old_project_names = coalesce_projects(existing)
     new_project_names = merged.get("projects") or []
     name_appended = {n.casefold() for n in new_project_names} - {n.casefold() for n in old_project_names}
-    if name_appended:
+    if _is_zapier_meta(api_key):
+        project_label = str(incoming_name or "").strip() or label
+        timeline_desc = f"{resub_desc} — {project_label}" if project_label else resub_desc
+    elif name_appended:
         timeline_desc = f"Re-enquiry — added {label}"
     elif incoming_name:
         timeline_desc = f"Re-enquiry — {label} (existing project)"
     else:
         timeline_desc = "Re-enquiry"
+
 
     changes: List[Dict[str, Any]] = []
     patch: Dict[str, Any] = {
@@ -507,6 +538,7 @@ async def _update_existing_submission(
         "actor_user_id": actor_id,
         "actor_name": actor_name,
     }
+    context_entry.update(_zapier_timeline_meta(api_key))
     add_to_set: Dict[str, Any] = {}
     if merged.get("appended") and incoming_name and not already:
         add_to_set["projects"] = str(incoming_name).strip()
@@ -550,6 +582,25 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
     now_dt = utc_now()
     now_iso = iso_utc_now()
     actor_id, actor_name, created_desc, _ = _intake_actor(api_key)
+    created_description = _zapier_created_description(api_key, created_desc)
+    created_entry: Dict[str, Any] = {
+        "type": "created",
+        "timestamp": now_iso,
+        "timestamp_dt": now_dt,
+        "description": created_description,
+        "agent": actor_name,
+        "actor_user_id": actor_id,
+        "actor_name": actor_name,
+    }
+    created_entry.update(_zapier_timeline_meta(api_key))
+    if _is_zapier_meta(api_key) and api_key.get("project_name"):
+        created_entry["changes"] = [
+            {
+                "field": "project",
+                "from": None,
+                "to": str(api_key.get("project_name")).strip(),
+            }
+        ]
     lead_dict: Dict[str, Any] = {
         "id": lead_id,
         "first_name": data["first_name"],
@@ -579,17 +630,7 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         "ai_grounded_profile": None,
         "ai_last_generated_at": None,
         "ai_last_generated_at_dt": None,
-        "context_updates": [
-            {
-                "type": "created",
-                "timestamp": now_iso,
-                "timestamp_dt": now_dt,
-                "description": created_desc,
-                "agent": actor_name,
-                "actor_user_id": actor_id,
-                "actor_name": actor_name,
-            }
-        ],
+        "context_updates": [created_entry],
         "created_at": now_iso,
         "created_at_dt": now_dt,
         "updated_at": now_iso,

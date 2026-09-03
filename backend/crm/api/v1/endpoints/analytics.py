@@ -29,6 +29,7 @@ from crm.services.lead_analytics_queries import (
     resolve_sales_period_filter,
 )
 from crm.services.lead_overview_service import count_dashboard_operational_metrics
+from crm.services.site_visit_events import build_site_visit_report, resolve_report_window
 
 
 router = APIRouter()
@@ -601,4 +602,38 @@ async def get_sales_rep_leads(
         "limit": limit,
         "metric": metric,
         "leads": leads_out,
+    }
+
+
+@router.get("/analytics/site-visits")
+async def get_site_visit_report(
+    preset: Optional[str] = Query(
+        None, description="week | month | quarter — overrides date_from/date_to when set"
+    ),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD, IST calendar day, inclusive"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD, IST calendar day, inclusive"),
+    sales_owner_id: Optional[str] = Query(None, description="Filter to one sales owner's visits"),
+    current_user: dict = Depends(get_current_user),
+):
+    """#53/#54: Permanent site-visit completion report — totals by project.
+
+    Reads the append-only `site_visit_events` log (survives later status changes),
+    not the current lead status. Admin/manager/GM see org-wide (or one rep via
+    `sales_owner_id`); reps are always scoped to their own visits.
+    """
+    from crm.constants.roles import is_org_editor
+
+    effective_owner_id = sales_owner_id
+    if not is_org_editor(current_user.get("role")):
+        effective_owner_id = current_user.get("id")
+
+    window = resolve_report_window(preset=preset, date_from=date_from, date_to=date_to)
+    report = await build_site_visit_report(window=window, sales_owner_id=effective_owner_id)
+
+    return {
+        "preset": preset,
+        "date_from": date_from,
+        "date_to": date_to,
+        "sales_owner_id": effective_owner_id,
+        **report,
     }

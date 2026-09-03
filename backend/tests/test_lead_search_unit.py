@@ -54,6 +54,26 @@ def test_build_leads_list_query_status_case_insensitive_exact():
     assert status_part["lead_status"]["$options"] == "i"
 
 
+def test_build_leads_list_query_location_case_insensitive_exact():
+    # #51: location filter must be an exact (case-insensitive) match, not substring,
+    # so "Chennai" does not also match "Chennai Suburbs".
+    q = build_leads_list_query(location="Chennai")
+    parts = q["$and"] if "$and" in q else [q]
+    location_part = next(p for p in parts if "location" in p)
+    assert location_part["location"]["$regex"] == "^Chennai$"
+    assert location_part["location"]["$options"] == "i"
+
+
+def test_build_leads_list_query_locations_multi_exact():
+    q = build_leads_list_query(locations=["Chennai", "OMR"])
+    blob = str(q)
+    # case_insensitive_regex_or_filter builds an $or of exact-anchored regexes
+    assert "^Chennai$" in blob
+    assert "^OMR$" in blob
+    # substring false positive guard: "Chennai" filter must not also match "Chennai Suburbs"
+    assert "Chennai\\ Suburbs" not in blob
+
+
 def test_build_leads_list_query_temperature_case_insensitive_exact():
     q = build_leads_list_query(temperature="Hot")
     parts = q["$and"] if "$and" in q else [q]
@@ -78,14 +98,27 @@ def test_build_leads_list_query_multi_project_or():
     parts = q["$and"] if "$and" in q else [q]
     project_part = next(p for p in parts if "$or" in p)
     assert len(project_part["$or"]) == 2
-    assert project_part["$or"][0]["project"]["$regex"] == "Tower\\ A"
+    first = project_part["$or"][0]
+    assert first["$or"][0]["project"]["$regex"] == "Tower\\ A"
+    assert first["$or"][1]["projects"]["$regex"] == "Tower\\ A"
 
 
 def test_build_leads_list_query_legacy_single_project():
     q = build_leads_list_query(project="Tower A")
     parts = q["$and"] if "$and" in q else [q]
-    project_part = next(p for p in parts if "project" in p)
-    assert project_part["project"]["$regex"] == "Tower\\ A"
+    # Single value → one $or of scalar project + projects[]
+    project_part = next(p for p in parts if "$or" in p and any("project" in c or "projects" in c for c in p["$or"]))
+    assert any(c.get("project", {}).get("$regex") == "Tower\\ A" for c in project_part["$or"])
+    assert any(c.get("projects", {}).get("$regex") == "Tower\\ A" for c in project_part["$or"])
+
+
+def test_build_project_match_filter_array_only_shape():
+    from crm.services.lead_search import build_project_match_filter
+
+    clause = build_project_match_filter(["Vivriti"])
+    assert "$or" in clause
+    assert clause["$or"][0]["project"]["$regex"] == "Vivriti"
+    assert clause["$or"][1]["projects"]["$regex"] == "Vivriti"
 
 
 def test_build_leads_list_query_sources_filter():
@@ -133,7 +166,7 @@ def test_build_leads_list_query_project_and_location_and():
     project_part = next(p for p in q["$and"] if "$or" in p and "project" in str(p))
     location_part = next(p for p in q["$and"] if "location" in p)
     assert len(project_part["$or"]) == 2
-    assert location_part["location"]["$regex"] == "Chennai"
+    assert location_part["location"]["$regex"] == "^Chennai$"
 
 
 def test_case_insensitive_regex_or_filter_dedupes():

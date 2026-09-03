@@ -19,11 +19,12 @@ from crm.services.lead_list_query import (
 )
 from crm.services.lead_overview_service import build_lead_overview_metrics, ist_day_window
 from crm.services.transfer_queries import (
-    incoming_transfer_filter,
+    incoming_transfer_filter_still_owned,
     outgoing_transfer_filter,
 )
 from crm.services.lead_projections import LEAD_LIST_SORT, MY_DASHBOARD_LEAD_PROJECTION
 from crm.services.task_enrichment import enrich_tasks
+from crm.services.whatsapp_service import get_my_dashboard_whatsapp
 
 
 router = APIRouter()
@@ -99,7 +100,7 @@ async def get_my_dashboard(
     closed = _count("closed")
     conversion_rate = round((closed / total_leads * 100), 1) if total_leads > 0 else 0
 
-    incoming_q = incoming_transfer_filter(name, uid, is_manager, since_days=90)
+    incoming_q = await incoming_transfer_filter_still_owned(name, uid, is_manager, since_days=90)
     outgoing_q = outgoing_transfer_filter(name, uid, is_manager, since_days=90)
     leads_received, leads_transferred, incoming_transfers, outgoing_transfers = await asyncio.gather(
         db.lead_transfers.count_documents(incoming_q),
@@ -205,3 +206,29 @@ async def get_my_dashboard_leads(
         "limit": limit,
         **dashboard_subject_meta(subject),
     }
+
+
+@router.get("/my-dashboard/whatsapp")
+async def get_my_dashboard_whatsapp_endpoint(
+    rep_user_id: Optional[str] = Query(None, description="Admin/manager: view another rep's dashboard"),
+    filter: Optional[str] = Query(
+        "all",
+        description="List filter: all|needs_followup|not_contacted|replied|unread_mine|awaiting_agent_reply|customer_replied_today",
+    ),
+    current_user: dict = Depends(get_current_user),
+):
+    """WhatsApp health tiles + conversation pipeline for My Dashboard."""
+    subject = await resolve_dashboard_subject(current_user, rep_user_id)
+    uid = subject["subject_id"]
+    name = subject["subject_name"]
+    viewer_role = (current_user.get("role") or "").strip().lower()
+    # Admin/manager with no rep selected → org-wide; otherwise subject's assigned leads.
+    org_wide = viewer_role in ("admin", "manager") and not subject.get("viewing_as")
+
+    payload = await get_my_dashboard_whatsapp(
+        subject_id=uid,
+        subject_name=name,
+        org_wide=org_wide,
+        filter_mode=filter or "all",
+    )
+    return {**payload, **dashboard_subject_meta(subject)}

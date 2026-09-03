@@ -31,6 +31,7 @@ from crm.services.lead_project_fields import (
     normalize_lead_projects,
 )
 from crm.services.context_updates import dedupe_context_updates
+from crm.services.site_visit_events import record_site_visit_event
 from crm.services.lead_projections import (
     DUPLICATE_GROUP_PUSH,
     LEAD_LIST_SORT,
@@ -488,6 +489,7 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     prev_status = (existing.get("lead_status") or "").strip()
     next_status = (patch.get("lead_status") or prev_status).strip()
     status_changed = ("lead_status" in patch) and (prev_status.lower() != next_status.lower())
+    is_visit_completed_transition = status_changed and next_status.strip().lower() == "visit completed"
     is_sla_activation = False
     previous_meta_qualified = existing.get("meta_qualified")
     if should_auto_set_meta_qualified(
@@ -603,9 +605,13 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
             patch["negotiation_entered_at_dt"] = now_dt
         if is_terminal_lead_status(next_status):
             patch["is_rnr"] = False
-        if next_status.lower() == "visit completed" and (is_sla_activation or not existing.get("visit_completed_at_dt")):
-            patch["visit_completed_at_dt"] = now_dt
-            patch["visit_sla_reference_dt"] = now_dt
+        if next_status.lower() == "visit completed":
+            # #53/#54: reference field stays first-stamp-only (SLA semantics), but the
+            # count and the append-only site_visit_events log increment on *every*
+            # transition into Visit Completed (multi-visit history survives later moves).
+            if is_sla_activation or not existing.get("visit_completed_at_dt"):
+                patch["visit_completed_at_dt"] = now_dt
+                patch["visit_sla_reference_dt"] = now_dt
             if "site_visit_count" not in patch:
                 current_count = existing.get("site_visit_count")
                 if current_count is None:
@@ -777,6 +783,9 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     patch["context_updates"] = existing.get("context_updates", []) + extra_ctx + [context_update]
 
     await db.leads.update_one({"id": lead_id}, {"$set": patch})
+
+    if is_visit_completed_transition:
+        await record_site_visit_event(lead_id, merged, actor=current_user, completed_at_dt=now_dt)
 
     # After stage change cancels SLA tasks, sync next_action_date unless this
     # transition explicitly set a new follow-up date (Visit Completed / Interested / SV).

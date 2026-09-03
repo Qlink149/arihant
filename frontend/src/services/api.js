@@ -128,6 +128,8 @@ export const leadsAPI = {
   addTask: (id, data) => api.post(`/leads/${id}/tasks`, data),
   getSuggestions: (id) => api.get(`/leads/${id}/suggestions`),
   grantSearchAccess: (id) => api.post(`/leads/${id}/grant`, {}, { skipGlobalErrorToast: true }),
+  nudge: (id) => api.post(`/leads/${id}/nudge`),
+  bulkUpdate: (data) => api.post('/leads/bulk-update', data),
   // autoAssign deprecated — new leads use assignment_router on create; SLA uses reassign_new_lead
   // autoAssign: (id) => api.post('/leads/auto-assign', null, { params: { lead_id: id } }),
 };
@@ -149,13 +151,26 @@ export const settingsAPI = {
 };
 
 export const notificationsAPI = {
-  getAll: (params) => api.get('/notifications', { params: { unread_only: true, ...params } }),
+  getAll: (params = {}) => api.get('/notifications', { params: { unread_only: true, ...params } }),
   getEscalations: (params = {}) => api.get('/escalations', { params }),
   markRead: (id) => api.put(`/notifications/${id}/read`),
   markAllRead: () => api.put('/notifications/read-all'),
   getPreferences: () => api.get('/notifications/preferences'),
   updatePreferences: (data) => api.put('/notifications/preferences', data),
 };
+
+/** Normalize GET /notifications payload (object or legacy array). */
+export function unwrapNotificationsPayload(data) {
+  if (Array.isArray(data)) {
+    return { notifications: data, has_more: false, total: data.length };
+  }
+  const notifications = data?.notifications || data?.items || [];
+  return {
+    notifications,
+    has_more: Boolean(data?.has_more),
+    total: typeof data?.total === 'number' ? data.total : notifications.length,
+  };
+}
 
 // Analytics API
 export const analyticsAPI = {
@@ -164,6 +179,7 @@ export const analyticsAPI = {
   getSalesRanking: (params) => api.get('/analytics/sales-dashboard/ranking', { params }),
   getSalesRepLeads: (name, params) =>
     api.get('/analytics/sales-dashboard/rep-leads', { params: { name, ...params } }),
+  getSiteVisitReport: (params) => api.get('/analytics/site-visits', { params }),
 };
 
 // Assignment Rules API
@@ -226,6 +242,7 @@ export const myDashboardAPI = {
   getData: (params) => api.get('/my-dashboard', { params }),
   getLeadOverview: (params) => api.get('/my-dashboard/lead-overview', { params }),
   getLeads: (params, config) => api.get('/my-dashboard/leads', { params, ...config }),
+  getWhatsapp: (params) => api.get('/my-dashboard/whatsapp', { params }),
   transferLead: (data) => api.post('/leads/transfer', data),
   getReps: () => api.get('/activity/team-status'),
 };

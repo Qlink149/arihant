@@ -9,7 +9,6 @@ from crm.services.lead_analytics_queries import (
     ORG_WIDE_DASHBOARD_METRICS,
     build_created_cohort_filter,
     build_dashboard_snapshot_query,
-    dormant_leads_query,
     updated_range_filter,
 )
 from crm.services.lead_overview_service import (
@@ -71,17 +70,12 @@ def build_metric_snapshot_filter(
     projects: Optional[Sequence[str]] = None,
     use_rep_pipeline: bool = False,
 ) -> dict:
-    """Role scope + optional single project (matches dashboard operational snapshot)."""
+    """Role scope + optional project filter (matches dashboard operational snapshot)."""
     if use_rep_pipeline:
         scope = rep_lead_filter(current_user["id"], current_user.get("full_name") or "")
     else:
         scope = role_scope_filter(current_user)
-    project_value: Optional[str] = None
-    if project and str(project).strip().lower() != "all":
-        project_value = project
-    elif projects and len(projects) == 1:
-        project_value = projects[0]
-    snapshot_q = build_dashboard_snapshot_query(project=project_value)
+    snapshot_q = build_dashboard_snapshot_query(project=project, projects=list(projects) if projects else None)
     return merge_query(scope or {}, snapshot_q or {})
 
 
@@ -131,9 +125,8 @@ async def resolve_leads_list_query_base(
         if scope:
             query_base = scope
 
-    if dormant:
-        dormant_q = dormant_leads_query({})
-        query_base = merge_query(query_base or {}, dormant_q)
+    # Dormant lead filter removed (change tracker #43) — ignore legacy ?dormant=1.
+    _ = dormant
 
     return query_base
 

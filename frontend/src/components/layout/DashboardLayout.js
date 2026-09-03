@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
-import { notificationsAPI, activityAPI } from '../../services/api';
+import { notificationsAPI, activityAPI, unwrapNotificationsPayload } from '../../services/api';
 import { connectNotificationsStream } from '../../utils/notificationsSSE';
 import {
   alertNotification,
@@ -33,6 +33,7 @@ import {
   RefreshCw,
   Activity,
   MessageCircle,
+  CalendarCheck,
 } from 'lucide-react';
 import {
   getNotificationUrgencyLabel,
@@ -62,8 +63,10 @@ const DashboardLayout = () => {
   });
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [notifPanelPos, setNotifPanelPos] = useState({ top: 56, right: 16 });
   const knownNotificationIds = useRef(new Set());
   const notificationsInitialized = useRef(false);
+  const notifBellRef = useRef(null);
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const [darkMode, setDarkMode] = useState(() => {
@@ -73,10 +76,13 @@ const DashboardLayout = () => {
 
   const isAdmin = user?.role === 'admin';
   const isManager = (user?.role || '').toLowerCase() === 'manager';
-  const canSeeEscalations = isAdmin || isManager;
+  const isGeneralManager = (user?.role || '').toLowerCase() === 'general_manager';
+  const canSeeEscalations = isAdmin || isManager || isGeneralManager;
+  const isOrgEditor = isAdmin || isManager;
 
   const navItems = useMemo(() => {
     const adminOnlyPaths = ['/sales-dashboard', '/marketing-dashboard', '/settings'];
+    const orgEditorPaths = ['/site-visits'];
     const all = [
       { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { path: '/my-dashboard', icon: UserCircle, label: 'My Dashboard' },
@@ -85,6 +91,7 @@ const DashboardLayout = () => {
       { path: '/escalation-queue', icon: AlertTriangle, label: 'Escalations' },
       { path: '/notifications', icon: Bell, label: 'Notifications' },
       { path: '/sales-dashboard', icon: BarChart3, label: 'Sales Dashboard' },
+      { path: '/site-visits', icon: CalendarCheck, label: 'Site Visits' },
       { path: '/marketing-dashboard', icon: TrendingUp, label: 'Marketing' },
       { path: '/settings', icon: Settings, label: 'Settings' },
     ];
@@ -92,6 +99,7 @@ const DashboardLayout = () => {
       ? all
       : all.filter((item) => {
           if (adminOnlyPaths.includes(item.path)) return false;
+          if (orgEditorPaths.includes(item.path)) return isOrgEditor;
           if (item.path === '/escalation-queue') return canSeeEscalations;
           return true;
         });
@@ -103,12 +111,12 @@ const DashboardLayout = () => {
       ];
     }
     return items;
-  }, [isAdmin, canSeeEscalations, user?.is_platform_operator, isImpersonating]);
+  }, [isAdmin, isOrgEditor, canSeeEscalations, user?.is_platform_operator, isImpersonating]);
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const response = await notificationsAPI.getAll();
-      const incoming = response.data || [];
+      const response = await notificationsAPI.getAll({ unread_only: true, limit: 50 });
+      const { notifications: incoming } = unwrapNotificationsPayload(response.data);
       const isInitial = !notificationsInitialized.current;
       const { nextIds } = alertNewNotificationsFromPoll(
         knownNotificationIds.current,
@@ -492,7 +500,17 @@ const DashboardLayout = () => {
               {/* Notifications */}
               <div className="relative">
                 <button
-                  onClick={() => setShowNotifications(!showNotifications)}
+                  ref={notifBellRef}
+                  onClick={() => {
+                    if (!showNotifications && notifBellRef.current) {
+                      const rect = notifBellRef.current.getBoundingClientRect();
+                      setNotifPanelPos({
+                        top: Math.round(rect.bottom + 8),
+                        right: Math.round(window.innerWidth - rect.right),
+                      });
+                    }
+                    setShowNotifications(!showNotifications);
+                  }}
                   className={`relative p-2 rounded-lg transition-colors ${darkMode ? 'text-crm-fg-secondary hover:text-white hover:bg-white/10' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
                   data-testid="notifications-btn"
                 >
@@ -508,100 +526,6 @@ const DashboardLayout = () => {
                     </span>
                   )}
                 </button>
-
-                {/* Notifications Panel */}
-                <AnimatePresence>
-                  {showNotifications && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className={`absolute right-0 mt-2 w-80 ${darkMode ? 'bg-crm-elevated border-crm-border' : 'bg-white border-gray-200'} border rounded-lg shadow-xl overflow-hidden z-50`}
-                      data-testid="notifications-panel"
-                    >
-                      <div className={`px-4 py-3 border-b ${darkMode ? 'border-crm-border' : 'border-gray-200'} flex items-center justify-between`}>
-                        <div>
-                          <h3 className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>Notifications</h3>
-                          <p className={`text-xs ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>
-                            {unreadCount} unread
-                          </p>
-                        </div>
-                        {unreadCount > 0 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleMarkAllRead();
-                            }}
-                            disabled={markAllBusy}
-                            className={`text-xs hover:underline ${markAllBusy ? 'opacity-60 cursor-not-allowed text-crm-fg-secondary' : 'text-[#C5A059]'}`}
-                            data-testid="mark-all-read-btn"
-                          >
-                            {markAllBusy ? 'Clearing…' : 'Mark all read'}
-                          </button>
-                        )}
-                      </div>
-                      
-                      <div className="max-h-96 overflow-y-auto">
-                        {notifications.length === 0 ? (
-                          <div className="p-8 text-center">
-                            <Bell className={`mx-auto ${darkMode ? 'text-crm-fg-muted' : 'text-gray-300'}`} size={32} />
-                            <p className={`mt-2 text-sm ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>
-                              No pending notifications
-                            </p>
-                          </div>
-                        ) : (
-                          notifications.slice(0, 20).map((notification, idx) => {
-                            const IconComponent = getNotificationIcon(notification.type);
-                            const urgency = getUrgencyColor(notification);
-                            return (
-                              <div
-                                key={notification.id || idx}
-                                onClick={() => {
-                                  handleMarkRead(notification.id);
-                                  if (notification.lead_id) window.location.href = `/lead/${notification.lead_id}`;
-                                }}
-                                className={`px-4 py-3 border-b ${darkMode ? 'border-white/5 hover:bg-white/5' : 'border-gray-100 hover:bg-gray-50'} cursor-pointer transition-colors ${!notification.is_read ? (darkMode ? 'bg-white/[0.02]' : 'bg-blue-50/50') : ''}`}
-                                data-testid={`notification-${idx}`}
-                              >
-                                <div className="flex items-start gap-3">
-                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${urgency.iconClass}`}>
-                                    <IconComponent size={14} />
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <p className={`text-sm font-medium truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                                        {notification.title || notification.lead_name}
-                                      </p>
-                                      {!notification.is_read && <span className="w-2 h-2 rounded-full bg-[#C5A059] flex-shrink-0" />}
-                                    </div>
-                                    <p className={`text-xs ${darkMode ? 'text-crm-fg-secondary' : 'text-gray-600'} mt-0.5 line-clamp-2`}>
-                                      {notification.message}
-                                    </p>
-                                    <CrmBadge variant={urgency.variant} size="xs" uppercase className="mt-1">
-                                      {urgency.label}
-                                    </CrmBadge>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-
-                      {notifications.length > 0 && (
-                        <div className={`px-4 py-2 border-t ${darkMode ? 'border-crm-border' : 'border-gray-200'}`}>
-                          <button
-                            type="button"
-                            onClick={() => { setShowNotifications(false); navigate('/notifications'); }}
-                            className="text-[#C5A059] text-sm hover:underline w-full text-center"
-                          >
-                            View All Alerts
-                          </button>
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </div>
 
               {/* User Avatar - Mobile */}
@@ -620,13 +544,116 @@ const DashboardLayout = () => {
         </div>
       </main>
 
-      {/* Close notifications when clicking outside */}
+      {/* Close notifications when clicking outside — z-40 below panel */}
       {showNotifications && (
-        <div 
-          className="fixed inset-0 z-40" 
+        <div
+          className="fixed inset-0 z-40"
           onClick={() => setShowNotifications(false)}
         />
       )}
+
+      {/* Panel must be a sibling of the overlay (not inside sticky header z-30) */}
+      <AnimatePresence>
+        {showNotifications && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            onClick={(e) => e.stopPropagation()}
+            style={{ top: notifPanelPos.top, right: notifPanelPos.right }}
+            className={`fixed w-80 ${darkMode ? 'bg-crm-elevated border-crm-border' : 'bg-white border-gray-200'} border rounded-lg shadow-xl overflow-hidden z-50`}
+            data-testid="notifications-panel"
+          >
+            <div className={`px-4 py-3 border-b ${darkMode ? 'border-crm-border' : 'border-gray-200'} flex items-center justify-between`}>
+              <div>
+                <h3 className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>Notifications</h3>
+                <p className={`text-xs ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>
+                  {unreadCount} unread
+                </p>
+              </div>
+              {unreadCount > 0 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMarkAllRead();
+                  }}
+                  disabled={markAllBusy}
+                  className={`text-xs hover:underline ${markAllBusy ? 'opacity-60 cursor-not-allowed text-crm-fg-secondary' : 'text-[#C5A059]'}`}
+                  data-testid="mark-all-read-btn"
+                >
+                  {markAllBusy ? 'Clearing…' : 'Mark all read'}
+                </button>
+              )}
+            </div>
+
+            <div className="max-h-96 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Bell className={`mx-auto ${darkMode ? 'text-crm-fg-muted' : 'text-gray-300'}`} size={32} />
+                  <p className={`mt-2 text-sm ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>
+                    No pending notifications
+                  </p>
+                </div>
+              ) : (
+                notifications.slice(0, 20).map((notification, idx) => {
+                  const IconComponent = getNotificationIcon(notification.type);
+                  const urgency = getUrgencyColor(notification);
+                  return (
+                    <div
+                      key={notification.id || idx}
+                      onClick={async () => {
+                        try {
+                          await handleMarkRead(notification.id);
+                        } catch {
+                          /* still navigate */
+                        }
+                        setShowNotifications(false);
+                        if (notification.lead_id) {
+                          navigate(`/lead/${notification.lead_id}`);
+                        }
+                      }}
+                      className={`px-4 py-3 border-b ${darkMode ? 'border-white/5 hover:bg-white/5' : 'border-gray-100 hover:bg-gray-50'} cursor-pointer transition-colors ${!notification.is_read ? (darkMode ? 'bg-white/[0.02]' : 'bg-blue-50/50') : ''}`}
+                      data-testid={`notification-${idx}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${urgency.iconClass}`}>
+                          <IconComponent size={14} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className={`text-sm font-medium truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+                              {notification.title || notification.lead_name}
+                            </p>
+                            {!notification.is_read && <span className="w-2 h-2 rounded-full bg-[#C5A059] flex-shrink-0" />}
+                          </div>
+                          <p className={`text-xs ${darkMode ? 'text-crm-fg-secondary' : 'text-gray-600'} mt-0.5 line-clamp-2`}>
+                            {notification.message}
+                          </p>
+                          <CrmBadge variant={urgency.variant} size="xs" uppercase className="mt-1">
+                            {urgency.label}
+                          </CrmBadge>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {notifications.length > 0 && (
+              <div className={`px-4 py-2 border-t ${darkMode ? 'border-crm-border' : 'border-gray-200'}`}>
+                <button
+                  type="button"
+                  onClick={() => { setShowNotifications(false); navigate('/notifications'); }}
+                  className="text-[#C5A059] text-sm hover:underline w-full text-center"
+                >
+                  View All Alerts
+                </button>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -1,11 +1,12 @@
 from typing import List, Optional
 import re
+from datetime import timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import Response as FastAPIResponse
 from pydantic import BaseModel, Field
 
-from crm.core.state import get_current_user
+from crm.core.state import db, get_current_user, iso_utc_now, resolve_user_id_by_full_name
 from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
 from crm.services import lead_service
 from crm.services.lead_service import normalize_lead_for_response
@@ -14,8 +15,9 @@ from crm.services.dashboard_scope import resolve_lead_or_403, resolve_lead_view_
 from crm.services.lead_analytics_queries import fetch_lead_filter_options
 from crm.services.lead_search import build_exact_phone_lookup_queries, case_insensitive_regex_filter
 from crm.services.lead_events import log_lead_event
+from crm.services.lead_transfer_service import assign_lead_ownership
 from crm.services.lead_view_grants import DEFAULT_GRANT_MINUTES, upsert_view_grant
-from crm.core.state import db
+from crm.services.notification_service import create_notification
 from crm.services.lead_export_service import (
     assert_admin,
     create_export_job,
@@ -49,6 +51,21 @@ router = APIRouter()
 
 class LeadExportRequest(BaseModel):
     fields: List[str] = Field(..., min_length=1)
+
+
+class BulkLeadUpdateRequest(BaseModel):
+    lead_ids: List[str] = Field(..., min_length=1, max_length=200)
+    assigned_user_id: Optional[str] = None
+    to_rep: Optional[str] = None
+    lead_status: Optional[str] = None
+    lost_reason: Optional[str] = None
+
+
+def _http_exc_reason(exc: HTTPException) -> str:
+    detail = exc.detail
+    if isinstance(detail, str):
+        return detail
+    return str(detail)
 
 
 def _list_filter_params(
@@ -557,6 +574,162 @@ async def mint_search_grant(lead_id: str, current_user: dict = Depends(get_curre
         payload={"grant_minutes": DEFAULT_GRANT_MINUTES, "reason": "search_navigation"},
     )
     return {"granted": True, "minutes": DEFAULT_GRANT_MINUTES}
+
+
+@router.post("/leads/bulk-update")
+async def bulk_update_leads(
+    req: BulkLeadUpdateRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """Bulk assign and/or status-change leads (admin/manager only). Partial success."""
+    role = (current_user.get("role") or "").lower()
+    if role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Only admin or manager can bulk-update leads")
+
+    lead_ids = list(dict.fromkeys([lid for lid in req.lead_ids if (lid or "").strip()]))
+    if not lead_ids:
+        raise HTTPException(status_code=400, detail="lead_ids is required")
+    if len(lead_ids) > 200:
+        raise HTTPException(status_code=400, detail="Maximum 200 leads per bulk update")
+
+    want_assign = bool((req.assigned_user_id or "").strip() or (req.to_rep or "").strip())
+    want_status = bool((req.lead_status or "").strip())
+    if not want_assign and not want_status:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide assigned_user_id/to_rep and/or lead_status",
+        )
+
+    to_rep = (req.to_rep or "").strip() or None
+    to_user_id = (req.assigned_user_id or "").strip() or None
+    if want_assign:
+        if to_user_id and not to_rep:
+            user_doc = await db.users.find_one(
+                {"id": to_user_id}, {"_id": 0, "full_name": 1}
+            )
+            if not user_doc or not (user_doc.get("full_name") or "").strip():
+                raise HTTPException(status_code=400, detail="assigned_user_id not found")
+            to_rep = user_doc["full_name"].strip()
+        if to_rep and not to_user_id:
+            to_user_id = await resolve_user_id_by_full_name(to_rep)
+        if not to_rep or not to_user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="assigned_user_id or to_rep must resolve to a valid user",
+            )
+
+    updated: List[str] = []
+    failed: List[dict] = []
+
+    for lead_id in lead_ids:
+        try:
+            lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+            if not lead:
+                failed.append({"id": lead_id, "reason": "Lead not found"})
+                continue
+
+            if want_assign:
+                known_owner = (lead.get("assigned_user_id") or "").strip() or None
+                await assign_lead_ownership(
+                    lead=lead,
+                    to_rep=to_rep,
+                    to_user_id=to_user_id,
+                    current_user=current_user,
+                    notes=None,
+                    expected_from_user_id=known_owner,
+                )
+
+            if want_status:
+                patch_kwargs = {"lead_status": req.lead_status.strip()}
+                if req.lost_reason is not None:
+                    patch_kwargs["lost_reason"] = req.lost_reason
+                await lead_service.update_lead(
+                    lead_id,
+                    LeadUpdatePatch(**patch_kwargs),
+                    current_user,
+                )
+                schedule_lead_ai_refresh(lead_id, background_tasks)
+
+            updated.append(lead_id)
+        except HTTPException as exc:
+            failed.append({"id": lead_id, "reason": _http_exc_reason(exc)})
+        except Exception as exc:  # noqa: BLE001 — partial success must not abort batch
+            failed.append({"id": lead_id, "reason": str(exc) or "Unexpected error"})
+
+    return {"updated": updated, "failed": failed}
+
+
+@router.post("/leads/{lead_id}/nudge")
+async def nudge_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
+    """Admin/manager reminder notification to the lead's assignee."""
+    role = (current_user.get("role") or "").lower()
+    if role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="Only admin or manager can nudge")
+
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    assignee_id = (lead.get("assigned_user_id") or "").strip()
+    assignee_name = (
+        lead.get("assigned_to_name") or lead.get("assigned_to") or lead.get("presales_agent") or ""
+    ).strip()
+    if not assignee_id and assignee_name:
+        assignee_id = (await resolve_user_id_by_full_name(assignee_name) or "").strip()
+    if not assignee_id:
+        raise HTTPException(status_code=400, detail="Lead has no assignee to nudge")
+
+    recent = await db.notifications.find_one(
+        {
+            "lead_id": lead_id,
+            "notification_type": "admin_nudge",
+            "recipient_user_id": assignee_id,
+            "created_at_dt": {"$gte": utc_now() - timedelta(seconds=60)},
+        },
+        {"_id": 0, "id": 1},
+    )
+    if recent:
+        return {"ok": True, "deduped": True, "message": "Nudge already sent recently"}
+
+    lead_name = (
+        f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
+        or lead.get("name")
+        or "Lead"
+    )
+    admin_name = current_user.get("full_name") or "Admin"
+    await create_notification(
+        recipient_user_id=assignee_id,
+        recipient_name=assignee_name,
+        title="Nudge by Admin",
+        message=f"{admin_name} nudged you on {lead_name}",
+        notification_type="admin_nudge",
+        lead_id=lead_id,
+        lead_name=lead_name,
+        severity="high",
+        urgency="action_needed",
+    )
+
+    now_dt = utc_now()
+    now_iso = iso_utc_now()
+    await db.leads.update_one(
+        {"id": lead_id},
+        {
+            "$push": {
+                "context_updates": {
+                    "type": "nudge",
+                    "timestamp": now_iso,
+                    "timestamp_dt": now_dt,
+                    "description": "Nudge by Admin",
+                    "agent": admin_name,
+                    "actor_user_id": current_user.get("id"),
+                    "actor_name": admin_name,
+                }
+            },
+            "$set": {"updated_at": now_iso, "updated_at_dt": now_dt},
+        },
+    )
+    return {"ok": True, "deduped": False}
 
 
 @router.put("/leads/{lead_id}", response_model=LeadResponse)

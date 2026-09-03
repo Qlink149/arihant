@@ -129,7 +129,11 @@ async def admin_create_user(
 
 
 @router.post("/auth/login", response_model=Token)
-@limiter.limit("10/minute")
+@limiter.limit(
+    "60/minute"
+    if (os.getenv("ENVIRONMENT") or "").strip().lower() in ("e2e", "test", "development")
+    else "10/minute"
+)
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     user = await db.users.find_one({"email": form_data.username}, {"_id": 0})
     if not user or not verify_password(form_data.password, user["hashed_password"]):

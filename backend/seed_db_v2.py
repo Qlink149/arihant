@@ -235,10 +235,11 @@ USER_DEFS = [
     {"full_name": "Malathy", "email": "malathy@arihants.co.in", "role": "rep"},
     {"full_name": "Anusha Omprakash", "email": "anusha@arihants.co.in", "role": "rep"},
     {"full_name": "jigar", "email": "jigar@arihants.co.in", "role": "rep"},
-    {"full_name": "shariff", "email": "shariff@arihants.co.in", "role": "rep"},
+    {"full_name": "shariff", "email": "shariff@arihants.co.in", "role": "general_manager"},
     {"full_name": "Harish Marlecha", "email": "harish@arihants.co.in", "role": "admin"},
     {"full_name": "Gowtham j", "email": "gowtham@arihants.co.in", "role": "rep"},
     {"full_name": "Roshini", "email": "roshni@arihantspaces.com", "role": "admin"},
+    {"full_name": "Anantharaman", "email": "anantharaman@arihants.co.in", "role": "rep"},
     {"full_name": "Yogansh", "email": "yogansh@claraai.tech", "role": "admin"},
 ]
 
@@ -254,6 +255,7 @@ OWNER_NAME_MAP = {
     "Gowtham j": "Gowtham j",
     "Roshni Madhav": "Roshini",
     "Roshini": "Roshini",
+    "Anantharaman": "Anantharaman",
 }
 
 # Case-insensitive match from CSV owner strings to canonical USER_DEFS full_name

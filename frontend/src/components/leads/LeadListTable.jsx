@@ -13,8 +13,13 @@ export const LeadListTable = memo(function LeadListTable({
   onTableDensityChange,
   onRowClick,
   onNote,
+  onNudge,
+  canNudge,
   onOpenLeadTasks,
   loadMoreSentinelRef,
+  bulkSelectEnabled = false,
+  assigneeOptions = [],
+  onBulkComplete,
 }) {
   const toggleDensity = useCallback(() => {
     onTableDensityChange((prev) => {
@@ -50,8 +55,13 @@ export const LeadListTable = memo(function LeadListTable({
         onRowClick={onRowClick}
         onView={onRowClick}
         onNote={onNote}
+        onNudge={onNudge}
+        canNudge={canNudge}
         onOpenLeadTasks={onOpenLeadTasks}
         density={tableDensity}
+        bulkSelectEnabled={bulkSelectEnabled}
+        assigneeOptions={assigneeOptions}
+        onBulkComplete={onBulkComplete}
       />
       {!loading && leads.length > 0 && (
         <>

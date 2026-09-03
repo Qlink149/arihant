@@ -61,9 +61,13 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:safety": "playwright test e2e/safety.spec.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.0",

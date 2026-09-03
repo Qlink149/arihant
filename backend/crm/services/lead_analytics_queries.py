@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from crm.constants.lead_picklists import (
@@ -14,7 +14,12 @@ from crm.constants.lead_picklists import (
 )
 from crm.constants.lead_status import terminal_exclusion_clause
 from crm.core.state import db, utc_now
-from crm.services.lead_search import case_insensitive_regex_filter, merge_query
+from crm.services.lead_search import (
+    build_project_match_filter,
+    case_insensitive_regex_filter,
+    merge_query,
+    resolve_multi_filter_values,
+)
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -209,8 +214,9 @@ def build_dashboard_base_query(
     created_from: Optional[str] = None,
     created_to: Optional[str] = None,
     project: Optional[str] = None,
+    projects: Optional[Sequence[str]] = None,
 ) -> dict:
-    """Cohort query: project + lead creation window (intake/history metrics)."""
+    """Cohort query: project(s) + lead creation window (intake/history metrics)."""
     clauses = []
     if days and days > 0:
         clauses.append(created_since_filter(days))
@@ -218,18 +224,23 @@ def build_dashboard_base_query(
         range_q = created_range_filter(created_from, created_to)
         if range_q:
             clauses.append(range_q)
-    if project and str(project).strip() and str(project).strip().lower() != "all":
-        clauses.append(case_insensitive_regex_filter("project", project))
+    project_values = resolve_multi_filter_values(projects, project)
+    project_clause = build_project_match_filter(project_values)
+    if project_clause:
+        clauses.append(project_clause)
     if not clauses:
         return {}
     return merge_query(*clauses)
 
 
-def build_dashboard_snapshot_query(*, project: Optional[str] = None) -> dict:
-    """Snapshot query: project only (operational queues — ignores created-date filters)."""
-    if project and str(project).strip() and str(project).strip().lower() != "all":
-        return case_insensitive_regex_filter("project", project)
-    return {}
+def build_dashboard_snapshot_query(
+    *,
+    project: Optional[str] = None,
+    projects: Optional[Sequence[str]] = None,
+) -> dict:
+    """Snapshot query: project(s) only (operational queues — ignores created-date filters)."""
+    project_values = resolve_multi_filter_values(projects, project)
+    return build_project_match_filter(project_values) or {}
 
 
 def build_created_cohort_filter(

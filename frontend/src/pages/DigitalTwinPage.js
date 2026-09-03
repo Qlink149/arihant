@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { leadsAPI, whatsappAPI, usersAPI } from '../services/api';
 import { LeadProfileHeader } from '../components/leads/LeadProfileHeader';
 import { LeadAvatar } from '../components/leads/LeadAvatar';
+import NoteMentionPicker from '../components/leads/NoteMentionPicker';
 import { StickySummaryBar } from '../components/leads/StickySummaryBar';
 import { DataDnaGrid } from '../components/leads/DataDnaGrid';
 import { RoleBasedTimeInput } from '../components/ui/RoleBasedTimeInput';
@@ -17,6 +18,11 @@ import {
 } from '../utils/contextUpdates';
 import { formatTimeIST, parseApiDate } from '../utils/datetime';
 import { primaryLeadProject } from '../utils/leadProjects';
+import {
+  buildTemplateParameters,
+  parseTemplateVariables,
+  templateBodyText,
+} from '../utils/watiTemplateParams';
 import {
   Accordion,
   AccordionContent,
@@ -55,6 +61,7 @@ import {
   Loader2,
   RefreshCw,
   Pencil,
+  Bell,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -283,6 +290,9 @@ const DigitalTwinPage = () => {
   const location = useLocation();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const canNudge = (user?.role || '').toLowerCase() === 'admin'
+    || (user?.role || '').toLowerCase() === 'manager';
+  const [nudging, setNudging] = useState(false);
   const [lead, setLead] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -295,6 +305,7 @@ const DigitalTwinPage = () => {
   const [showContextModal, setShowContextModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [contextNote, setContextNote] = useState('');
+  const [contextMentions, setContextMentions] = useState([]);
   const [contextType, setContextType] = useState('general_note');
   const [savingContext, setSavingContext] = useState(false);
   const [editingContextIndex, setEditingContextIndex] = useState(null);
@@ -304,6 +315,7 @@ const DigitalTwinPage = () => {
   const [waTemplates, setWaTemplates] = useState([]);
   const [waTemplatesLoaded, setWaTemplatesLoaded] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [templateParamValues, setTemplateParamValues] = useState({});
   const [sendingBrochure, setSendingBrochure] = useState(false);
   const [sendingPricing, setSendingPricing] = useState(false);
   const [sendingSiteVisitReq, setSendingSiteVisitReq] = useState(false);
@@ -507,17 +519,20 @@ const DigitalTwinPage = () => {
 
     setSendingMessage(true);
     try {
+      let template_parameters;
+      if (selectedTemplate) {
+        const vars = parseTemplateVariables(selectedTemplate, {
+          name: lead.first_name || lead.phone || '',
+          project: primaryLeadProject(lead, 'Arihant'),
+        });
+        template_parameters = buildTemplateParameters(vars, templateParamValues);
+      }
       const payload = {
         destination: lead.phone,
         message_type: selectedTemplate ? 'template' : 'text',
         text: messageText || undefined,
         template_name: selectedTemplate?.name || undefined,
-        template_parameters: selectedTemplate
-          ? [
-              { name: 'name', value: lead.first_name || lead.phone },
-              { name: 'project', value: primaryLeadProject(lead, 'Arihant') },
-            ]
-          : undefined,
+        template_parameters,
         broadcast_name: selectedTemplate ? 'arihant_crm' : undefined,
       };
 
@@ -529,6 +544,7 @@ const DigitalTwinPage = () => {
         });
         setMessageText('');
         setSelectedTemplate(null);
+        setTemplateParamValues({});
         await fetchChatHistory(false);
         fetchLead();
       } else {
@@ -684,9 +700,14 @@ const DigitalTwinPage = () => {
     if (!contextNote.trim()) { toast.error('Please enter a note'); return; }
     setSavingContext(true);
     try {
-      await leadsAPI.addContext(leadId, { note: contextNote, update_type: contextType });
+      await leadsAPI.addContext(leadId, {
+        note: contextNote,
+        update_type: contextType,
+        mentioned_user_ids: contextMentions,
+      });
       toast.success('Context updated successfully');
       setContextNote('');
+      setContextMentions([]);
       setContextType('general_note');
       setShowContextModal(false);
       aiPollCount.current = 0;
@@ -813,7 +834,10 @@ const DigitalTwinPage = () => {
       <StickySummaryBar
         lead={lead}
         visible={stickySummaryVisible}
-        onWhatsApp={() => setShowWhatsAppModal(true)}
+        onWhatsApp={() => {
+          setShowWhatsAppModal(true);
+          fetchWaTemplates();
+        }}
         onAICall={handleAICall}
       />
 
@@ -873,9 +897,49 @@ const DigitalTwinPage = () => {
             {/* Divider */}
             <div className="hidden lg:block w-px h-6 bg-white/10 mx-1" />
 
+            {canNudge && (
+              <Button
+                size="secondary"
+                variant="outline"
+                disabled={
+                  nudging
+                  || !(lead.assigned_user_id || lead.assigned_to_name || lead.assigned_to || lead.presales_agent)
+                }
+                onClick={async () => {
+                  setNudging(true);
+                  try {
+                    const res = await leadsAPI.nudge(leadId);
+                    if (res?.data?.deduped) {
+                      toast.message('Nudge already sent recently');
+                    } else {
+                      toast.success('Nudge sent to assignee');
+                      fetchLead();
+                    }
+                  } catch (err) {
+                    toast.error(String(err?.response?.data?.detail || 'Failed to nudge'));
+                  } finally {
+                    setNudging(false);
+                  }
+                }}
+                className="border-[#C5A059]/50 text-[#C5A059] hover:bg-[#C5A059]/10"
+                data-testid="nudge-btn"
+                title={
+                  !(lead.assigned_user_id || lead.assigned_to_name || lead.assigned_to || lead.presales_agent)
+                    ? 'Assign a rep before nudging'
+                    : 'Nudge by Admin'
+                }
+              >
+                <Bell size={16} className="mr-1.5" />
+                Nudge
+              </Button>
+            )}
+
             <Button
               size="primary"
-              onClick={() => setShowWhatsAppModal(true)}
+              onClick={() => {
+                setShowWhatsAppModal(true);
+                fetchWaTemplates();
+              }}
               className="bg-green-600 hover:bg-green-700 text-white text-on-brand"
               data-testid="whatsapp-btn"
             >
@@ -1239,7 +1303,13 @@ const DigitalTwinPage = () => {
       </motion.div>
 
       {/* Update Context Modal */}
-      <Dialog open={showContextModal} onOpenChange={setShowContextModal}>
+      <Dialog
+        open={showContextModal}
+        onOpenChange={(open) => {
+          setShowContextModal(open);
+          if (!open) setContextMentions([]);
+        }}
+      >
         <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-lg" data-testid="context-modal">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl flex items-center gap-2">
@@ -1263,11 +1333,16 @@ const DigitalTwinPage = () => {
             <div>
               <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Note</label>
               <textarea value={contextNote} onChange={e => setContextNote(e.target.value)}
-                placeholder="e.g., Customer visited site today, liked the 3BHK layout, wants possession by Dec 2026..."
+                placeholder="e.g., Customer visited site today… Use @Name or pick agents below"
                 className="w-full h-32 px-4 py-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg placeholder:text-crm-fg-muted resize-none"
                 data-testid="context-note-input" />
             </div>
-            <p className="text-crm-fg-muted text-xs">This note will be added to the timeline and the AI Summary will be regenerated.</p>
+            <NoteMentionPicker
+              selectedIds={contextMentions}
+              onChange={setContextMentions}
+              disabled={savingContext}
+            />
+            <p className="text-crm-fg-muted text-xs">This note will be added to the timeline and the AI Summary will be regenerated. Assignee and @mentioned agents are notified.</p>
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => setShowContextModal(false)} className="flex-1 border-crm-border text-crm-fg hover:bg-white/5">Cancel</Button>
               <Button onClick={handleSaveContext} disabled={savingContext || !contextNote.trim()}
@@ -1393,7 +1468,20 @@ const DigitalTwinPage = () => {
                   onChange={(e) => {
                     const tpl = waTemplates.find((t) => t.name === e.target.value) || null;
                     setSelectedTemplate(tpl);
-                    if (tpl) setMessageText('');
+                    if (!tpl) {
+                      setTemplateParamValues({});
+                      return;
+                    }
+                    setMessageText('');
+                    const vars = parseTemplateVariables(tpl, {
+                      name: lead?.first_name || lead?.phone || '',
+                      project: primaryLeadProject(lead, 'Arihant'),
+                    });
+                    const next = {};
+                    vars.forEach((v) => {
+                      next[v.name] = v.defaultValue;
+                    });
+                    setTemplateParamValues(next);
                   }}
                   className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm focus:border-green-500"
                   data-testid="template-select"
@@ -1404,9 +1492,33 @@ const DigitalTwinPage = () => {
                   ))}
                 </select>
                 {selectedTemplate && (
-                  <p className="text-crm-fg-muted text-xs">
-                    Template body: {selectedTemplate.body || selectedTemplate.hsm || '—'}
-                  </p>
+                  <div className="space-y-2">
+                    <p className="text-crm-fg-muted text-xs">
+                      Template body: {templateBodyText(selectedTemplate) || '—'}
+                    </p>
+                    {parseTemplateVariables(selectedTemplate, {
+                      name: lead?.first_name || lead?.phone || '',
+                      project: primaryLeadProject(lead, 'Arihant'),
+                    }).map((v) => (
+                      <div key={v.name} className="space-y-1">
+                        <label className="text-[10px] uppercase tracking-wide text-crm-fg-muted">
+                          {v.label}
+                        </label>
+                        <input
+                          type="text"
+                          value={templateParamValues[v.name] ?? ''}
+                          onChange={(e) =>
+                            setTemplateParamValues((prev) => ({
+                              ...prev,
+                              [v.name]: e.target.value,
+                            }))
+                          }
+                          className="w-full h-9 px-2 rounded-lg bg-crm border border-crm-border text-sm text-crm-fg"
+                          data-testid={`template-param-${v.name}`}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

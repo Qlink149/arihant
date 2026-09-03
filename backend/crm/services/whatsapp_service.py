@@ -1366,6 +1366,163 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
 # WATI webhook handlers
 # ═══════════════════════════════════════════════════════════════════════════════
 
+ADMIN_WA_ASSIGNEE_NAME = "Admin"
+ADMIN_WA_ASSIGNEE_EMAIL = "roshni@arihantspaces.com"
+
+
+async def resolve_admin_wa_assignee() -> Optional[dict]:
+    """Resolve Admin user for WhatsApp unknown-lead assignment (full_name == Admin)."""
+    admin = await db.users.find_one(
+        {"full_name": ADMIN_WA_ASSIGNEE_NAME},
+        {"_id": 0, "id": 1, "full_name": 1, "email": 1},
+    )
+    if admin and admin.get("id"):
+        return admin
+    admin = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(ADMIN_WA_ASSIGNEE_EMAIL)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "full_name": 1, "email": 1},
+    )
+    return admin if admin and admin.get("id") else None
+
+
+def _split_sender_name(sender_name: str, phone: str) -> tuple[str, str]:
+    name = (sender_name or "").strip()
+    if not name:
+        last4 = (phone or "")[-4:] or "????"
+        return f"WhatsApp {last4}", ""
+    parts = name.split(None, 1)
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], parts[1]
+
+
+async def create_whatsapp_unknown_lead(
+    phone: str,
+    sender_name: str = "",
+    *,
+    backfill: bool = False,
+    notify: bool = True,
+) -> Optional[dict]:
+    """
+    Create a New lead for an unknown WhatsApp inbound, assigned to Admin.
+    Returns the lead dict, or None if phone invalid / create skipped.
+    """
+    from pymongo.errors import DuplicateKeyError
+    from crm.services.nurture_temperature import apply_nurture_temperature_rules
+    from crm.utils.helpers import determine_lead_intent, is_vip_lead
+
+    normalized = normalize_phone(phone)
+    if not normalized or len(normalized) != 10:
+        logger.warning("WA unknown lead skipped — invalid phone=%r normalized=%r", phone, normalized)
+        return None
+
+    existing = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+    if existing:
+        return existing
+
+    admin = await resolve_admin_wa_assignee()
+    first_name, last_name = _split_sender_name(sender_name, normalized)
+    lead_id = str(uuid.uuid4())
+    now_dt = utc_now()
+    now_iso = iso_utc_now()
+    created_desc = (
+        "Lead backfilled from existing WhatsApp conversation (WATI)"
+        if backfill
+        else "Lead created from WhatsApp inbound (WATI)"
+    )
+    assigned_desc = (
+        "Assigned to Admin from WhatsApp backfill (WATI)"
+        if backfill
+        else "Assigned to Admin from WhatsApp inbound (WATI)"
+    )
+    context_updates = [
+        {
+            "type": "created",
+            "timestamp": now_iso,
+            "timestamp_dt": now_dt,
+            "description": created_desc,
+            "agent": "WATI",
+            "actor_user_id": "system-wati",
+            "actor_name": "WATI",
+        }
+    ]
+    lead_dict = {
+        "id": lead_id,
+        "first_name": first_name,
+        "last_name": last_name,
+        "phone": phone if str(phone).startswith("+") else normalized,
+        "normalized_phone": normalized,
+        "lead_status": "New",
+        "lead_source": "WhatsApp",
+        "original_source": "WhatsApp",
+        "most_recent_source": "WhatsApp",
+        "site_visit_count": 0,
+        "assigned_to": None,
+        "assigned_to_name": None,
+        "assigned_user_id": None,
+        "presales_agent": None,
+        "whatsapp_replied": True,
+        "context_updates": context_updates,
+        "created_at": now_iso,
+        "created_at_dt": now_dt,
+        "updated_at": now_iso,
+        "updated_at_dt": now_dt,
+    }
+    if admin:
+        admin_name = admin.get("full_name") or ADMIN_WA_ASSIGNEE_NAME
+        lead_dict["assigned_to"] = admin_name
+        lead_dict["assigned_to_name"] = admin_name
+        lead_dict["assigned_user_id"] = admin["id"]
+        lead_dict["presales_agent"] = admin_name
+        lead_dict["assigned_at"] = now_iso
+        lead_dict["assigned_at_dt"] = now_dt
+        context_updates.append(
+            {
+                "type": "assigned",
+                "timestamp": now_iso,
+                "timestamp_dt": now_dt,
+                "description": assigned_desc,
+                "agent": "WATI",
+                "actor_user_id": "system-wati",
+                "actor_name": "WATI",
+            }
+        )
+    else:
+        logger.warning("WA unknown lead: Admin user not found; creating unassigned lead phone=%s", normalized)
+
+    temp_patch = {"lead_status": "New"}
+    apply_nurture_temperature_rules({}, temp_patch, is_create=True)
+    lead_dict["temperature"] = temp_patch.get("temperature")
+    lead_dict["intent"] = determine_lead_intent(lead_dict)
+    lead_dict["vip"] = is_vip_lead(lead_dict)
+
+    try:
+        await db.leads.insert_one(lead_dict)
+    except DuplicateKeyError:
+        existing = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+        return existing
+
+    if notify and admin and admin.get("id"):
+        lead_name = f"{first_name} {last_name}".strip() or first_name
+        try:
+            await create_notification(
+                recipient_user_id=admin["id"],
+                recipient_name=admin.get("full_name") or ADMIN_WA_ASSIGNEE_NAME,
+                title="New Lead Assigned",
+                message=f"{lead_name} created from WhatsApp inbound (WATI)",
+                notification_type="new_lead_assigned",
+                lead_id=lead_id,
+                lead_name=lead_name,
+                severity="high",
+                urgency="action_needed",
+                dedupe_key=f"wa_unknown_create:{lead_id}",
+            )
+        except Exception as e:
+            logger.warning("WA unknown lead notify failed lead=%s: %s", lead_id, e)
+
+    return lead_dict
+
+
 async def handle_wati_webhook(body: dict) -> None:
     """
     Process a WATI webhook payload.
@@ -1422,7 +1579,18 @@ async def handle_wati_webhook(body: dict) -> None:
 
             # Push to lead timeline (no lead_status change — per plan)
             normalized = normalize_phone(wa_id)
-            lead = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+            lead = None
+            created_from_wa = False
+            if normalized and len(normalized) == 10:
+                lead = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+                if not lead:
+                    lead = await create_whatsapp_unknown_lead(
+                        wa_id or normalized,
+                        sender_name,
+                        backfill=False,
+                        notify=True,
+                    )
+                    created_from_wa = bool(lead)
             if lead:
                 now_iso = msg_doc.get("created_at") or iso_utc_now()
                 now_dt = msg_doc.get("created_at_dt") or utc_now()
@@ -1434,13 +1602,18 @@ async def handle_wati_webhook(body: dict) -> None:
                     "agent": sender_name or "Customer",
                     "direction": "inbound",
                 }
+                set_fields = {"updated_at": now_iso, "updated_at_dt": now_dt, "whatsapp_replied": True}
                 await db.leads.update_one(
                     {"id": lead["id"]},
-                    {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
+                    {"$push": {"context_updates": context_update}, "$set": set_fields},
                 )
                 from crm.services.ai_lead_regen import enqueue_lead_ai_refresh
 
                 enqueue_lead_ai_refresh(lead["id"])
+
+                # Skip reply notify on the same inbound that auto-created the lead (one bell only)
+                if created_from_wa:
+                    return
 
                 # Notify assigned rep of inbound WhatsApp reply (deduped by WATI message id)
                 try:
@@ -1751,6 +1924,12 @@ async def _inbox_aggregate_peers(cap: int = _INBOX_PEER_CANDIDATE_CAP) -> list[t
             "$group": {
                 "_id": "$_peer",
                 "last": {"$first": "$$ROOT"},
+                "inbound_count": {
+                    "$sum": {"$cond": [{"$eq": ["$direction", "inbound"]}, 1, 0]}
+                },
+                "outbound_count": {
+                    "$sum": {"$cond": [{"$eq": ["$direction", "outbound"]}, 1, 0]}
+                },
             }
         },
         {"$sort": {"last._sort_dt": -1}},
@@ -1762,6 +1941,9 @@ async def _inbox_aggregate_peers(cap: int = _INBOX_PEER_CANDIDATE_CAP) -> list[t
         peer = row.get("_id")
         last = row.get("last") or {}
         if peer and isinstance(last, dict):
+            last = dict(last)
+            last["_has_customer_reply"] = int(row.get("inbound_count") or 0) > 0
+            last["_has_outbound"] = int(row.get("outbound_count") or 0) > 0
             out.append((str(peer), last))
     return out
 
@@ -1789,6 +1971,7 @@ async def _resolve_leads_for_peers(peers: list[str]) -> dict[str, dict]:
         "pipeline_status": 1,
         "budget": 1,
         "configuration": 1,
+        "whatsapp_replied": 1,
     }
     or_clauses: list[dict] = []
     if norms:
@@ -2007,6 +2190,12 @@ async def get_whatsapp_inbox(
                 "last_direction": last.get("direction"),
                 "last_message_type": last.get("message_type"),
                 "unread_count": unread,
+                "has_customer_reply": bool(
+                    last.get("_has_customer_reply")
+                    or (lead or {}).get("whatsapp_replied")
+                    or last.get("direction") == "inbound"
+                ),
+                "whatsapp_replied": bool((lead or {}).get("whatsapp_replied")),
                 "session_open": session_open,
             }
         )
@@ -2027,6 +2216,181 @@ async def get_whatsapp_inbox(
         "skip": skip,
         "has_more": skip + limit < total,
         "filter": mode,
+    }
+
+
+_DASHBOARD_WA_LIST_CAP = 100
+_DASHBOARD_WA_FILTERS = frozenset({
+    "all",
+    "needs_followup",
+    "not_contacted",
+    "replied",
+    "unread_mine",
+    "awaiting_agent_reply",
+    "customer_replied_today",
+})
+
+
+async def _peers_inbound_today(peers: list[str], day_start, day_end) -> set[str]:
+    """Peer phones that received at least one inbound message in the IST day window."""
+    if not peers:
+        return set()
+    found: set[str] = set()
+    cursor = db.whatsapp_messages.find(
+        {
+            "direction": "inbound",
+            "source": {"$in": peers},
+            "created_at_dt": {"$gte": day_start, "$lt": day_end},
+        },
+        {"_id": 0, "source": 1},
+    )
+    async for msg in cursor:
+        peer = msg.get("source")
+        if peer:
+            found.add(str(peer))
+    return found
+
+
+async def _count_inbound_today(peers: list[str], day_start, day_end) -> int:
+    """Count inbound messages for peers in the IST day window."""
+    if not peers:
+        return 0
+    return int(
+        await db.whatsapp_messages.count_documents(
+            {
+                "direction": "inbound",
+                "source": {"$in": peers},
+                "created_at_dt": {"$gte": day_start, "$lt": day_end},
+            }
+        )
+    )
+
+
+async def get_my_dashboard_whatsapp(
+    *,
+    subject_id: str,
+    subject_name: str,
+    org_wide: bool,
+    filter_mode: str = "all",
+) -> dict:
+    """
+    My Dashboard WhatsApp health (tiles A) + conversation pipeline list (C).
+
+    Reuses peer aggregation + lead join from Team Inbox. No live WATI calls.
+    - org_wide=False: subject’s assigned leads only (rep_lead_filter).
+    - org_wide=True: all matched leads; unread_mine still uses subject_id (viewer).
+    Only threads with a matched lead are included.
+    """
+    mode = (filter_mode or "all").strip().lower()
+    if mode not in _DASHBOARD_WA_FILTERS:
+        mode = "all"
+
+    from crm.services.lead_overview_service import ist_day_window
+
+    _, day_start, day_end = ist_day_window()
+
+    peer_rows = await _inbox_aggregate_peers(_INBOX_PEER_CANDIDATE_CAP)
+    empty = {
+        "tiles": {
+            "unread_mine": 0,
+            "awaiting_agent_reply": 0,
+            "customer_replied_today": 0,
+        },
+        "conversations": [],
+        "count": 0,
+        "filter": mode,
+        "org_wide": org_wide,
+    }
+    if not peer_rows:
+        return empty
+
+    peers = [p for p, _ in peer_rows]
+    phone_to_lead = await _resolve_leads_for_peers(peers)
+    scope = {} if org_wide else rep_lead_filter(subject_id, subject_name)
+    matched_ids = [lead["id"] for lead in phone_to_lead.values() if lead.get("id")]
+    in_scope_ids = await _inbox_in_scope_lead_ids(matched_ids, scope)
+    unread_map = await _inbox_unread_counts(subject_id, peers)
+
+    scoped: list[tuple[str, dict, dict]] = []
+    for peer, last in peer_rows:
+        lead = phone_to_lead.get(peer)
+        if not lead or not lead.get("id") or lead["id"] not in in_scope_ids:
+            continue
+        scoped.append((peer, last, lead))
+
+    scoped_peers = [p for p, _, _ in scoped]
+    inbound_today_peers = await _peers_inbound_today(scoped_peers, day_start, day_end)
+    customer_replied_today = await _count_inbound_today(scoped_peers, day_start, day_end)
+
+    unread_mine = 0
+    awaiting_agent_reply = 0
+    for peer, last, _lead in scoped:
+        unread = int(unread_map.get(peer) or 0)
+        if unread > 0:
+            unread_mine += 1
+        if last.get("direction") == "inbound":
+            awaiting_agent_reply += 1
+
+    tiles = {
+        "unread_mine": unread_mine,
+        "awaiting_agent_reply": awaiting_agent_reply,
+        "customer_replied_today": customer_replied_today,
+    }
+
+    rows: list[dict] = []
+    for peer, last, lead in scoped:
+        unread = int(unread_map.get(peer) or 0)
+        has_customer_reply = bool(
+            last.get("_has_customer_reply")
+            or lead.get("whatsapp_replied")
+            or last.get("direction") == "inbound"
+        )
+        has_outbound = bool(last.get("_has_outbound"))
+        last_direction = last.get("direction")
+
+        if mode == "unread_mine" and unread <= 0:
+            continue
+        if mode in ("awaiting_agent_reply", "needs_followup") and last_direction != "inbound":
+            continue
+        if mode == "not_contacted" and not (has_customer_reply and not has_outbound):
+            continue
+        if mode == "replied" and not has_customer_reply:
+            continue
+        if mode == "customer_replied_today" and peer not in inbound_today_peers:
+            continue
+
+        last_at = last.get("created_at") or last.get("created_at_dt")
+        if hasattr(last_at, "isoformat"):
+            last_at = last_at.isoformat()
+
+        rows.append(
+            {
+                "lead_id": lead.get("id"),
+                "peer_phone": peer,
+                "display_name": _lead_display_name(lead),
+                "phone": lead.get("phone") or peer,
+                "lead_status": (
+                    lead.get("lead_status") or lead.get("status") or lead.get("pipeline_status")
+                ),
+                "last_message_preview": _inbox_preview_text(last),
+                "last_message_at": last_at,
+                "last_direction": last_direction,
+                "unread_count": unread,
+                "assigned_to": lead.get("assigned_to"),
+                "assigned_to_name": lead.get("assigned_to_name"),
+                "assigned_user_id": lead.get("assigned_user_id"),
+                "has_customer_reply": has_customer_reply,
+            }
+        )
+        if len(rows) >= _DASHBOARD_WA_LIST_CAP:
+            break
+
+    return {
+        "tiles": tiles,
+        "conversations": rows,
+        "count": len(rows),
+        "filter": mode,
+        "org_wide": org_wide,
     }
 
 

@@ -29,8 +29,10 @@ def rep_lead_filter(user_id: str, full_name: str) -> dict:
 
 
 def role_scope_filter(current_user: dict) -> dict:
-    """Mongo filter: {} for admin/manager (org-wide), rep assignment filter otherwise."""
-    if current_user.get("role") in ("admin", "manager"):
+    """Mongo filter: {} for admin/manager (org-wide); rep/GM use assignment filter."""
+    from crm.constants.roles import is_org_editor
+
+    if is_org_editor(current_user.get("role")):
         return {}
     return rep_lead_filter(current_user["id"], current_user.get("full_name") or "")
 
@@ -81,13 +83,16 @@ async def resolve_lead_or_403(lead_id: str, current_user: dict) -> dict:
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if current_user.get("role") in ("admin", "manager"):
+    from crm.constants.roles import is_org_editor
+
+    # admin/manager edit org-wide; general_manager is like rep (own / task / grant).
+    if is_org_editor(current_user.get("role")):
         return lead
     if user_owns_lead(lead, current_user):
         return lead
     if await user_is_task_assignee_on_lead(lead_id, current_user):
         return lead
-    # Reps who found this lead via the search bar (exact phone/email lookup) get a
+    # Reps/GM who found this lead via the search bar (exact phone/email lookup) get a
     # temporary 10-minute edit grant. This allows them to update the lead they searched.
     if await has_active_view_grant(lead_id=lead_id, user_id=current_user.get("id") or ""):
         return lead

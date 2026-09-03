@@ -144,7 +144,6 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   if (filters.meta_qualified === true) params.set('meta_qualified', '1');
   if (filters.meta_qualified === false) params.set('meta_qualified', '0');
   if (filters.metric) params.set('metric', filters.metric);
-  if (filters.dormant) params.set('dormant', '1');
   if (filters.mine) params.set('mine', '1');
 
   const agent = (agentQuery || '').trim();
@@ -174,7 +173,7 @@ export const buildLeadListParams = (filters, search = '') => {
   if (filters.vip !== null && filters.vip !== undefined) params.vip = filters.vip;
   if (filters.re_enquiry !== null && filters.re_enquiry !== undefined) params.re_enquiry = filters.re_enquiry;
   if (filters.temperature) params.temperature = filters.temperature;
-  if (filters.dormant) params.dormant = true;
+  // dormant filter removed (#43)
 
   if (dateField === 'updated') {
     // Backend `days` is created_at-only; map updated presets to updated_from/to.
@@ -227,7 +226,6 @@ export const countActiveFilters = (filters, { includeDuplicates = false } = {}) 
   }
   if (filters.meta_qualified === true || filters.meta_qualified === false) count += 1;
   if (filters.metric) count += 1;
-  if (filters.dormant) count += 1;
   if (filters.mine) count += 1;
   if (includeDuplicates) count += 1;
   return count;

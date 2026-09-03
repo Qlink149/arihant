@@ -1,5 +1,5 @@
 """Unit tests for lead overview KPI filters (no database)."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from crm.services.lead_analytics_queries import active_pipeline_filter
@@ -169,6 +169,34 @@ def test_metric_filter_negotiation_status():
     ctx = build_metric_context({}, uid="u1", name="Rep", is_manager=False)
     filt = metric_filter_for_key("negotiation", ctx)
     assert "negotiat" in str(filt)
+
+
+def test_todays_leads_uses_rolling_24h_created_or_re_enquired_today():
+    # #46/#48: a lead created just before midnight IST should still show up
+    # the next morning within 24h, and a re-enquiry today counts too even if
+    # the lead itself was created long ago.
+    now = datetime(2026, 5, 26, 3, 0, 0, tzinfo=timezone.utc)  # 08:30 IST May 26
+    ctx = build_metric_context({}, uid="u1", name="Rep", is_manager=False, now_dt=now)
+    filt = metric_filter_for_key("todays_leads", ctx)
+    blob = str(filt)
+    assert "created_at_dt" in blob
+    assert "re_enquired_at" in blob
+    assert "$or" in blob
+    # rolling window should be now - 24h, not IST midnight
+    created_clause = filt["$or"][0]
+    rolling_start = created_clause["$or"][0]["created_at_dt"]["$gte"]
+    assert rolling_start == now - timedelta(hours=24)
+
+
+def test_todays_leads_re_enquiry_window_matches_ist_calendar_day():
+    now = datetime(2026, 5, 26, 3, 0, 0, tzinfo=timezone.utc)  # 08:30 IST May 26
+    ctx = build_metric_context({}, uid="u1", name="Rep", is_manager=False, now_dt=now)
+    filt = metric_filter_for_key("todays_leads", ctx)
+    re_enquired_clause = filt["$or"][1]
+    window = re_enquired_clause["re_enquired_at"]
+    assert window["$gte"].astimezone(IST).strftime("%Y-%m-%d") == "2026-05-26"
+    assert window["$gte"].astimezone(IST).hour == 0
+    assert (window["$lt"] - window["$gte"]).total_seconds() == 86400
 
 
 def test_transfer_metrics_use_lead_transfers_collection():

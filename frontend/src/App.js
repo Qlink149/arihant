@@ -23,6 +23,7 @@ const MarketingDashboardPage = lazy(() => import('./pages/MarketingDashboardPage
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const WhatsAppInboxPage = lazy(() => import('./pages/WhatsAppInboxPage'));
 const EscalationQueuePage = lazy(() => import('./pages/EscalationQueuePage'));
+const SiteVisitsPage = lazy(() => import('./pages/SiteVisitsPage'));
 const PlatformOpsPage = lazy(() => import('./pages/PlatformOpsPage'));
 const OpsActiveStatusPage = lazy(() => import('./pages/OpsActiveStatusPage'));
 
@@ -71,8 +72,8 @@ const AdminRoute = ({ children }) => {
   return children;
 };
 
-/** Admin or manager — Escalation Queue (matches GET /escalations). */
-const AdminOrManagerRoute = ({ children }) => {
+/** Admin or manager — org-wide reports (Sales Dashboard, Site Visits). */
+const OrgEditorRoute = ({ children }) => {
   const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
@@ -89,6 +90,30 @@ const AdminOrManagerRoute = ({ children }) => {
 
   const role = (user?.role || '').toLowerCase();
   if (role !== 'admin' && role !== 'manager') {
+    return <Navigate to="/my-dashboard" replace />;
+  }
+
+  return children;
+};
+
+/** Admin, manager, or general_manager — Escalation Queue only (not Settings). */
+const EscalationAccessRoute = ({ children }) => {
+  const { isAuthenticated, loading, user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-crm flex items-center justify-center">
+        <div className="text-[#C5A059] animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const role = (user?.role || '').toLowerCase();
+  if (role !== 'admin' && role !== 'manager' && role !== 'general_manager') {
     return <Navigate to="/my-dashboard" replace />;
   }
 
@@ -154,11 +179,21 @@ function AppRoutes() {
         <Route
           path="escalation-queue"
           element={
-            <AdminOrManagerRoute>
+            <EscalationAccessRoute>
               <LazyPage>
                 <EscalationQueuePage />
               </LazyPage>
-            </AdminOrManagerRoute>
+            </EscalationAccessRoute>
+          }
+        />
+        <Route
+          path="site-visits"
+          element={
+            <OrgEditorRoute>
+              <LazyPage>
+                <SiteVisitsPage />
+              </LazyPage>
+            </OrgEditorRoute>
           }
         />
         {user?.is_platform_operator && (

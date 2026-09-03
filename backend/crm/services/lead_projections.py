@@ -75,6 +75,7 @@ LIST_LEAD_PROJECTION: Dict[str, int] = {
     "assigned_user_id": 1,
     "presales_description": 1,
     "recent_note": 1,
+    "whatsapp_replied": 1,
     "created_at": 1,
     "updated_at": 1,
     "created_at_dt": 1,

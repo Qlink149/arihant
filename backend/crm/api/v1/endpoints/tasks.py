@@ -1,15 +1,16 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from crm.services.dashboard_scope import resolve_lead_or_403, resolve_leads_base_filter
+from crm.services.dashboard_scope import resolve_lead_or_403, resolve_lead_view_or_403, resolve_leads_base_filter
 from crm.core.platform_ops import assert_assignee_allowed, is_platform_operator
 from crm.core.state import db, get_current_user, utc_now, iso_utc_now, resolve_user_id_by_full_name
 from crm.services.lead_events import log_lead_event
 from crm.services.notification_service import create_notification
+from crm.services.note_notify import notify_note_recipients, resolve_mentioned_users
 from crm.constants.task import TASK_REMINDER_METHOD_DEFAULT
 from crm.services.lead_follow_up import recompute_lead_next_action_date
 from crm.services.task_enrichment import enrich_tasks
@@ -22,6 +23,7 @@ router = APIRouter()
 class ContextUpdateCreate(BaseModel):
     note: str
     update_type: str = "general_note"
+    mentioned_user_ids: Optional[List[str]] = Field(default=None)
 
 
 class ContextUpdatePatch(BaseModel):
@@ -81,7 +83,12 @@ async def add_context_update(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):
-    lead = await resolve_lead_or_403(lead_id, current_user)
+    # Org-wide notes (#39): any authenticated user can add general_note on any lead.
+    # Other context types keep edit ACL (own / task / grant / admin|manager).
+    if (update.update_type or "").strip() == "general_note":
+        lead = await resolve_lead_view_or_403(lead_id, current_user)
+    else:
+        lead = await resolve_lead_or_403(lead_id, current_user)
 
     # Nurturing workflow rule: after transitioning into Nurturing, user must create a fresh task
     # before adding a new general note. Other update types remain allowed.
@@ -107,6 +114,10 @@ async def add_context_update(
 
     now_dt = utc_now()
     now_iso = iso_utc_now()
+    mentioned_users = await resolve_mentioned_users(
+        mentioned_user_ids=update.mentioned_user_ids,
+        note_text=update.note or "",
+    )
     context_entry = {
         "type": type_labels.get(update.update_type, "note"),
         "timestamp": now_iso,
@@ -117,6 +128,11 @@ async def add_context_update(
         "actor_user_id": current_user.get("id"),
         "actor_name": current_user.get("full_name"),
     }
+    if mentioned_users:
+        context_entry["mentioned_user_ids"] = [u["id"] for u in mentioned_users if u.get("id")]
+        context_entry["mentioned_names"] = [
+            (u.get("full_name") or "").strip() for u in mentioned_users if (u.get("full_name") or "").strip()
+        ]
 
     await db.leads.update_one(
         {"id": lead_id},
@@ -147,6 +163,13 @@ async def add_context_update(
         actor_user_id=current_user.get("id"),
         actor_name=current_user.get("full_name"),
         payload={"update_type": update.update_type},
+    )
+
+    await notify_note_recipients(
+        lead=lead,
+        author=current_user,
+        note_text=update.note or "",
+        mentioned_users=mentioned_users,
     )
 
     from crm.services.ai_lead_regen import schedule_lead_ai_refresh

@@ -239,6 +239,7 @@ async def process_zapier_lead(body: dict) -> Dict[str, Any]:
         "id": f"zapier-meta:{project['id']}",
         "project_id": project["id"],
         "project_name": project["name"],
+        "form_id": form_id,
         "rate_limit_per_min": 120,
     }
 

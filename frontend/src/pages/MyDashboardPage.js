@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import {
   CheckCircle,
   ArrowRightLeft, Eye, X, Search,
-  Plus, ListChecks
+  Plus, ListChecks, MessageCircle, Inbox, Reply, Clock
 } from 'lucide-react';
 import { formatStatusDisplay } from '../utils/nurtureLabel';
 import { Button } from '../components/ui/button';
@@ -35,6 +35,40 @@ const LEADS_PAGE = 150;
 const STATS_REFRESH_MS = 60_000;
 
 const COMPLETED_TASK_STATUSES = new Set(['completed', 'done', 'cancelled']);
+
+const WA_TILES = [
+  {
+    key: 'unread_mine',
+    label: 'Unread',
+    subtitle: 'Your unread threads',
+    bar: 'bg-amber-500',
+    Icon: Inbox,
+    iconClass: 'text-amber-400',
+  },
+  {
+    key: 'awaiting_agent_reply',
+    label: 'Awaiting reply',
+    subtitle: 'Last message from customer',
+    bar: 'bg-rose-500',
+    Icon: Clock,
+    iconClass: 'text-rose-400',
+  },
+  {
+    key: 'customer_replied_today',
+    label: 'Replied today',
+    subtitle: 'Inbound messages today',
+    bar: 'bg-emerald-500',
+    Icon: Reply,
+    iconClass: 'text-emerald-400',
+  },
+];
+
+const WA_SUBFILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'needs_followup', label: 'Needs follow-up' },
+  { id: 'not_contacted', label: 'Not contacted' },
+  { id: 'replied', label: 'Replied' },
+];
 
 const formatTransferDate = (transfer) => {
   const raw = transfer?.transferred_at || transfer?.transferred_at_dt;
@@ -84,6 +118,10 @@ const MyDashboardPage = () => {
   const [selectedRepUserId, setSelectedRepUserId] = useState(null);
   const [repAssignees, setRepAssignees] = useState([]);
   const [leadsMetricFilter, setLeadsMetricFilter] = useState(null);
+
+  const [waData, setWaData] = useState(null);
+  const [waLoading, setWaLoading] = useState(false);
+  const [waFilter, setWaFilter] = useState('all');
 
   const leadsFetchBusy = useRef(false);
   const leadsFetchGeneration = useRef(0);
@@ -192,6 +230,24 @@ const MyDashboardPage = () => {
     }
   }, [repParams]);
 
+  const fetchWhatsapp = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setWaLoading(true);
+    try {
+      const { data: res } = await myDashboardAPI.getWhatsapp({
+        ...repParams,
+        filter: waFilter,
+      });
+      setWaData(res);
+    } catch {
+      if (!silent) {
+        toast.error('Failed to load WhatsApp dashboard');
+        setWaData(null);
+      }
+    } finally {
+      if (!silent) setWaLoading(false);
+    }
+  }, [repParams, waFilter]);
+
   const refreshAll = useCallback(async () => {
     try {
       const [dashRes, repsRes] = await Promise.all([
@@ -252,6 +308,7 @@ const MyDashboardPage = () => {
     }
     setLeads([]);
     setLeadsMetricFilter(null);
+    setWaFilter('all');
     leadsFetchGeneration.current += 1;
     if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
     (async () => {
@@ -265,6 +322,11 @@ const MyDashboardPage = () => {
       }
     })();
   }, [selectedRepUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab !== 'whatsapp') return;
+    fetchWhatsapp();
+  }, [activeTab, fetchWhatsapp]);
 
   useStatsAutoRefresh(async () => {
     if (loading || !data) return;
@@ -612,7 +674,17 @@ const MyDashboardPage = () => {
     { id: 'leads', label: 'My Leads', count: m.total_leads || 0 },
     { id: 'tasks', label: 'Tasks', count: pendingTasks.length },
     { id: 'transfers', label: 'Transfers', count: incomingTransfersTotal + outgoingTransfersTotal },
+    {
+      id: 'whatsapp',
+      label: 'WhatsApp',
+      count: waData?.tiles?.unread_mine ?? 0,
+    },
   ];
+
+  const waTiles = waData?.tiles || {};
+  const waConversations = waData?.conversations || [];
+  const waOrgWide = Boolean(waData?.org_wide);
+  const isWaTileFilter = ['unread_mine', 'awaiting_agent_reply', 'customer_replied_today'].includes(waFilter);
 
   return (
     <div className="space-y-3" data-testid="my-dashboard">
@@ -1134,6 +1206,187 @@ const MyDashboardPage = () => {
                 </div>
               </motion.div>
             ))
+          )}
+        </motion.div>
+      )}
+
+      {/* WhatsApp Tab */}
+      {activeTab === 'whatsapp' && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-4"
+          data-testid="whatsapp-section"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-crm-fg text-sm font-medium flex items-center gap-2">
+                <MessageCircle size={16} className="text-green-500" />
+                {waOrgWide ? 'Org inbox' : 'My WhatsApp'}
+              </p>
+              <p className="text-crm-fg-muted text-xs mt-0.5">
+                {waOrgWide
+                  ? 'WhatsApp health across all assigned leads'
+                  : 'WhatsApp activity for your assigned leads'}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" data-testid="wa-tiles">
+            {WA_TILES.map((tile) => {
+              const count = waTiles[tile.key] ?? 0;
+              const active = waFilter === tile.key;
+              const Icon = tile.Icon;
+              return (
+                <button
+                  key={tile.key}
+                  type="button"
+                  onClick={() => setWaFilter(tile.key)}
+                  aria-label={`${tile.label}: ${count}. ${tile.subtitle}`}
+                  data-testid={`wa-tile-${tile.key}`}
+                  className={`flex flex-col h-full text-left w-full bg-crm-elevated border rounded-md p-3 card-hover transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-[#C5A059]/50 ${
+                    active
+                      ? 'border-[#C5A059]/50 bg-[#C5A059]/10'
+                      : 'border-crm-border hover:border-[#C5A059]/40 hover:bg-white/5'
+                  }`}
+                >
+                  <div className="flex items-start gap-2 mb-2">
+                    <span className={`w-1 h-6 shrink-0 rounded-sm ${tile.bar}`} aria-hidden />
+                    <span className="w-7 h-7 shrink-0 flex items-center justify-center border border-crm-border rounded-sm bg-black/30">
+                      <Icon size={14} className={tile.iconClass} aria-hidden />
+                    </span>
+                  </div>
+                  <p className="text-xs uppercase tracking-wide text-crm-fg-secondary leading-tight">
+                    {tile.label}
+                  </p>
+                  <p className="text-2xl font-semibold text-white tabular-nums mt-0.5">
+                    {waLoading && !waData ? '—' : count}
+                  </p>
+                  <p className="text-[10px] text-crm-fg-muted mt-auto pt-1">{tile.subtitle}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2" data-testid="wa-subfilters">
+            {WA_SUBFILTERS.map((sf) => {
+              const active = !isWaTileFilter && waFilter === sf.id;
+              return (
+                <button
+                  key={sf.id}
+                  type="button"
+                  onClick={() => setWaFilter(sf.id)}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                    active
+                      ? 'bg-[#C5A059]/20 text-[#C5A059] border border-[#C5A059]/30'
+                      : 'text-crm-fg-muted hover:text-crm-fg border border-transparent'
+                  }`}
+                  data-testid={`wa-subfilter-${sf.id}`}
+                >
+                  {sf.label}
+                </button>
+              );
+            })}
+            {isWaTileFilter ? (
+              <button
+                type="button"
+                onClick={() => setWaFilter('all')}
+                className="px-2 py-1 text-xs text-crm-fg-muted hover:text-crm-fg flex items-center gap-1"
+                data-testid="wa-clear-tile-filter"
+              >
+                <X size={12} /> Clear tile filter
+              </button>
+            ) : null}
+          </div>
+
+          {waLoading && !waData ? (
+            <div className="text-center py-12 text-crm-fg-muted text-sm">Loading WhatsApp…</div>
+          ) : waConversations.length === 0 ? (
+            <div className="text-center py-12 bg-crm-elevated border border-white/5 rounded-xl">
+              <MessageCircle className="mx-auto text-crm-fg-muted opacity-50" size={32} />
+              <p className="text-crm-fg-muted mt-2 text-sm">No conversations match this filter</p>
+            </div>
+          ) : (
+            <div className="grid gap-3" data-testid="wa-conversation-list">
+              <p className="text-crm-fg-muted text-xs">
+                Showing {waConversations.length} thread{waConversations.length === 1 ? '' : 's'}
+                {waLoading ? ' · Refreshing…' : ''}
+              </p>
+              {waConversations.map((c, i) => (
+                <motion.div
+                  key={c.lead_id || c.peer_phone || i}
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(i * 0.02, 0.25) }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => c.lead_id && navigate(`/lead/${c.lead_id}`)}
+                  onKeyDown={(e) => {
+                    if ((e.key === 'Enter' || e.key === ' ') && c.lead_id) {
+                      e.preventDefault();
+                      navigate(`/lead/${c.lead_id}`);
+                    }
+                  }}
+                  className="bg-crm-elevated border border-crm-border rounded-xl p-4 cursor-pointer hover:bg-white/[0.02] hover:border-[#C5A059]/30 transition-colors"
+                  data-testid={`wa-row-${c.lead_id || c.peer_phone}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-green-500/10">
+                      <MessageCircle size={18} className="text-green-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-crm-fg font-medium text-sm truncate">
+                          {c.display_name || 'Unknown'}
+                        </p>
+                        {c.unread_count > 0 ? (
+                          <CrmBadge variant="gold" size="xs">{c.unread_count} unread</CrmBadge>
+                        ) : null}
+                        {c.last_direction === 'inbound' ? (
+                          <CrmBadge variant="neutral" size="xs">Inbound</CrmBadge>
+                        ) : c.last_direction === 'outbound' ? (
+                          <CrmBadge variant="neutral" size="xs">Outbound</CrmBadge>
+                        ) : null}
+                      </div>
+                      <p className="text-crm-fg-muted text-xs mt-0.5">
+                        {c.phone || c.peer_phone || '—'}
+                        {c.lead_status ? (
+                          <>
+                            {' '}&middot;{' '}
+                            <span className="text-crm-fg-secondary">{c.lead_status}</span>
+                          </>
+                        ) : null}
+                      </p>
+                      <p className="text-crm-fg-secondary text-xs mt-1 truncate">
+                        {c.last_message_preview || 'No preview'}
+                      </p>
+                      <p className="text-crm-fg-muted text-[10px] mt-1">
+                        {c.last_message_at ? formatDateTimeIST(c.last_message_at) || '—' : '—'}
+                        {(c.assigned_to_name || c.assigned_to) ? (
+                          <>
+                            {' '}&middot;{' '}
+                            <span className="text-crm-fg-secondary">
+                              {c.assigned_to_name || c.assigned_to}
+                            </span>
+                          </>
+                        ) : null}
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-crm-fg-secondary hover:text-crm-fg h-8 w-8 p-0"
+                        onClick={() => c.lead_id && navigate(`/lead/${c.lead_id}`)}
+                        aria-label="View lead"
+                      >
+                        <Eye size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
           )}
         </motion.div>
       )}

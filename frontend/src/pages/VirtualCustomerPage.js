@@ -8,6 +8,7 @@ import { LeadListTable } from '../components/leads/LeadListTable';
 import { LeadExportModal } from '../components/leads/LeadExportModal';
 import { MultiSelectFilterDropdown } from '../components/leads/MultiSelectFilterDropdown';
 import { LeadFilterViewsBar } from '../components/leads/LeadFilterViewsBar';
+import NoteMentionPicker from '../components/leads/NoteMentionPicker';
 import {
   applyViewFiltersToState,
   buildLeadListParams,
@@ -194,7 +195,7 @@ const parseTotalFromResponse = (response) => {
 };
 
 const VirtualCustomerPage = () => {
-  const { user } = useAuth();
+  const { user, isImpersonating } = useAuth();
   const isAdmin = (user?.role || '').toLowerCase() === 'admin';
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -239,6 +240,7 @@ const VirtualCustomerPage = () => {
   const [leadTasksDrawerHighlightId, setLeadTasksDrawerHighlightId] = useState(null);
   const [noteLeadId, setNoteLeadId] = useState(null);
   const [quickNote, setQuickNote] = useState('');
+  const [quickNoteMentions, setQuickNoteMentions] = useState([]);
   const [savingQuickNote, setSavingQuickNote] = useState(false);
 
   const [newCustomer, setNewCustomer] = useState({ ...EMPTY_NEW_CUSTOMER });
@@ -871,6 +873,25 @@ const VirtualCustomerPage = () => {
     setQuickNote('');
   }, []);
 
+  const canNudge = useMemo(() => {
+    const role = (user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'manager';
+  }, [user?.role]);
+
+  const handleNudge = useCallback(async (id) => {
+    try {
+      const res = await leadsAPI.nudge(id);
+      if (res?.data?.deduped) {
+        toast.message('Nudge already sent recently');
+      } else {
+        toast.success('Nudge sent to assignee');
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail || 'Failed to nudge';
+      toast.error(String(detail));
+    }
+  }, []);
+
   const handleBudgetsChange = useCallback((budgets) => {
     setActiveFilterViewId(null);
     setFilters((prev) => ({ ...prev, budgets }));
@@ -913,10 +934,12 @@ const VirtualCustomerPage = () => {
       await leadsAPI.addContext(noteLeadId, {
         note: quickNote.trim(),
         update_type: 'general_note',
+        mentioned_user_ids: quickNoteMentions,
       });
       toast.success('Note added');
       setNoteLeadId(null);
       setQuickNote('');
+      setQuickNoteMentions([]);
       // Soft refresh: re-fetch current first page without jumping UX harder than needed
       await Promise.all([resetAndFetchLeads(), fetchPendingTasks()]);
       // Restore approximate scroll after list rebuild
@@ -1112,7 +1135,7 @@ const VirtualCustomerPage = () => {
         </div>
       </motion.div>
 
-      {(filters.metric || filters.dormant || filters.mine) ? (
+      {(filters.metric || filters.mine) ? (
         <div
           className="flex items-center gap-2 flex-wrap"
           data-testid="lead-overview-filter-chip"
@@ -1143,28 +1166,17 @@ const VirtualCustomerPage = () => {
               </button>
             </CrmBadge>
           ) : null}
-          {filters.dormant ? (
-            <CrmBadge chip variant="warning" className="gap-2">
-              {METRIC_LABELS.dormant || 'Dormant leads'}
-              <button
-                type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, dormant: false }))}
-                className="ml-1 opacity-80 hover:opacity-100 underline-offset-2 hover:underline"
-                aria-label="Clear dormant filter"
-              >
-                Clear
-              </button>
-            </CrmBadge>
-          ) : null}
         </div>
       ) : null}
 
-      {/* Search & Filters Bar */}
+      {/* Search & Filters Bar — sticky under app header (and impersonation banner if shown) */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="glass-card rounded-lg p-4"
+        className={`glass-card rounded-lg p-4 sticky z-20 bg-crm ${
+          isImpersonating ? 'top-[7.5rem]' : 'top-16'
+        }`}
       >
         <div className="flex flex-col gap-4">
           {/* Search — full-width row so phone numbers stay visible */}
@@ -1209,7 +1221,7 @@ const VirtualCustomerPage = () => {
 
             {/* Location Filter */}
             <MultiSelectFilterDropdown
-              label="Location"
+              label="Location interested"
               icon={MapPin}
               options={locationOptions}
               selected={filters.locations}
@@ -1565,13 +1577,26 @@ const VirtualCustomerPage = () => {
           onTableDensityChange={setTableDensity}
           onRowClick={handleViewLead}
           onNote={handleOpenNote}
+          onNudge={handleNudge}
+          canNudge={canNudge}
           onOpenLeadTasks={openLeadTasksDrawer}
           loadMoreSentinelRef={loadMoreSentinelRef}
+          bulkSelectEnabled={canNudge}
+          assigneeOptions={assigneeOptions}
+          onBulkComplete={fetchLeads}
         />
       )}
 
       {/* Quick note modal */}
-      <Dialog open={!!noteLeadId} onOpenChange={(open) => !open && setNoteLeadId(null)}>
+      <Dialog
+        open={!!noteLeadId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setNoteLeadId(null);
+            setQuickNoteMentions([]);
+          }
+        }}
+      >
         <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-lg" data-testid="quick-note-modal">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl">Add note</DialogTitle>
@@ -1580,15 +1605,23 @@ const VirtualCustomerPage = () => {
             <textarea
               value={quickNote}
               onChange={(e) => setQuickNote(e.target.value)}
-              placeholder="Write a note for this lead..."
+              placeholder="Write a note for this lead… Use @Name or pick agents below"
               rows={4}
               className="w-full px-3 py-2 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none resize-none"
               data-testid="quick-note-input"
             />
+            <NoteMentionPicker
+              selectedIds={quickNoteMentions}
+              onChange={setQuickNoteMentions}
+              disabled={savingQuickNote}
+            />
             <div className="flex justify-end gap-2">
               <Button
                 variant="ghost"
-                onClick={() => setNoteLeadId(null)}
+                onClick={() => {
+                  setNoteLeadId(null);
+                  setQuickNoteMentions([]);
+                }}
                 className="text-crm-fg-secondary"
               >
                 Cancel

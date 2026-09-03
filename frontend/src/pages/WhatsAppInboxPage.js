@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2,
@@ -28,6 +28,12 @@ import { ChatMessageBubble, useLeadWhatsAppThread } from '../components/whatsapp
 import { CANONICAL_PROJECTS } from '../constants/leadPicklists';
 import { parseApiDate } from '../utils/datetime';
 import { formatLeadProjects, primaryLeadProject } from '../utils/leadProjects';
+import { getRecentNote } from '../utils/leadTable';
+import {
+  buildTemplateParameters,
+  parseTemplateVariables,
+  templateBodyText,
+} from '../utils/watiTemplateParams';
 import { MultiSelectWithOther } from '../components/ui/MultiSelectWithOther';
 
 const PAGE_SIZE = 40;
@@ -110,6 +116,7 @@ const WhatsAppInboxPage = () => {
   const [waTemplates, setWaTemplates] = useState([]);
   const [waTemplatesLoaded, setWaTemplatesLoaded] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [templateParamValues, setTemplateParamValues] = useState({});
   const [createOpen, setCreateOpen] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -124,6 +131,7 @@ const WhatsAppInboxPage = () => {
   const sendingAction = useRef(false);
   const listRef = useRef(null);
   const searchWrapRef = useRef(null);
+  const preserveScrollRef = useRef(null);
 
   const selected = useMemo(
     () => conversations.find((c) => conversationKeyOf(c) === selectedKey) || null,
@@ -145,7 +153,10 @@ const WhatsAppInboxPage = () => {
   });
 
   const fetchInbox = useCallback(
-    async ({ silent = false, append = false, skip = 0 } = {}) => {
+    async ({ silent = false, append = false, skip = 0, preserveScroll = false } = {}) => {
+      if (preserveScroll && listRef.current) {
+        preserveScrollRef.current = listRef.current.scrollTop;
+      }
       if (!silent && !append) setListLoading(true);
       if (append) setLoadingMore(true);
       if (!append) setListError(null);
@@ -191,6 +202,7 @@ const WhatsAppInboxPage = () => {
         console.error('WhatsApp inbox failed', err);
         setListError('Could not load WhatsApp conversations');
         if (!silent) toast.error('Failed to load WhatsApp inbox');
+        preserveScrollRef.current = null;
       } finally {
         if (!silent && !append) setListLoading(false);
         if (append) setLoadingMore(false);
@@ -198,6 +210,12 @@ const WhatsAppInboxPage = () => {
     },
     [listFilter, debouncedQuery]
   );
+
+  useLayoutEffect(() => {
+    if (preserveScrollRef.current == null || !listRef.current) return;
+    listRef.current.scrollTop = preserveScrollRef.current;
+    preserveScrollRef.current = null;
+  }, [conversations]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query.trim()), 400);
@@ -349,6 +367,7 @@ const WhatsAppInboxPage = () => {
     setSelectedKey(key);
     setDraft('');
     setSelectedTemplate(null);
+    setTemplateParamValues({});
     setMobilePane('chat');
     setShowLeadDropdown(false);
   };
@@ -391,25 +410,63 @@ const WhatsAppInboxPage = () => {
     selectConversation(key);
   };
 
+  const templateVars = useMemo(() => {
+    if (!selectedTemplate) return [];
+    const name = selected?.display_name || leadDetail?.first_name || 'Customer';
+    const project =
+      selected?.project
+      || primaryLeadProject(leadDetail, '')
+      || leadDetail?.project
+      || 'Arihant';
+    return parseTemplateVariables(selectedTemplate, {
+      name: String(name).split(/\s+/)[0] || name,
+      project,
+    });
+  }, [selectedTemplate, selected, leadDetail]);
+
+  const applyTemplateSelection = useCallback(
+    (tpl) => {
+      setSelectedTemplate(tpl);
+      if (!tpl) {
+        setTemplateParamValues({});
+        return;
+      }
+      setDraft('');
+      const name = selected?.display_name || leadDetail?.first_name || 'Customer';
+      const project =
+        selected?.project
+        || primaryLeadProject(leadDetail, '')
+        || leadDetail?.project
+        || 'Arihant';
+      const vars = parseTemplateVariables(tpl, {
+        name: String(name).split(/\s+/)[0] || name,
+        project,
+      });
+      const next = {};
+      vars.forEach((v) => {
+        next[v.name] = v.defaultValue;
+      });
+      setTemplateParamValues(next);
+    },
+    [selected, leadDetail]
+  );
+
   const handleSend = async () => {
     if (sending || sendingAction.current) return;
     if (selectedTemplate) {
       sendingAction.current = true;
-      const name = selected?.display_name || leadDetail?.first_name || 'Customer';
-      const project = selected?.project || leadDetail?.project || 'Arihant';
+      const params = buildTemplateParameters(templateVars, templateParamValues);
       const ok = await sendTemplate({
         templateName: selectedTemplate.name,
-        templateParameters: [
-          { name: 'name', value: String(name).split(/\s+/)[0] || name },
-          { name: 'project', value: project },
-        ],
+        templateParameters: params,
         displayName: selectedTemplate.name,
       });
       sendingAction.current = false;
       if (ok) {
         setSelectedTemplate(null);
+        setTemplateParamValues({});
         setDraft('');
-        fetchInbox({ silent: true, skip: 0 });
+        fetchInbox({ silent: true, skip: 0, preserveScroll: true });
       }
       return;
     }
@@ -419,7 +476,7 @@ const WhatsAppInboxPage = () => {
     sendingAction.current = false;
     if (ok) {
       setDraft('');
-      fetchInbox({ silent: true, skip: 0 });
+      fetchInbox({ silent: true, skip: 0, preserveScroll: true });
     }
   };
 
@@ -431,7 +488,7 @@ const WhatsAppInboxPage = () => {
       if (res.data?.success) {
         toast.success(`${label} sent`);
         await sync();
-        fetchInbox({ silent: true, skip: 0 });
+        fetchInbox({ silent: true, skip: 0, preserveScroll: true });
       } else {
         toast.error(`Failed to send ${label.toLowerCase()}`, {
           description: res.data?.error,
@@ -630,6 +687,7 @@ const WhatsAppInboxPage = () => {
                       key={key}
                       type="button"
                       onClick={() => selectConversation(key)}
+                      data-testid={c.lead_id ? `wa-thread-${c.lead_id}` : `wa-thread-phone-${c.peer_phone || 'unknown'}`}
                       className={`w-full text-left px-3 py-3 border-b border-white/5 transition-colors ${
                         active ? 'bg-green-500/10' : 'hover:bg-white/5'
                       }`}
@@ -660,9 +718,16 @@ const WhatsAppInboxPage = () => {
                             >
                               {c.display_name}
                             </p>
-                            <span className="text-[10px] text-crm-fg-muted shrink-0">
-                              {relativeTime(c.last_message_at)}
-                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {c.has_customer_reply ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+                                  Replied
+                                </span>
+                              ) : null}
+                              <span className="text-[10px] text-crm-fg-muted">
+                                {relativeTime(c.last_message_at)}
+                              </span>
+                            </div>
                           </div>
                           <p
                             className={`text-xs truncate mt-0.5 ${
@@ -804,8 +869,7 @@ const WhatsAppInboxPage = () => {
                     value={selectedTemplate?.name || ''}
                     onChange={(e) => {
                       const tpl = waTemplates.find((t) => t.name === e.target.value) || null;
-                      setSelectedTemplate(tpl);
-                      if (tpl) setDraft('');
+                      applyTemplateSelection(tpl);
                     }}
                     className="w-full h-9 px-3 rounded-lg bg-crm-muted border border-crm-border text-xs text-crm-fg focus:border-green-500 outline-none"
                   >
@@ -816,6 +880,33 @@ const WhatsAppInboxPage = () => {
                       </option>
                     ))}
                   </select>
+                )}
+                {selectedTemplate && (
+                  <div className="space-y-2 rounded-lg border border-crm-border bg-crm-muted/40 p-2">
+                    {templateBodyText(selectedTemplate) ? (
+                      <p className="text-[11px] text-crm-fg-muted line-clamp-3">
+                        {templateBodyText(selectedTemplate)}
+                      </p>
+                    ) : null}
+                    {templateVars.map((v) => (
+                      <div key={v.name} className="space-y-0.5">
+                        <label className="text-[10px] uppercase tracking-wide text-crm-fg-muted">
+                          {v.label}
+                        </label>
+                        <input
+                          type="text"
+                          value={templateParamValues[v.name] ?? ''}
+                          onChange={(e) =>
+                            setTemplateParamValues((prev) => ({
+                              ...prev,
+                              [v.name]: e.target.value,
+                            }))
+                          }
+                          className="w-full h-8 px-2 rounded bg-crm border border-crm-border text-xs text-crm-fg"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 )}
                 {selected?.lead_id && (
                   <div className="flex flex-wrap gap-1.5">
@@ -987,8 +1078,19 @@ const WhatsAppInboxPage = () => {
                         <User size={13} />
                         {displayLead.assigned_to_name || displayLead.assigned_to}
                       </span>
-                    ) : null
+                    ) : (
+                      '—'
+                    )
                   }
+                />
+                <Field
+                  label="Recent note"
+                  value={(() => {
+                    const note = getRecentNote(leadDetail || displayLead);
+                    if (!note) return '—';
+                    const truncated = note.length > 140 ? `${note.slice(0, 140)}…` : note;
+                    return <span title={note}>{truncated}</span>;
+                  })()}
                 />
                 <Field
                   label="Budget"

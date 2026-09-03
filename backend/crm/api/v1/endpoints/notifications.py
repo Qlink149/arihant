@@ -74,7 +74,7 @@ def _filter_redundant_auto_alerts(stored: List[Dict[str, Any]], auto: List[Dict[
         # Overdue tasks are owned by the reminder engine (stored + deduped).
         if atype == "task_overdue":
             continue
-        if atype in ("rnr_followup", "dormant_lead") and n.get("lead_id") in reminder_lead_ids:
+        if atype == "rnr_followup" and n.get("lead_id") in reminder_lead_ids:
             continue
         if n.get("task_id") and n.get("task_id") in reminder_task_ids:
             continue
@@ -124,45 +124,6 @@ async def _build_auto_notifications(current_user: dict) -> List[Dict[str, Any]]:
             }
         )
 
-    dormant_cutoff_dt = now_dt - timedelta(days=7)
-    dormant_cutoff = dormant_cutoff_dt.isoformat()
-    dormant_query: Dict[str, Any] = {
-        "$and": [
-            stale_updated_clause(dormant_cutoff_dt, dormant_cutoff),
-            {"sla_paused": sla_paused_exclusion_clause()},
-            {"lead_status": terminal_exclusion_clause()},
-        ]
-    }
-    if lead_scope:
-        dormant_query["$and"].insert(0, lead_scope)
-    dormant_leads = (
-        await db.leads.find(
-            dormant_query,
-            {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "updated_at": 1, "updated_at_dt": 1},
-        )
-        .limit(30)
-        .to_list(30)
-    )
-    for lead in dormant_leads:
-        updated_dt = _parse_lead_ts(lead.get("updated_at_dt") or lead.get("updated_at"), now_dt)
-        days_ago = int((now_dt - updated_dt).total_seconds() / 86400)
-        auto_notifications.append(
-            {
-                "id": f"auto-dormant-{lead['id']}",
-                "type": "dormant_lead",
-                "title": "Dormant Lead",
-                "message": f"{lead.get('first_name', '')} {lead.get('last_name', '')} has gone dormant — no activity for {days_ago} days",
-                "lead_id": lead["id"],
-                "lead_name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}",
-                "severity": "medium",
-                "urgency": "action_needed",
-                "is_read": False,
-                "is_auto": True,
-                "created_at": now_iso,
-                "created_at_dt": now_dt,
-            }
-        )
-
     return auto_notifications
 
 
@@ -172,10 +133,11 @@ async def list_escalations(
     unread_only: bool = True,
     limit: int = 100,
 ):
-    """Admin/manager Escalation Queue — unread escalation notifications with lead context."""
-    role = (current_user.get("role") or "").strip().lower()
-    if role not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Admin or manager only")
+    """Admin/manager/GM Escalation Queue — escalation notifications with lead context."""
+    from crm.constants.roles import can_access_escalations
+
+    if not can_access_escalations(current_user.get("role")):
+        raise HTTPException(status_code=403, detail="Escalation access required")
 
     try:
         limit = max(1, min(int(limit or 100), 200))
@@ -237,6 +199,8 @@ async def list_escalations(
 async def get_notifications(
     current_user: dict = Depends(get_current_user),
     unread_only: bool = True,
+    skip: int = 0,
+    limit: int = 50,
 ):
     uid = current_user["id"]
     name = current_user["full_name"]
@@ -245,8 +209,19 @@ async def get_notifications(
     if unread_only:
         query = {"$and": [recipient, {"is_read": False}]}
 
+    try:
+        skip = max(0, int(skip or 0))
+    except (TypeError, ValueError):
+        skip = 0
+    try:
+        limit = max(1, min(int(limit or 50), 100))
+    except (TypeError, ValueError):
+        limit = 50
+
     now_dt = utc_now()
-    stored = await db.notifications.find(query, {"_id": 0}).sort("fired_at_dt", -1).to_list(200)
+    # Fetch enough stored rows to paginate after merge with auto alerts.
+    fetch_cap = min(500, skip + limit + 50)
+    stored = await db.notifications.find(query, {"_id": 0}).sort("fired_at_dt", -1).to_list(fetch_cap)
     stored = [enrich_notification(n, now_dt) for n in stored]
 
     user_doc = await db.users.find_one({"id": uid}, {"_id": 0, "notification_dismissals": 1}) or {}
@@ -275,7 +250,16 @@ async def get_notifications(
         return datetime.min.replace(tzinfo=timezone.utc)
 
     all_notifications.sort(key=_sort_key, reverse=True)
-    return all_notifications[:100]
+    total = len(all_notifications)
+    page = all_notifications[skip : skip + limit]
+    return {
+        "notifications": page,
+        "count": len(page),
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "has_more": (skip + len(page)) < total,
+    }
 
 
 @router.get("/notifications/preferences")
@@ -321,9 +305,11 @@ async def mark_notification_read(notification_id: str, current_user: dict = Depe
     name = current_user["full_name"]
     role = (current_user.get("role") or "").strip().lower()
 
-    # Escalation Queue is org-wide for admin/manager — allow resolve even when
+    # Escalation Queue is org-wide for admin/manager/GM — allow resolve even when
     # the SLA notification was addressed to a different admin account.
-    if role in ("admin", "manager"):
+    from crm.constants.roles import can_access_escalations
+
+    if can_access_escalations(role):
         esc = await db.notifications.find_one(
             {"id": notification_id, "notification_type": "escalation"},
             {"_id": 0, "id": 1},

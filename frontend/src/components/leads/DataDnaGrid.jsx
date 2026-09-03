@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { DollarSign, Home, Calendar, MapPin, Target, Pencil, Sparkles, Building, Briefcase, Phone, Link2, Ruler, Hash, CheckCircle, Clock } from 'lucide-react';
+import { DollarSign, Home, Calendar, MapPin, Target, Pencil, Sparkles, Building, Briefcase, Phone, Link2, Ruler, Hash, CheckCircle, Clock, Mail, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { leadsAPI } from '../../services/api';
 import { Button } from '../ui/button';
@@ -34,6 +34,7 @@ import {
   resolveSelectWithOtherState,
   resolveSelectWithOtherValue,
 } from '../../utils/selectWithOther';
+import { LOST_REASON_OPTIONS, isLostReasonStatus } from '../../constants/lostReason';
 
 const BUDGET_RANGES = ['Under 1Cr', '1-2 Cr', '2-5 Cr', '5 Cr+'];
 const PURPOSE_OPTIONS = ['Investor', 'Self-Occupation', 'Not Decided'];
@@ -136,6 +137,15 @@ const FIELD_CONFIG = [
     display: (lead) => lead.work_phone || 'Not specified',
   },
   {
+    id: 'email',
+    label: 'Email',
+    icon: Mail,
+    apiKey: 'email',
+    aiKey: null,
+    type: 'text',
+    display: (lead) => lead.email || 'Not specified',
+  },
+  {
     id: 'source',
     label: 'Source',
     icon: Link2,
@@ -191,6 +201,15 @@ const FIELD_CONFIG = [
     aiKey: null,
     type: 'meta_qualified',
     display: (lead) => formatMetaQualified(lead.meta_qualified),
+  },
+  {
+    id: 'lost_reason',
+    label: 'Lost Reason',
+    icon: XCircle,
+    apiKey: 'lost_reason',
+    aiKey: null,
+    type: 'lost_reason',
+    display: (lead) => lead.lost_reason || 'Not specified',
   },
   {
     id: 'created_at',
@@ -608,6 +627,31 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
               <option key={opt} value={opt}>{opt}</option>
             ))}
           </select>
+        );
+      case 'lost_reason':
+        // Unqualified / Closed Lost enforce the canonical picklist server-side;
+        // other statuses (e.g. Junk, Dropped) accept free text.
+        if (isLostReasonStatus(lead?.lead_status)) {
+          return (
+            <select
+              value={draftValue}
+              onChange={(e) => setDraftValue(e.target.value)}
+              className="w-full h-10 px-3 bg-crm-muted border border-crm-border rounded-lg text-white text-sm"
+            >
+              <option value="">Clear lost reason</option>
+              {LOST_REASON_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          );
+        }
+        return (
+          <Input
+            value={draftValue}
+            onChange={(e) => setDraftValue(e.target.value)}
+            placeholder="Enter lost reason"
+            className="bg-crm-muted border-crm-border text-white"
+          />
         );
       default:
         return (

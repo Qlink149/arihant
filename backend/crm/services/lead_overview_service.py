@@ -23,7 +23,12 @@ from crm.services.lead_follow_up import (
     pending_task_due_lead_ids,
 )
 from crm.services.lead_search import merge_query
-from crm.services.transfer_queries import incoming_transfer_filter, outgoing_transfer_filter
+from crm.services.transfer_queries import (
+    outgoing_transfer_filter,
+    still_owned_filter,
+    still_owned_lead_ids,
+)
+from crm.services.transfer_queries import incoming_transfer_filter as _incoming_transfer_filter
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -98,18 +103,32 @@ def _rnr_clause() -> dict:
     return rnr_metric_clause()
 
 
-def _created_today_clause(day_start_utc: datetime, day_end_utc: datetime) -> dict:
-    return {
+def _todays_leads_clause(
+    now_utc: datetime,
+    day_start_utc: datetime,
+    day_end_utc: datetime,
+) -> dict:
+    """#46/#48: rolling last-24h created OR re-enquired on the current IST calendar day.
+
+    Avoids the after-hours cutoff bug where a lead created just before midnight IST
+    "disappeared" from Today's Leads the next morning.
+    """
+    rolling_start_utc = now_utc - timedelta(hours=24)
+    created_last_24h = {
         "$or": [
-            {"created_at_dt": {"$gte": day_start_utc, "$lt": day_end_utc}},
+            {"created_at_dt": {"$gte": rolling_start_utc}},
             {
                 "$and": [
                     {"created_at_dt": {"$exists": False}},
-                    {"created_at": {"$gte": day_start_utc.isoformat(), "$lt": day_end_utc.isoformat()}},
+                    {"created_at": {"$gte": rolling_start_utc.isoformat()}},
                 ]
             },
         ]
     }
+    re_enquired_today = {
+        "re_enquired_at": {"$gte": day_start_utc, "$lt": day_end_utc},
+    }
+    return {"$or": [created_last_24h, re_enquired_today]}
 
 
 def _visit_today_clause(day_start_utc: datetime, day_end_utc: datetime) -> dict:
@@ -186,12 +205,12 @@ METRIC_SPECS: List[Dict[str, Any]] = [
     {
         "key": "todays_leads",
         "label": "Today's leads",
-        "subtitle": "Created today (IST)",
+        "subtitle": "Created last 24h or re-enquired today",
         "accent": "teal",
         "drill_down": {"type": "virtual_customer", "params": {"metric": "todays_leads"}},
         "build_filter": lambda ctx: merge_query(
             ctx["base_filter"],
-            _created_today_clause(ctx["day_start_utc"], ctx["day_end_utc"]),
+            _todays_leads_clause(ctx["now_utc"], ctx["day_start_utc"], ctx["day_end_utc"]),
         ),
         "collection": "leads",
     },
@@ -325,9 +344,12 @@ METRIC_SPECS: List[Dict[str, Any]] = [
             "type": "my_dashboard_transfers",
             "params": {"sub_tab": "received"},
         },
-        "build_filter": lambda ctx: incoming_transfer_filter(
-            ctx["name"], ctx["uid"], ctx["is_manager"]
-        ),
+        "build_filter": lambda ctx: {
+            "$and": [
+                _incoming_transfer_filter(ctx["name"], ctx["uid"], ctx["is_manager"]),
+                still_owned_filter(ctx.get("received_lead_ids") or []),
+            ]
+        },
         "collection": "transfers",
     },
     {
@@ -374,13 +396,21 @@ def build_metric_context(
         "uid": uid,
         "name": name,
         "is_manager": is_manager,
+        "now_utc": now_dt or datetime.now(timezone.utc),
         "today_str": today_str,
         "day_start_utc": day_start_utc,
         "day_end_utc": day_end_utc,
         "recent_cutoff_utc": recent_cutoff_utc,
         "follow_up_today_task_lead_ids": [],
         "missed_follow_up_task_lead_ids": [],
+        "received_lead_ids": [],
     }
+
+
+async def enrich_received_lead_ids(ctx: dict) -> dict:
+    """#50: populate lead ids still assigned to ctx uid/name for the Received transfers tile."""
+    ctx["received_lead_ids"] = await still_owned_lead_ids(ctx["uid"], ctx["name"])
+    return ctx
 
 
 async def enrich_follow_up_task_ids(ctx: dict, *, base_filter: Optional[dict] = None) -> dict:
@@ -523,7 +553,10 @@ async def build_lead_overview_metrics(
     ctx = build_metric_context(
         base_filter, uid=uid, name=name, is_manager=is_manager, now_dt=now_dt
     )
-    await enrich_follow_up_task_ids(ctx, base_filter=base_filter)
+    await asyncio.gather(
+        enrich_follow_up_task_ids(ctx, base_filter=base_filter),
+        enrich_received_lead_ids(ctx),
+    )
 
     lead_pipeline = await build_lead_overview_facet_pipeline(ctx)
     transfer_pipeline = await build_transfer_overview_facet_pipeline(ctx)

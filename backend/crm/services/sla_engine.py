@@ -23,8 +23,9 @@ from crm.constants.lead_status import (
     terminal_exclusion_clause,
 )
 from crm.core.state import db, logger
-from crm.services.assignment_router import reassign_new_lead
-from crm.services.lead_sla_utils import is_booking_progress_status
+from crm.services.assignment_router import reassign_new_lead_in_pool
+from crm.services.lead_sla_utils import has_agent_activity_since, is_booking_progress_status
+from crm.services.project_assignment_pools import pool_escalates
 from crm.services.notifications_stream import notifications_stream
 from crm.utils.business_time import business_seconds_elapsed, is_business_hours_ist as _bh_ist
 from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now, ist_wall_to_utc_dt
@@ -477,30 +478,48 @@ class SLAEngineService:
         base = _new_lead_filter()
 
         if is_business_hours_ist(now_dt):
-            # Prefer 1h flag; also treat legacy 30m flag as already processed (no double-reassign).
             query_1h = self._rule_query(
-                {
-                    **base,
-                    **_flag_not_set("sla_flags.new.reassign_1h_at_dt"),
-                    **_flag_not_set("sla_flags.new.reassign_30m_at_dt"),
-                }
+                _and_query(
+                    base,
+                    {"pool_routing": True},
+                    _flag_not_set("sla_flags.new.pool_chain_exhausted_at_dt"),
+                )
             )
             async for batch in _paginate_leads(db.leads, query_1h):
                 for lead in batch:
-                    created = coerce_datetime(lead.get("created_at_dt")) or now_dt
-                    if created.tzinfo is None:
-                        created = created.replace(tzinfo=timezone.utc)
-                    if business_seconds_elapsed(created, now_dt) < 3600:
+                    pool_key = lead.get("pool_key")
+                    if not pool_escalates(pool_key):
                         continue
-                    await reassign_new_lead(lead["id"])
-                    self._queue_lead_mutation(
-                        lead["id"],
-                        {},
-                        "sla_flags.new.reassign_1h_at_dt",
-                        now_dt,
-                        now_iso,
-                        "mutation:new:auto_reassign_1h",
+                    assigned = coerce_datetime(lead.get("assigned_at_dt")) or coerce_datetime(
+                        lead.get("created_at_dt")
                     )
+                    if not assigned:
+                        assigned = now_dt
+                    if assigned.tzinfo is None:
+                        assigned = assigned.replace(tzinfo=timezone.utc)
+                    if business_seconds_elapsed(assigned, now_dt) < 3600:
+                        continue
+                    if has_agent_activity_since(lead, assigned):
+                        continue
+                    result = await reassign_new_lead_in_pool(lead["id"])
+                    if result.get("exhausted"):
+                        self._queue_lead_mutation(
+                            lead["id"],
+                            {},
+                            "sla_flags.new.pool_chain_exhausted_at_dt",
+                            now_dt,
+                            now_iso,
+                            "mutation:new:pool_chain_exhausted",
+                        )
+                    elif result.get("ok"):
+                        self._queue_lead_mutation(
+                            lead["id"],
+                            {},
+                            "sla_flags.new.last_pool_reassign_at_dt",
+                            now_dt,
+                            now_iso,
+                            "mutation:new:auto_reassign_1h",
+                        )
 
         cutoff_2h = now_dt - timedelta(hours=2)
         query_2h = self._rule_query(

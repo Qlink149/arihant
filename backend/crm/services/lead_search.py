@@ -167,6 +167,41 @@ def case_insensitive_regex_or_filter(
     return {"$or": clauses}
 
 
+def build_project_match_filter(values: Optional[Sequence[str]]) -> Dict[str, Any]:
+    """
+    Match leads by project name against scalar `project` and/or `projects[]` array.
+
+    Each selected value matches if either field contains it (case-insensitive regex).
+    """
+    if not values:
+        return {}
+    per_value: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in values:
+        if not raw or not str(raw).strip():
+            continue
+        key = str(raw).strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if key == "all":
+            continue
+        pattern = escape_regex_literal(str(raw).strip())
+        per_value.append(
+            {
+                "$or": [
+                    {"project": {"$regex": pattern, "$options": "i"}},
+                    {"projects": {"$regex": pattern, "$options": "i"}},
+                ]
+            }
+        )
+    if not per_value:
+        return {}
+    if len(per_value) == 1:
+        return per_value[0]
+    return {"$or": per_value}
+
+
 _SALES_OWNER_FIELDS = ("assigned_to", "assigned_to_name", "presales_agent")
 
 
@@ -254,13 +289,17 @@ def build_leads_list_query(
     if project_id:
         extra.append({"$or": [{"project_id": project_id}, {"project_ids": project_id}]})
     if project_values:
-        extra.append(case_insensitive_regex_or_filter("project", project_values))
+        project_clause = build_project_match_filter(project_values)
+        if project_clause:
+            extra.append(project_clause)
     if temperature and temperature.lower() != "all":
         extra.append(case_insensitive_regex_filter("temperature", temperature, exact=True))
     if budget_values:
         extra.append(case_insensitive_regex_or_filter("budget", budget_values))
     if location_values:
-        extra.append(case_insensitive_regex_or_filter("location", location_values))
+        # #51: exact match (case-insensitive) — avoid substring false positives
+        # e.g. "Chennai" matching "Chennai Suburbs" or vice versa.
+        extra.append(case_insensitive_regex_or_filter("location", location_values, exact=True))
     if source_values:
         extra.append(case_insensitive_regex_or_filter("lead_source", source_values))
     if sales_owner_values:

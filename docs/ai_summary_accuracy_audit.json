@@ -1,0 +1,859 @@
+{
+  "meta": {
+    "db_name": "arihant_crm",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "n_keys": 2
+  },
+  "rows": [
+    {
+      "id": "3b4927df-8952-50b3-821f-77f075b1ccd8",
+      "phone_masked": "***0599",
+      "n_updates": 8,
+      "status": "Contacted",
+      "budget": "Under 1Cr",
+      "project": "ECR - Reserve 16",
+      "lost_reason": null,
+      "temperature": null,
+      "stored_generated_at": null,
+      "stored_stale_days_vs_latest_note": null,
+      "stored_summary_head": "",
+      "fresh_summary": "The lead is currently interested in the ECR – Reserve 16 project with a budget under 1 Cr, though they have not specified a configuration or possession timeline. Early in February they were responsive, requesting details and indicating they needed time to arrange a site visit, but they never confirmed a date. Since late August, attempts to reach them by phone have gone to voicemail or encountered a busy line, and the latest note simply says the rep will try again later, indicating a low level of current engagement. The lead remains in the 'Contacted' stage with a pending site‑visit request and no pricing or booking actions taken. The rep should verify whether the buyer is still interested and, if so, secure a concrete site‑visit slot, as the earlier enthusiasm has not translated into action.",
+      "fresh_moves": [
+        "Send a concise WhatsApp message with flexible site‑visit options",
+        "Attempt a call during alternate hours (e.g., early evening) and leave a clear voicemail",
+        "Log the outcome of the next contact attempt and set a follow‑up reminder for 3 days later if no response"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "Under 1Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "note",
+          "ts": "2026-02-01T07:39:05",
+          "desc": "Explained and shared the project details, follow up for site visit"
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-26T11:42:07",
+          "desc": "call forwarded to voice mail"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-27T06:21:31",
+          "desc": "line was busy. I will try again later."
+        },
+        {
+          "type": "updated",
+          "ts": "2026-08-27T07:54:49",
+          "desc": "Updated: contacted_at_dt, lead_status, meta_qualified, sla_activated_at_dt, sla_paused, temperature"
+        },
+        {
+          "type": "task_completed",
+          "ts": "2026-09-02T08:02:29",
+          "desc": "Task completed: Follow up — log outcome for this lead"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 921,
+      "hints": "project: ECR - Reserve 16\nlead_status: Contacted\noriginal_fw_status: Follow Up 1\ntemperature: n/a\nbudget: Under 1Cr\nconfiguration: n/a\nlocation: ECR\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: Narendran S\nrecent_note: line was busy. I will try again later."
+    },
+    {
+      "id": "1b913bb6-8191-5586-9867-acb590a24a45",
+      "phone_masked": "***6576",
+      "n_updates": 23,
+      "status": "RNR",
+      "budget": "1-2 Cr",
+      "project": "OMR - Vivriti",
+      "lost_reason": null,
+      "temperature": null,
+      "stored_generated_at": "2026-08-17 05:24:07.668000",
+      "stored_stale_days_vs_latest_note": 11,
+      "stored_summary_head": "The buyer, Pradeep, is currently interested in the OMR - Vivriti project with a budget of 1-2 Cr. Initially, he had shown interest in Fully Integrated Plots at Pattipulam, ECR, with a budget range of 50-60 Lakhs, but his preferences seem to",
+      "fresh_summary": "Pradeep is currently listed for the OMR – Vivriti project with a budget of 1‑2 Cr. Earlier he showed interest in site visits and even scheduled a visit after a busy weekend, but in the latest call (28 Aug) he disclosed personal reasons for pausing his property hunt and asked to be contacted again in about five months. Since then he has been ringing‑no‑response (RNR) and the lead status reflects that pause. His engagement shifted from active (WhatsApp replies, site‑visit intent) to a temporary hold, so the rep should treat him as a warm lead on hold rather than a hot prospect. The next conversation should gently reconfirm his timeline, verify that his budget and project preference (Vivriti) remain unchanged, and re‑ignite interest with fresh Vivriti collateral when the 5‑month window arrives.",
+      "fresh_moves": [
+        "Send a courteous ‘pause acknowledgment’ message now",
+        "Log a pre‑call checklist for the Jan 2027 follow‑up",
+        "Set a tentative site‑visit window for early 2027"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "1-2 Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Paused – personal reasons; expects to resume search in ~5 months"
+      },
+      "latest_notes": [
+        {
+          "type": "transfer",
+          "ts": "2026-08-27T06:29:46",
+          "desc": "Transferred from Anusha Omprakash to jigar"
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-27T07:15:06",
+          "desc": "Client is RNR."
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-28T09:49:11",
+          "desc": "Spoke to the client he said that currently he is not persuing a property purchase due to personale reasons. He said that he would resume his hunt again"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-28T09:49:45",
+          "desc": "in 5 Months."
+        },
+        {
+          "type": "task",
+          "ts": "2026-08-28T10:02:04",
+          "desc": "Task: Call Back in 5 Months Time. | Due: 2027-01-01 at 10:50 | Priority: medium | Assigned to: jigar"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 3278,
+      "hints": "project: OMR - Vivriti\nlead_status: RNR\noriginal_fw_status: Gone Cold\ntemperature: n/a\nbudget: 1-2 Cr\nconfiguration: n/a\nlocation: ECR\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: jigar\nrecent_note: in 5 Months."
+    },
+    {
+      "id": "71b9218b-1804-5be0-b340-ade2000d54e4",
+      "phone_masked": "***7720",
+      "n_updates": 73,
+      "status": "Unqualified",
+      "budget": "Under 1Cr",
+      "project": "ECR - Reserve 16;Saligramam Melange",
+      "lost_reason": "Not interested",
+      "temperature": null,
+      "stored_generated_at": "2026-08-07 06:53:14.801000",
+      "stored_stale_days_vs_latest_note": 25,
+      "stored_summary_head": "The buyer is currently interested in projects ECR - Reserve 16 and Saligramam Melange, with a budget under 1Cr. The engagement style has been mostly unresponsive, with multiple instances of RNR and declined calls. However, there was a note ",
+      "fresh_summary": "The buyer was initially curious about two projects – ECR Reserve 16 and Saligramam Melange – and had a budget under 1 Cr, but over the past two months has become completely unresponsive, declining calls, turning on disappearing WhatsApp messages, and repeatedly not answering. The latest interaction on 2026-09-02 confirms the buyer explicitly stated he has not inquired about any properties and is not interested. This moves the lead firmly into an Unqualified / Lost stage with no active intent or configuration preference to verify. The rep should treat the lead as closed, but note the prior interest in both projects in case the prospect re‑engages later.",
+      "fresh_moves": [
+        "Update lead status to Lost – Not Interested and record lost reason",
+        "Send a courteous closure message thanking the buyer and offering future assistance",
+        "Create a follow‑up reminder for 6 months later to check if interest resurfaces"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "Under 1Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not interested"
+      },
+      "latest_notes": [
+        {
+          "type": "note",
+          "ts": "2026-08-31T09:00:16",
+          "desc": "no response"
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-01T11:52:29",
+          "desc": "disconnecting the call"
+        },
+        {
+          "type": "updated",
+          "ts": "2026-09-02T06:33:17",
+          "desc": "Updated: lead_status, lost_reason"
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-02T06:34:43",
+          "desc": "client informed, he not enquired any properties and not interested"
+        },
+        {
+          "type": "transfer",
+          "ts": "2026-09-02T06:38:08",
+          "desc": "Transferred from Anantharaman to jigar. Notes: not interested"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 6424,
+      "hints": "project: ECR - Reserve 16;Saligramam Melange\nlead_status: Unqualified\noriginal_fw_status: Follow Up 2\ntemperature: n/a\nbudget: Under 1Cr\nconfiguration: n/a\nlocation: n/a\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: jigar\nrecent_note: client informed, he not enquired any properties and not interested"
+    },
+    {
+      "id": "37153ad3-490a-56d4-a4dd-72e6b0446e9b",
+      "phone_masked": "***3907",
+      "n_updates": 66,
+      "status": "Unqualified",
+      "budget": "Under 1Cr",
+      "project": "Saligramam Melange",
+      "lost_reason": "Ringing no response",
+      "temperature": null,
+      "stored_generated_at": "2026-08-14 06:47:09.389000",
+      "stored_stale_days_vs_latest_note": 15,
+      "stored_summary_head": "The buyer is currently interested in the Saligramam Melange project with a budget under 1Cr. They have been unresponsive to multiple follow-up calls and WhatsApp messages, with the latest notes indicating that messages have been sent but no",
+      "fresh_summary": "The prospect is currently positioned as an Unqualified lead interested in the Saligramam Melange project with a budget under 1 Cr. He resides in the UAE and has indicated that a brother‑in‑law will visit the site, but he has not provided a direct contact number and the existing number appears to be inactive. Over the past month, every call has resulted in RNR and WhatsApp messages have been viewed but not replied to, indicating a disengaged or unreachable stance. The CRM notes flag the number as 'not in use', reinforcing the need to verify contact details before any further sales effort. A productive next conversation would require a fresh, reliable communication channel and a clear confirmation of his intent to proceed.",
+      "fresh_moves": [
+        "Verify and obtain a valid contact method",
+        "Send a concise email summarizing Saligramam Melange details and request preferred contact",
+        "Schedule a follow‑up reminder in 2 weeks to check for any change in availability or interest",
+        "If no response after the email and follow‑up, mark the lead as lost with reason 'No response / invalid contact'"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "Under 1Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "note",
+          "ts": "2026-08-26T07:16:44",
+          "desc": "RNR , Message sent"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-27T06:34:34",
+          "desc": "RNR , Message sent"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-28T09:45:19",
+          "desc": "Number not in use"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-29T09:23:55",
+          "desc": "Number not in use"
+        },
+        {
+          "type": "updated",
+          "ts": "2026-08-29T09:24:02",
+          "desc": "Updated: lead_status, lost_reason, temperature"
+        }
+      ],
+      "verdict": "WEAK",
+      "issues": [
+        "lost_reason_or_not_interested_not_reflected"
+      ],
+      "transcript_chars": 6284,
+      "hints": "project: Saligramam Melange\nlead_status: Unqualified\noriginal_fw_status: New\ntemperature: n/a\nbudget: Under 1Cr\nconfiguration: n/a\nlocation: Saligramam\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: Gowtham j\nrecent_note: Number not in use"
+    },
+    {
+      "id": "c683dc3b-1210-55e3-b3a5-c207f82c6ccd",
+      "phone_masked": "***7808",
+      "n_updates": 60,
+      "status": "Unqualified",
+      "budget": "2-5 Cr",
+      "project": "ECR - Reserve 16",
+      "lost_reason": "Ringing no response",
+      "temperature": null,
+      "stored_generated_at": "2026-08-16 08:53:51.460000",
+      "stored_stale_days_vs_latest_note": 15,
+      "stored_summary_head": "The buyer is currently interested in the ECR - Reserve 16 project with a budget of 2-5 Cr. The buyer has been unresponsive to calls, with a history of RNR and declined calls. Despite this, the buyer had previously engaged with the sales tea",
+      "fresh_summary": "The lead is currently listed for the ECR – Reserve 16 project with a budget band of 2‑5 Cr, but has shown virtually no engagement in the past two months. Their communication style is highly unresponsive – calls are repeatedly declined, ringing with no answer, and WhatsApp messages receive no reply. The lead remains in an Unqualified stage; no site visit, brochure, or pricing discussion has progressed beyond the initial request in January. There are no recent indications of a change in budget or configuration, but the persistent lack of response suggests the buyer may have lost interest or is unavailable, which the rep should verify. A productive next conversation would aim to confirm whether the prospect is still considering a purchase and, if so, secure a definitive time slot or preferred contact channel.",
+      "fresh_moves": [
+        "Send a brief, value‑focused WhatsApp message asking for a preferred contact time",
+        "If no reply within 48 hours, email a summary of the Reserve 16 offering with a clear call‑to‑action",
+        "Schedule a final outreach call from a senior manager, noting the lead’s pattern of declining calls"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "2-5 Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "note",
+          "ts": "2026-08-30T05:47:46",
+          "desc": "no response"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-30T05:48:28",
+          "desc": "no response"
+        },
+        {
+          "type": "transfer",
+          "ts": "2026-08-30T07:25:50",
+          "desc": "Transferred from Anantharaman to Anusha Omprakash. Notes: no response"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-31T10:31:30",
+          "desc": "Ringing and disconnecting."
+        },
+        {
+          "type": "updated",
+          "ts": "2026-08-31T10:31:42",
+          "desc": "Updated: lead_status, lost_reason"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 5232,
+      "hints": "project: ECR - Reserve 16\nlead_status: Unqualified\noriginal_fw_status: Contacted\ntemperature: n/a\nbudget: 2-5 Cr\nconfiguration: n/a\nlocation: ECR\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: Anusha Omprakash\nrecent_note: Ringing and disconnecting."
+    },
+    {
+      "id": "4cd3c42a-ef91-52f5-89df-e93173b3ef52",
+      "phone_masked": "***0747",
+      "n_updates": 73,
+      "status": "Closed Lost",
+      "budget": "2-5 Cr",
+      "project": "OMR - Vivriti;Saligramam Melange",
+      "lost_reason": "Not interested",
+      "temperature": null,
+      "stored_generated_at": "2026-08-15 10:08:05.537000",
+      "stored_stale_days_vs_latest_note": 18,
+      "stored_summary_head": "The buyer is currently interested in OMR - Vivriti and Saligramam Melange projects, with a budget of 2-5 Cr. She has visited the site with her son and is keen on checking the vastu of the property. She has requested a cost sheet, which has ",
+      "fresh_summary": "The buyer, Lakshmi, was evaluating two Arihant projects – a 1800 sq ft unit in Saligramam Melange and Unit 1A in OMR‑Vivriti – with a budget in the 2‑5 Cr range. She engaged primarily via WhatsApp, responded politely when contacted, and even visited the Vivriti site on 15 Aug 2026, after which a cost sheet was shared. Post‑visit, she requested a Vastu review and promised to revert within three days. On 3 Sep 2026 she communicated that the Vastu assessment was negative and she is not pursuing a purchase, leading to the lead being marked Closed Lost. The interaction pattern shows many periods of Ring‑No‑Response, but the decisive recent update overrides earlier enthusiasm. The rep should verify that the Vastu rejection is final and note the loss reason for future reference.",
+      "fresh_moves": [
+        "Send a courteous closure and feedback request",
+        "Log loss reason and set a nurture reminder for 3‑4 months",
+        "Confirm no immediate alternative project interest"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "2-5 Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not pursuing purchase (lost)"
+      },
+      "latest_notes": [
+        {
+          "type": "call",
+          "ts": "2026-08-29T12:17:31",
+          "desc": "Client is RNR."
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-30T06:24:53",
+          "desc": "Client is RNR."
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-31T09:44:00",
+          "desc": "Voicemail."
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-03T08:34:06",
+          "desc": "Client has updated that the vastu has been rejected and she is not persuing a purchase currently. She was out of time so she could not revert. Hence moving to lost."
+        },
+        {
+          "type": "updated",
+          "ts": "2026-09-03T08:34:27",
+          "desc": "Updated: lead_status, lost_reason"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 7852,
+      "hints": "project: OMR - Vivriti;Saligramam Melange\nlead_status: Closed Lost\noriginal_fw_status: Follow Up 2\ntemperature: n/a\nbudget: 2-5 Cr\nconfiguration: n/a\nlocation: n/a\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: jigar\nrecent_note: Client has updated that the vastu has been rejected and she is not persuing a purchase currently. She was out of time so she could not revert. Hence moving to lost."
+    },
+    {
+      "id": "c67b1a31-0268-5470-93ed-9ade057febe1",
+      "phone_masked": "***4784",
+      "n_updates": 41,
+      "status": "Closed Lost",
+      "budget": "1-2 Cr",
+      "project": "ECR - Reserve 16",
+      "lost_reason": "Budget",
+      "temperature": null,
+      "stored_generated_at": "2026-08-12 05:25:03.614000",
+      "stored_stale_days_vs_latest_note": null,
+      "stored_summary_head": "The buyer is currently interested in project ECR - Reserve 16, with a budget of 1-2 Cr and a requirement for a 3BHK, 3-toilet configuration. They had a site visit and were shown available units, but expressed budget concerns and were unable",
+      "fresh_summary": "The buyer is a Saligramam resident who visited the Reserve 16 site on 9‑10 Aug and confirmed a requirement for a 3 BHK unit with 3 toilets. Their budget caps at Rs2 Cr and they explicitly stated they cannot stretch beyond this, leading to the decision to drop Reserve 16. During the call on 8 Aug they expressed dissatisfaction with Reserve 16 and said they would check the Melange project for a north‑facing option. Since the site visit, communication has been minimal, with the lead now marked Closed Lost. The rep should verify whether the buyer is still open to alternative projects like Melange within the Rs2 Cr budget, possibly with a reduced configuration, before formally closing the loop.",
+      "fresh_moves": [
+        "Confirm interest in alternative projects (e.g., Melange) within ₹2 Cr",
+        "Send a curated shortlist of north‑facing units in Melange that fit a ₹2 Cr budget (including 2 BHK or 3 BHK with 2 toilets options)",
+        "Schedule a brief follow‑up call (15 min) to discuss family feedback and any flexibility on configuration",
+        "If no interest is confirmed, send a courteous closure email summarizing the discussion and offering future assistance"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "2 Cr",
+        "configuration": "3 BHK, 3 toilet",
+        "possession_requirement": "Not specified",
+        "intent": "Dropped Reserve 16 due to budget; exploring other projects"
+      },
+      "latest_notes": [
+        {
+          "type": "site_visit",
+          "ts": "2026-08-10T07:51:25",
+          "desc": "Requirement 3bhk,3 toilet, available units shown, budget concern will discuss with family and revert"
+        },
+        {
+          "type": "updated",
+          "ts": "2026-08-11T08:55:06",
+          "desc": "Updated: lead_status, next_action_date, sv_followup_1_entered_at_dt"
+        },
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-11T08:56:42",
+          "desc": "requirement 3bhk,3toilet, budget 2crores only but we try to convince them for 3bhk, 2toilet client will discuss and update"
+        },
+        {
+          "type": "updated",
+          "ts": "2026-08-12T05:24:11",
+          "desc": "Updated: is_rnr, lead_status, lost_reason"
+        },
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-12T05:25:01",
+          "desc": "Site visit completed, requirements 3bhk,3toilet, budget only 2crores not able to stretch the budget so dropped"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 4152,
+      "hints": "project: ECR - Reserve 16\nlead_status: Closed Lost\noriginal_fw_status: RNR 2\ntemperature: n/a\nbudget: 1-2 Cr\nconfiguration: n/a\nlocation: ECR\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: Anantharaman\nrecent_note: Site visit completed, requirements 3bhk,3toilet, budget only 2crores not able to stretch the budget so dropped"
+    },
+    {
+      "id": "94a2ce31-fe7e-5a22-8e9a-ecf93d50be66",
+      "phone_masked": "***1006",
+      "n_updates": 41,
+      "status": "Closed Lost",
+      "budget": "1-2 Cr",
+      "project": "Saligramam Melange",
+      "lost_reason": "Not interested",
+      "temperature": null,
+      "stored_generated_at": "2026-08-01 09:11:53.395000",
+      "stored_stale_days_vs_latest_note": 2,
+      "stored_summary_head": "The client is a woman from Chrompet who has been in touch with the sales team regarding a potential purchase. She has been busy and has had to reschedule visits to the site multiple times, but has shown interest in the project. She has ment",
+      "fresh_summary": "The buyer was targeting the Saligramam Melange project with a budget of 1‑2 Cr. Over the past months she was highly engaged on WhatsApp—responding politely, scheduling a site visit, requesting the cost sheet and availability, and reviewing materials. Despite completing the site visit and receiving pricing details, she recently informed us (2 Aug 2026) that due to a family decision to fund her niece’s private medical college, she cannot proceed with any purchase at this time. The lead is now marked Closed Lost, indicating the funnel has stalled at the decision stage. The rep should acknowledge her situation, keep the relationship warm for potential future needs, and verify if there’s any interest in alternative projects or a later follow‑up.",
+      "fresh_moves": [
+        "Send a courteous acknowledgment and keep the door open",
+        "Update CRM with the explicit lost reason and set a future check‑in reminder (e.g., 3‑4 months later)",
+        "Ask if she would like to be added to a newsletter or notified about upcoming projects in the same price band"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "1-2 Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "note",
+          "ts": "2026-04-24T05:16:45",
+          "desc": "Spoken and basic details given . she is from Chrompet - she will go through the details and get connected later . Sent details over WA"
+        },
+        {
+          "type": "updated",
+          "ts": "2026-08-01T09:11:02",
+          "desc": "Updated: lead_status, next_action_date, sla_activated_at_dt, sla_paused, sv_followup_1_entered_at_dt, temperature"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-01T09:11:52",
+          "desc": "Clients phone is in Ringing But No Response"
+        },
+        {
+          "type": "updated",
+          "ts": "2026-08-03T10:45:27",
+          "desc": "Updated: lead_status, lost_reason"
+        },
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-03T10:45:46",
+          "desc": "[9:50 pm, 2/8/2026] Kavitha V - Buyer Melange: Very sorry for not responding, we were in a great confusion thatswhy. We have decided to put my niece in private medical college so we r not able to proceed with ur project."
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 5530,
+      "hints": "project: Saligramam Melange\nlead_status: Closed Lost\noriginal_fw_status: Site Visit Completed\ntemperature: n/a\nbudget: 1-2 Cr\nconfiguration: n/a\nlocation: Saligramam\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: jigar\nrecent_note: [9:50 pm, 2/8/2026] Kavitha V - Buyer Melange: Very sorry for not responding, we were in a great confusion thatswhy. We have decided to put my niece in private medical college so we r not able to proceed with ur project. Thank u so much for ur kindness.\n[9:55 pm, 2/8/2026] Arihant Spaces: Very sorry for not responding, we were in a great confusion thatswhy. We have decided to put my niece in private medical college so we r not able to proceed with ur project. Thank u so much for ur kindness.\nMost welcome mam no problem all the best to your niece"
+    },
+    {
+      "id": "1d81cfee-6536-547c-aa24-9a71af9042fc",
+      "phone_masked": "***3777",
+      "n_updates": 87,
+      "status": "RNR",
+      "budget": "1-2 Cr",
+      "project": "Saligramam Melange",
+      "lost_reason": null,
+      "temperature": null,
+      "stored_generated_at": "2026-08-14 05:00:29.207000",
+      "stored_stale_days_vs_latest_note": 20,
+      "stored_summary_head": "The buyer is currently interested in the Saligramam Melange project with a budget of 1-2 Cr. The lead status is RNR, indicating that the buyer has not been responding to calls. Despite multiple follow-up calls and reminders, there has been ",
+      "fresh_summary": "The buyer is currently looking at the Saligramam Melange project with a budget in the 1‑2 Cr range. Early in July they expressed intent to visit the site over a weekend and were coordinating with our PropMart colleague Goutham, indicating a moderate level of interest. However, since mid‑July the lead has gone silent, repeatedly marked as Ringing No Response (RNR) despite multiple call and WhatsApp attempts, and most recent notes (Sept 1‑3) show they missed a planned visit and declined calls. The lead’s status remains RNR, and there is no updated configuration, possession timeline, or explicit purchase intent, so the rep should verify whether the buyer is still interested or has shifted priorities. A good next conversation would re‑establish contact, confirm the preferred communication channel, and clarify if the Saligramam Melange still meets their needs.",
+      "fresh_moves": [
+        "Send a concise WhatsApp message asking for preferred contact time and confirming interest",
+        "Call the client using the alternative number they previously answered and ask if they prefer email or SMS",
+        "Escalate to senior sales manager if no response within 48 hours of the WhatsApp outreach"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "1-2 Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "call",
+          "ts": "2026-08-30T07:47:54",
+          "desc": "Client is RNR."
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-31T08:00:26",
+          "desc": "Client is RNR."
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-01T10:45:30",
+          "desc": "Spoke to the client he said that he will try and visit today. He will reconfirm."
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-03T06:18:41",
+          "desc": "Client did not visit. Today he has declined my call."
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-03T11:52:25",
+          "desc": "Client is RNR."
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 7738,
+      "hints": "project: Saligramam Melange\nlead_status: RNR\noriginal_fw_status: New\ntemperature: n/a\nbudget: 1-2 Cr\nconfiguration: n/a\nlocation: Saligramam\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: jigar\nrecent_note: Client is RNR."
+    },
+    {
+      "id": "422cf721-c844-5300-a763-4abb015db342",
+      "phone_masked": "***3051",
+      "n_updates": 50,
+      "status": "RNR",
+      "budget": "Under 1Cr",
+      "project": "Saligramam Melange",
+      "lost_reason": null,
+      "temperature": "Warm",
+      "stored_generated_at": "2026-08-17 05:46:29.095000",
+      "stored_stale_days_vs_latest_note": 1,
+      "stored_summary_head": "The buyer is currently interested in the Saligramam Melange project with a budget under 1Cr. They had a site visit scheduled and were shared price details of a 1584 sq.ft. unit, but have since been unresponsive, with multiple 'RNR' notes an",
+      "fresh_summary": "The buyer is currently looking at Saligramam Melange with a budget under 1 Cr and had asked for pricing on a 1584 sq ft unit. Over the past two months they have been consistently unreachable – calls are declined, messages go unanswered, and the latest note flags them as being out of network coverage. Their engagement style is non‑responsive and they have not confirmed any site‑visit or next‑step, effectively stalling the funnel at the early interest stage. The rep should verify whether the network issue is temporary and reconfirm if the project remains a viable option for them. A good next conversation would re‑establish contact, briefly restate the price details, and lock in a specific time for a call or meeting.",
+      "fresh_moves": [
+        "Reach out via alternative channel (SMS/email) to confirm network issue and interest",
+        "Send a concise price snapshot for the 1584 sq ft unit with a clear call‑to‑action for a preferred callback time",
+        "Log a follow‑up task for 3 business days later to check response and, if still silent, schedule a 5‑day‑later outreach before marking as dormant"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "Under 1Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Requested price details for 1584 sq ft unit"
+      },
+      "latest_notes": [
+        {
+          "type": "note",
+          "ts": "2026-08-14T09:56:22",
+          "desc": "RNR"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-17T05:46:27",
+          "desc": "RNR , Message sent"
+        },
+        {
+          "type": "transfer",
+          "ts": "2026-08-18T09:24:38",
+          "desc": "Transferred from Gowtham j to jigar. Notes: RNR for long time"
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-18T12:07:06",
+          "desc": "Client Out of Network Coverage Area."
+        },
+        {
+          "type": "transfer",
+          "ts": "2026-08-18T12:07:28",
+          "desc": "Transferred from jigar to Narendran S. Notes: Client is RNR for me anusha and Gowtham"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 4135,
+      "hints": "project: Saligramam Melange\nlead_status: RNR\noriginal_fw_status: RNR 2\ntemperature: Warm\nbudget: Under 1Cr\nconfiguration: n/a\nlocation: Saligramam\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: Narendran S\nrecent_note: Client Out of Network Coverage Area."
+    },
+    {
+      "id": "764c3d33-f178-5aea-934a-da4544685448",
+      "phone_masked": "***2882",
+      "n_updates": 48,
+      "status": "RNR",
+      "budget": "Under 1Cr",
+      "project": "Saligramam Melange",
+      "lost_reason": null,
+      "temperature": "Warm",
+      "stored_generated_at": "2026-08-09 05:41:15.093000",
+      "stored_stale_days_vs_latest_note": 24,
+      "stored_summary_head": "The buyer is currently interested in the Saligramam Melange project with a budget under 1Cr. The buyer has been unresponsive to calls and messages, with a history of declining calls and not replying to messages. However, the buyer has been ",
+      "fresh_summary": "The buyer is currently interested in the Saligramam Melange project with a budget under 1 Cr and has not specified a configuration or possession timeline. She initially engaged on WhatsApp, requested the brochure and even scheduled a callback for 10:30 AM, indicating warm interest at that time. Since early June 2026 she has mentioned being unwell, has only replied that she will get in touch if she has plans, and consistently reads messages without responding, leading to a prolonged RNR status. The key unknowns are her health status and whether she still intends to purchase, as well as any possible changes to budget or timeline that need verification. A productive next conversation would be a brief, empathetic health check‑in, confirming her preferred contact method and timing, and offering any updated project details.",
+      "fresh_moves": [
+        "Send an empathetic health‑check message",
+        "Share the latest Melange brochure and pricing, ask for budget/configuration updates",
+        "Ask for her preferred communication channel and best time to talk",
+        "Set a 7‑day follow‑up reminder; if still no response, move to nurture campaign"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "Under 1Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "note",
+          "ts": "2026-08-19T10:20:04",
+          "desc": "Cut the while speaking"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-20T11:19:50",
+          "desc": "RNR"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-25T07:06:57",
+          "desc": "RNR"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-26T10:31:56",
+          "desc": "RNR"
+        },
+        {
+          "type": "note",
+          "ts": "2026-09-02T09:15:49",
+          "desc": "RNR"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 4887,
+      "hints": "project: Saligramam Melange\nlead_status: RNR\noriginal_fw_status: RNR 2\ntemperature: Warm\nbudget: Under 1Cr\nconfiguration: n/a\nlocation: Saligramam\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: Gowtham j\nrecent_note: RNR"
+    },
+    {
+      "id": "fd65be7b-50dd-579b-b9ea-2ed0ee23fc42",
+      "phone_masked": "***0457",
+      "n_updates": 72,
+      "status": "Nurturing",
+      "budget": "1-2 Cr",
+      "project": "Saligramam Melange",
+      "lost_reason": null,
+      "temperature": "Warm",
+      "stored_generated_at": "2026-08-08 05:22:30.977000",
+      "stored_stale_days_vs_latest_note": 26,
+      "stored_summary_head": "The buyer is currently interested in the Saligramam Melange project with a budget under 1Cr. They have been engaged in conversation, with recent notes indicating they need time till June mid and then asked to be called back. The buyer has a",
+      "fresh_summary": "The buyer is currently looking at the Saligramam Melange project with a budget in the 1‑2 Cr range; configuration details have not been provided. Over the past several months they have been polite but increasingly unresponsive, with numerous Ring‑No‑Response (RNR) entries and only occasional WhatsApp messages. The lead was originally at the Site‑Visit Scheduled stage, but repeated health issues, a son’s interview, and a request for a mid‑June follow‑up have pushed the timeline out, and the buyer has not confirmed any visit since early May. The CRM still marks the lead as Warm and in Nurturing, but the long string of RNRs suggests the prospect may be drifting cold and should be re‑qualified. A good next conversation would re‑establish contact, confirm whether the budget and project interest remain, and secure a concrete next step (call, virtual tour, or site visit).",
+      "fresh_moves": [
+        "Send a personalized WhatsApp message acknowledging the missed connections and asking for a convenient time to talk",
+        "Schedule a brief phone call (5‑10 min) at the agreed time or, if no reply, attempt a call during early evening hours two days after the WhatsApp outreach",
+        "If still no response, email the latest Saligramam Melange brochure with a short note offering a virtual tour link and a request for feedback",
+        "Create a follow‑up task for Malathy to check back in 10 days if all attempts remain unanswered, marking the lead as ‘potentially cold’ pending response"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "1-2 Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "note",
+          "ts": "2026-08-29T09:38:28",
+          "desc": "RNR , Message sent"
+        },
+        {
+          "type": "note",
+          "ts": "2026-08-31T10:18:37",
+          "desc": "RNR , Message sent"
+        },
+        {
+          "type": "note",
+          "ts": "2026-09-01T11:28:44",
+          "desc": "Message sent"
+        },
+        {
+          "type": "note",
+          "ts": "2026-09-02T07:13:18",
+          "desc": "RNR , Message sent"
+        },
+        {
+          "type": "transfer",
+          "ts": "2026-09-03T12:01:23",
+          "desc": "Transferred from Gowtham j to Malathy. Notes: RNR for long time"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 6809,
+      "hints": "project: Saligramam Melange\nlead_status: Nurturing\noriginal_fw_status: Site Visit Scheduled\ntemperature: Warm\nbudget: 1-2 Cr\nconfiguration: n/a\nlocation: Saligramam\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: Malathy\nrecent_note: RNR , Message sent"
+    },
+    {
+      "id": "fcd0ea78-630b-5c9d-8b52-bbbceb590096",
+      "phone_masked": "***0000",
+      "n_updates": 53,
+      "status": "Nurturing",
+      "budget": "Under 1Cr",
+      "project": "ECR - Reserve 16",
+      "lost_reason": null,
+      "temperature": "Warm",
+      "stored_generated_at": "2026-08-16 09:29:36.358000",
+      "stored_stale_days_vs_latest_note": 17,
+      "stored_summary_head": "The buyer is currently interested in the ECR - Reserve 16 project with a budget under 1Cr. They have been engaged in a series of conversations, initially expressing flexibility in plot size and a budget of Rs50 lakhs–1 crore. However, recent",
+      "fresh_summary": "The buyer is currently being nurtured for the ECR – Reserve 16 project with a budget under 1 Cr and a flexible plot size. Over the past months they have been largely unresponsive, repeatedly marking calls as RNR or declining them, and only sporadically replying to WhatsApp messages. The last concrete signal was on 18 Aug, when they said they would get back in two days after a friend’s plot offer, but no follow‑up has been received since. This places them firmly in the early nurturing stage – no brochure request, pricing sent, or site‑visit confirmed. A key contradiction to verify is whether the friend’s opportunity has materialised and if the buyer still has any intent to pursue a plot with Arihant.",
+      "fresh_moves": [
+        "Send a concise WhatsApp check‑in",
+        "Email a tailored project snapshot with limited‑time incentive",
+        "Schedule a follow‑up call for the next available slot",
+        "Update CRM with latest engagement status and set a 2‑week nurture task"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "Under 1Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-28T11:06:37",
+          "desc": "I have sent a follow up message to the client."
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-29T11:22:14",
+          "desc": "Client is RNR."
+        },
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-30T09:22:24",
+          "desc": "I have sent a message to the client."
+        },
+        {
+          "type": "whatsapp",
+          "ts": "2026-09-01T12:02:23",
+          "desc": "I have sent a message to the client."
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-03T07:36:54",
+          "desc": "Client has declined my call."
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 5494,
+      "hints": "project: ECR - Reserve 16\nlead_status: Nurturing\noriginal_fw_status: Follow Up 1\ntemperature: Warm\nbudget: Under 1Cr\nconfiguration: n/a\nlocation: ECR\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: jigar\nrecent_note: Client has declined my call."
+    },
+    {
+      "id": "a75d3331-ab4b-591e-b25c-1da3d4cf38f8",
+      "phone_masked": "***5163",
+      "n_updates": 40,
+      "status": "Nurturing",
+      "budget": "1-2 Cr",
+      "project": "ECR - Reserve 16",
+      "lost_reason": null,
+      "temperature": "Warm",
+      "stored_generated_at": "2026-08-08 04:53:56.128000",
+      "stored_stale_days_vs_latest_note": 26,
+      "stored_summary_head": "The buyer is currently interested in the ECR - Reserve 16 project with a budget of 1-2 Cr. They have been engaged in conversation, with a history of requesting details and discussing site visits, although recent attempts at contact have bee",
+      "fresh_summary": "The buyer is currently eyeing the ECR – Reserve 16 project with a stated budget of 1‑2 Cr. She has been warm historically, requesting details and showing willingness to visit the site, but over the past month she has become largely unresponsive, with multiple RNR attempts. The latest interaction (09‑03) reveals she travels frequently because her husband is in Madurai and will only confirm interest when she has a free window. She remains a nurturing‑stage lead, but her engagement has dropped to passive, and the next conversation must focus on securing a concrete time slot or alternative virtual engagement while respecting her travel constraints.",
+      "fresh_moves": [
+        "Personalized WhatsApp check‑in",
+        "Send digital project kit",
+        "Set follow‑up reminder for 10 days later",
+        "Confirm any budget or configuration updates"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "1-2 Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Not specified"
+      },
+      "latest_notes": [
+        {
+          "type": "call",
+          "ts": "2026-09-01T11:53:20",
+          "desc": "no response"
+        },
+        {
+          "type": "note",
+          "ts": "2026-09-02T05:48:57",
+          "desc": "no response"
+        },
+        {
+          "type": "transfer",
+          "ts": "2026-09-02T07:16:00",
+          "desc": "Transferred from Anantharaman to jigar. Notes: no response"
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-03T07:36:01",
+          "desc": "Client is RNR."
+        },
+        {
+          "type": "call",
+          "ts": "2026-09-03T08:54:00",
+          "desc": "Client called back and said that her husband is in madurai so she travells back and forth she will confirm only once she is free."
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 3810,
+      "hints": "project: ECR - Reserve 16\nlead_status: Nurturing\noriginal_fw_status: Contacted\ntemperature: Warm\nbudget: 1-2 Cr\nconfiguration: n/a\nlocation: ECR\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: jigar\nrecent_note: Client called back and said that her husband is in madurai so she travells back and forth she will confirm only once she is free."
+    },
+    {
+      "id": "ced04816-0c31-5b12-9684-4fe5ecc9f60b",
+      "phone_masked": "***6578",
+      "n_updates": 58,
+      "status": "Visit Completed",
+      "budget": "2-5 Cr",
+      "project": "ECR - Reserve 16",
+      "lost_reason": null,
+      "temperature": "Hot",
+      "stored_generated_at": "2026-08-06 05:46:54.160000",
+      "stored_stale_days_vs_latest_note": 21,
+      "stored_summary_head": "The buyer is currently interested in project ECR - Reserve 16, with a budget of 2-5 Cr. They have shown interest in plot no. 118 and have asked to block it. The buyer has been engaged in conversations, discussing loan possibilities, best pr",
+      "fresh_summary": "The buyer is a retirement‑focused client looking for a ~1200 sq ft corner plot (Plot 118) in ECR‑Reserve 16, with a budget of 2‑5 Cr. He has visited the site, blocked the plot and repeatedly expressed strong intent to book, but his schedule is erratic due to travel and other commitments. Over the past weeks he has asked for the minimal advance amount, a 30‑day payment schedule, loan feasibility for ~30 L, construction timelines, registration details and the full project layout. The latest WhatsApp note (2026‑08‑27) indicates he will be back in Chennai tomorrow night and plans to meet on Friday, signalling a concrete window to close. The rep should verify the exact advance amount, confirm the name(s) for registration, and lock in the Friday meeting to move from intent to booking.",
+      "fresh_moves": [
+        "Lock in Friday meeting details",
+        "Send comprehensive financial and documentation packet",
+        "Confirm registration name(s) and prepare forms",
+        "Post‑meeting follow‑up to collect advance and finalize booking"
+      ],
+      "fresh_grounded_profile": {
+        "budget": "2-5 Cr",
+        "configuration": "Not specified",
+        "possession_requirement": "Not specified",
+        "intent": "Interested in booking Plot 118, seeking loan and advance details"
+      },
+      "latest_notes": [
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-22T10:05:55",
+          "desc": "Yes mam what to process loan and basic document details\nWill decide which name tomorrow only as my wife and son name may be will take\nWant to construct early process etc\n 1234 detailed dimension etc"
+        },
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-22T10:06:56",
+          "desc": "He replied due to meeting extended. he will connect later"
+        },
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-24T06:05:45",
+          "desc": "He replied that he is very much keen in going ahead with the booking. he wanted to clarify\nPls share the following \n\nAdvance amount minimal \nAnd 30 days amount \nAnd bank loan of 30 laks \nAnd construction process \nAny oth"
+        },
+        {
+          "type": "call",
+          "ts": "2026-08-24T06:07:12",
+          "desc": "Spoke to him and gave him update on the required information. Also shared him the final price."
+        },
+        {
+          "type": "whatsapp",
+          "ts": "2026-08-27T06:50:55",
+          "desc": "I am back again Chennai tomorrow night will do Friday"
+        }
+      ],
+      "verdict": "PASS",
+      "issues": [],
+      "transcript_chars": 9598,
+      "hints": "project: ECR - Reserve 16\nlead_status: Visit Completed\noriginal_fw_status: Site Visit Completed\ntemperature: Hot\nbudget: 2-5 Cr\nconfiguration: n/a\nlocation: ECR\npossession_requirement: n/a\nreason_for_purchase: n/a\nsource: n/a\nassigned_to: Malathy\nrecent_note: I am back again Chennai tomorrow night will do Friday"
+    }
+  ]
+}

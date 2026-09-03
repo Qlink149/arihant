@@ -259,7 +259,9 @@ async def test_create_new_lead_zapier_meta_actor(monkeypatch):
     inserted = mock_db.leads.insert_one.await_args.args[0]
     created = inserted["context_updates"][0]
     assert created["agent"] == "Zapier Meta Lead"
-    assert created["description"] == "Lead created via Zapier (Meta Instant Form)"
+    assert created["description"] == "Lead created via Zapier (Meta Instant Form) — Mira"
+    assert created["project_name"] == "Mira"
+    assert created["project_id"] == "mira"
     assert created["actor_name"] == "Zapier Meta Lead"
     assert inserted["projects"] == ["Mira"]
     assert inserted["project_ids"] == ["mira"]
@@ -730,6 +732,45 @@ async def test_update_existing_logs_new_project_name_in_changes(monkeypatch):
     proj = next(c for c in ctx["changes"] if c["field"] == "projects")
     assert "ECR - Reserve 16" in proj["from"]
     assert "Vivriti" in proj["to"]
+
+
+@pytest.mark.asyncio
+async def test_update_existing_zapier_meta_resub_description(monkeypatch):
+    existing = {
+        "id": "lead-1",
+        "first_name": "Priya",
+        "last_name": "S",
+        "lead_status": "Nurturing",
+        "project": "ECR - Reserve 16",
+        "project_id": "reserve-16",
+        "projects": ["ECR - Reserve 16"],
+        "project_ids": ["reserve-16"],
+        "assigned_user_id": "u1",
+        "assigned_to_name": "Rep",
+    }
+    mock_db = MagicMock()
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.tasks.update_many = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.notification_service.create_notification", AsyncMock()):
+        await intake._update_existing_submission(
+            existing,
+            _intake_resub_data(),
+            "Facebook Lead Form",
+            api_key={
+                "id": "zapier-meta:vivriti",
+                "project_name": "Vivriti",
+                "project_id": "vivriti",
+                "form_id": "1858929181319661",
+            },
+        )
+
+    main = mock_db.leads.update_one.await_args.args[1]
+    ctx = _pushed_ctx(main)
+    assert ctx["description"] == "Meta Instant Form resubmission via Zapier — Vivriti"
+    assert ctx["project_name"] == "Vivriti"
+    assert ctx["form_id"] == "1858929181319661"
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,28 @@
+---
+description: Safe E2E/testing + planning guardrails for Arihant CRM (never touch live prod data)
+alwaysApply: true
+---
+
+# CRM safe testing & planning
+
+Before **any** Playwright/E2E, live API smoke, webhook POST, seed, cleanup, or tracker verification:
+
+1. Read [docs/AI_TESTING_AND_PLANNING.md](docs/AI_TESTING_AND_PLANNING.md) and follow it.
+2. Never write to production Mongo `DB_NAME=arihant_crm` or `https://arihant-api.claraai.tech`.
+3. Use disposable stack only: `backend/.env.e2e` → `DB_NAME=arihant_crm_e2e`, `ENVIRONMENT=e2e`, local API `127.0.0.1:8000`.
+4. Load `.env.e2e` **into the process before** starting uvicorn (production `backend/.env` must not win).
+5. Tag all test leads (`e2e_run_id`, `E2E_*` names); cleanup only via `scripts/e2e_cleanup.py`.
+6. Never POST synthetic WATI webhooks to a non-local API (unauthenticated write path).
+7. Never send real WhatsApp/WATI outbound in tests — mock in Playwright (`e2e/helpers/mockWati.cjs`).
+8. Prefer synthetic phones; do not reuse `+919116914178` against prod (live Meta smoke phone).
+
+## Planning quality (tracker / feature work)
+
+When planning or implementing change-tracker items:
+
+- Verify cause in code before proposing fixes (stacking contexts, CORS origins, session invalidation, rate limits).
+- Prefer disposable-DB E2E over “test on prod carefully”.
+- Include cleanup, auth/session effects, and notification side effects in the plan.
+- Add/extend Playwright specs for UI wiring; keep backend unit tests for logic.
+- After implementation, run `frontend` `npm run test:e2e` against e2e stack before claiming done.
+- Do not edit the user’s `.cursor/plans/*.plan.md` unless they ask; implement from the attached plan.

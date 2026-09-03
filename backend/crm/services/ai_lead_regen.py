@@ -28,8 +28,40 @@ _AI_TIMELINE_TYPES = frozenset(
         "email",
         "assigned",
         "task_completed",
+        "transfer",
+        "task",
+        "intake_resubmission",
+        "reassigned",
+        "status_change",
+        "whatsapp_inbound",
+        "whatsapp_outbound",
+        "general_note",
+        "call_note",
+        "meeting_note",
     }
 )
+
+# Map stored update_type / aliases → canonical transcript label
+_AI_TYPE_ALIASES = {
+    "general_note": "note",
+    "call_note": "call",
+    "site_visit_note": "site_visit",
+    "whatsapp_update": "whatsapp",
+    "email_update": "email",
+    "meeting_note": "meeting",
+    "whatsapp_inbound": "whatsapp",
+    "whatsapp_outbound": "whatsapp",
+}
+
+
+def _timeline_entry_type(entry: Dict[str, Any]) -> Optional[str]:
+    raw = (entry.get("type") or entry.get("update_type") or "").strip().lower()
+    if not raw:
+        return None
+    if raw in _AI_TIMELINE_TYPES or raw in _AI_TYPE_ALIASES:
+        return _AI_TYPE_ALIASES.get(raw, raw)
+    return None
+
 
 # Overview / DNA fields — editing these should refresh AI even if timestamp races.
 _AI_OVERVIEW_FIELDS = frozenset(
@@ -58,7 +90,9 @@ def latest_ai_signal_at(lead: Dict[str, Any]) -> Optional[datetime]:
     """Newest timeline signal that should invalidate AI insights."""
     best: Optional[datetime] = None
     for u in lead.get("context_updates") or []:
-        if u.get("type") not in _AI_TIMELINE_TYPES:
+        if not isinstance(u, dict):
+            continue
+        if _timeline_entry_type(u) is None:
             continue
         dt = u.get("timestamp_dt")
         if isinstance(dt, datetime):
@@ -115,24 +149,32 @@ def patch_touches_ai_overview(patch: Dict[str, Any]) -> bool:
 def build_masked_transcript(lead: Dict[str, Any]) -> str:
     rows = []
     for u in lead.get("context_updates") or []:
-        utype = u.get("type")
-        if utype not in _AI_TIMELINE_TYPES:
+        if not isinstance(u, dict):
+            continue
+        utype = _timeline_entry_type(u)
+        if utype is None:
             continue
         ts = u.get("timestamp") or ""
-        desc = mask_pii_text(str(u.get("description") or ""))
+        desc = mask_pii_text(str(u.get("description") or u.get("note") or ""))
         if not desc.strip():
             continue
-        agent = str(u.get("agent") or "")
+        agent = str(u.get("agent") or u.get("actor_name") or "")
+        sort_dt = coerce_datetime(u.get("timestamp_dt")) or coerce_datetime(ts) or datetime.min.replace(
+            tzinfo=timezone.utc
+        )
         rows.append(
             (
-                coerce_datetime(ts) or datetime.min.replace(tzinfo=timezone.utc),
+                sort_dt,
                 f"- [{utype}] {ts} ({agent}): {desc}",
             )
         )
     rows.sort(key=lambda x: x[0])
-    # Keep transcript bounded for model context
+    # Keep transcript bounded for model context; prefer newest activity.
     trimmed = rows[-80:]
     body = "\n".join(r[1] for r in trimmed)
+    recent = mask_pii_text(str(lead.get("recent_note") or "")).strip()
+    if recent and recent not in body:
+        body = (body + f"\n- [note] (recent_note): {recent}").strip()
     return body if body else "(no interaction timeline yet)"
 
 
@@ -150,6 +192,7 @@ def build_crm_hints(lead: Dict[str, Any]) -> str:
             f"reason_for_purchase: {lead.get('reason_for_purchase') or lead.get('purpose') or 'n/a'}",
             f"source: {lead.get('source') or 'n/a'}",
             f"assigned_to: {lead.get('assigned_to') or lead.get('assigned_to_name') or 'n/a'}",
+            f"recent_note: {lead.get('recent_note') or 'n/a'}",
         ]
     )
 

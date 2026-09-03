@@ -3,7 +3,7 @@ LLM chat integration (Groq by default; optional xAI): rotating API keys, retries
 
 Environment (at least one key required for live AI):
   GROQ_API_KEY — Groq free tier (recommended)
-  GROQ_MODEL — default llama-3.3-70b-versatile
+  GROQ_MODEL — default openai/gpt-oss-120b (replaces retired llama-3.3-70b-versatile)
   GROK_API_KEY_1, GROK_API_KEY_2, GROK_API_KEY_3 — legacy aliases (treated as Groq keys)
   GROK_MODEL — legacy model env (used when GROQ_MODEL unset)
   LLM_PROVIDER — groq (default) or xai
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 XAI_CHAT_URL = "https://api.x.ai/v1/chat/completions"
-DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 DEFAULT_XAI_MODEL = "grok-2-latest"
 
 # --- PII masking (best-effort before sending text to LLM) ---
@@ -216,7 +216,8 @@ You MUST respond with a single JSON object only (no markdown fences), matching t
 
 ## How to use inputs
 - CRM hints = CURRENT lead profile (authoritative for present state: project, budget, configuration, location, status).
-- Interaction transcript = history of WhatsApp, notes, calls, and field updates over time.
+- Interaction transcript = history of WhatsApp, notes, calls, transfers, tasks, and field updates over time (oldest → newest).
+- The NEWEST timeline lines outweigh older enthusiasm. If the buyer paused, deferred, went RNR, or asked to be called back later, the persona MUST reflect that current posture.
 - If transcript shows older project/budget and CRM hints show newer values, persona MUST reflect the LATEST CRM state and mention the change if it matters for sales.
 - Field-update lines like "Budget: 2-5 Cr → 50 cr" or "Project: X → Y" are hard facts — treat them as buyer/profile signals, not noise.
 - Do not invent facts. You MAY synthesize a sales reading from supported facts (engagement level, funnel stage, contradictions to verify).
@@ -332,7 +333,9 @@ async def generate_lead_insights(*, transcript: str, crm_hints: str) -> LeadGrok
         + "\n\n## Interaction timeline (oldest → newest; includes WhatsApp, notes, calls, field updates)\n"
         + transcript
         + "\n\nWrite persona_summary and strategic_next_moves for the CURRENT buyer state. "
-        "Weight recent field updates and latest WhatsApp engagement over older auto-templates."
+        "Weight the newest timeline lines (especially recent notes/calls/transfers/tasks and deferrals) "
+        "over older site-visit enthusiasm or brochure replies. "
+        "If the buyer paused purchase or scheduled a far-future callback, say so clearly."
     )
     # Slight temperature helps richer persona prose while staying grounded
     raw = await grok_chat_json(GROUNDING_SYSTEM, user_msg, temperature=0.25)

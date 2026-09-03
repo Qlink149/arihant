@@ -13,9 +13,17 @@ from crm.services.lead_overview_service import metric_filter_for_key, build_metr
 
 def test_snapshot_query_project_only():
     q = build_dashboard_snapshot_query(project="ECR - Reserve 16")
-    assert "project" in q
+    assert "$or" in q
+    assert any("project" in c for c in q["$or"])
+    assert any("projects" in c for c in q["$or"])
     assert build_dashboard_snapshot_query(project="all") == {}
     assert build_dashboard_snapshot_query(project=None) == {}
+
+
+def test_snapshot_query_multi_projects():
+    q = build_dashboard_snapshot_query(projects=["Vivriti", "Mira"])
+    assert "$or" in q
+    assert len(q["$or"]) == 2
 
 
 def test_cohort_query_includes_days_and_project():

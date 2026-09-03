@@ -8,13 +8,15 @@ from typing import Literal
 from crm.core.platform_ops import get_platform_operator_emails
 from crm.core.state import hash_password, iso_utc_now, utc_now
 
-ALLOWED_ROLES = frozenset({"admin", "manager", "rep"})
+ALLOWED_ROLES = frozenset({"admin", "manager", "general_manager", "rep"})
 
 
 def normalize_role(role: str) -> str:
     r = (role or "rep").strip().lower()
     if r not in ALLOWED_ROLES:
-        raise ValueError(f"Invalid role {role!r}; must be one of: admin, manager, rep")
+        raise ValueError(
+            f"Invalid role {role!r}; must be one of: admin, manager, general_manager, rep"
+        )
     return r
 
 

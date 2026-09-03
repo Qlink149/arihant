@@ -143,13 +143,13 @@ def test_resolve_llm_config_respects_grok_model_env(monkeypatch):
 
     monkeypatch.setenv("GROQ_API_KEY", "k")
 
-    monkeypatch.setenv("GROK_MODEL", "llama-3.3-70b-versatile")
+    monkeypatch.setenv("GROK_MODEL", "openai/gpt-oss-120b")
 
     url, model, _ = ai_service._resolve_llm_config()
 
     assert url == ai_service.GROQ_CHAT_URL
 
-    assert model == "llama-3.3-70b-versatile"
+    assert model == "openai/gpt-oss-120b"
 
 
 
