@@ -247,6 +247,7 @@ async def create_export_job(
         intent=filters.get("intent"),
         vip=filters.get("vip"),
         re_enquiry=filters.get("re_enquiry"),
+        nudge_pending=filters.get("nudge_pending"),
         status=filters.get("status"),
         statuses=filters.get("statuses"),
         search=filters.get("search"),

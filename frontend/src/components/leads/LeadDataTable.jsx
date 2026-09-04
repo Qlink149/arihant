@@ -215,6 +215,20 @@ const LeadTableRow = memo(function LeadTableRow({
                   Re Enquiry
                 </CrmBadge>
               )}
+              {lead.nudge_pending && (
+                <CrmBadge
+                  variant="warning"
+                  size="xs"
+                  title={
+                    lead.last_nudged_at_dt || lead.last_nudged_at
+                      ? `Nudged ${formatDateIST(lead.last_nudged_at_dt || lead.last_nudged_at)}`
+                      : 'Nudge pending'
+                  }
+                  data-testid={`nudge-pending-badge-${lead.id}`}
+                >
+                  Nudge
+                </CrmBadge>
+              )}
               {lead.whatsapp_replied && (
                 <CrmBadge
                   variant="success"

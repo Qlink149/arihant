@@ -37,6 +37,7 @@ export const emptyLeadFilters = () => ({
   intent: '',
   vip: null,
   re_enquiry: null,
+  nudge_pending: null,
   temperature: '',
   days: '',
   created_from: '',
@@ -73,6 +74,11 @@ export const filtersFromSearchParams = (searchParams) => {
   if (reEnquiryRaw === '1' || reEnquiryRaw === 'true') re_enquiry = true;
   if (reEnquiryRaw === '0' || reEnquiryRaw === 'false') re_enquiry = false;
 
+  const nudgeRaw = searchParams.get('nudge') || searchParams.get('nudge_pending');
+  let nudge_pending = null;
+  if (nudgeRaw === '1' || nudgeRaw === 'true') nudge_pending = true;
+  if (nudgeRaw === '0' || nudgeRaw === 'false') nudge_pending = false;
+
   const updated_from = searchParams.get('updated_from') || '';
   const updated_to = searchParams.get('updated_to') || '';
   const dateFieldRaw = searchParams.get('date_field');
@@ -92,6 +98,7 @@ export const filtersFromSearchParams = (searchParams) => {
     intent: searchParams.get('intent') || '',
     vip,
     re_enquiry,
+    nudge_pending,
     temperature: searchParams.get('temperature') || '',
     days: searchParams.get('days') || '',
     created_from: searchParams.get('created_from') || '',
@@ -129,6 +136,8 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   if (filters.vip === false) params.set('vip', '0');
   if (filters.re_enquiry === true) params.set('re_enquiry', '1');
   if (filters.re_enquiry === false) params.set('re_enquiry', '0');
+  if (filters.nudge_pending === true) params.set('nudge', '1');
+  if (filters.nudge_pending === false) params.set('nudge', '0');
   if (filters.temperature) params.set('temperature', filters.temperature);
   if (filters.days) params.set('days', String(filters.days));
 
@@ -172,6 +181,9 @@ export const buildLeadListParams = (filters, search = '') => {
   if (filters.intent) params.intent = filters.intent;
   if (filters.vip !== null && filters.vip !== undefined) params.vip = filters.vip;
   if (filters.re_enquiry !== null && filters.re_enquiry !== undefined) params.re_enquiry = filters.re_enquiry;
+  if (filters.nudge_pending !== null && filters.nudge_pending !== undefined) {
+    params.nudge_pending = filters.nudge_pending;
+  }
   if (filters.temperature) params.temperature = filters.temperature;
   // dormant filter removed (#43)
 
@@ -214,6 +226,7 @@ export const countActiveFilters = (filters, { includeDuplicates = false } = {}) 
   if (filters.intent) count += 1;
   if (filters.vip !== null && filters.vip !== undefined) count += 1;
   if (filters.re_enquiry !== null && filters.re_enquiry !== undefined) count += 1;
+  if (filters.nudge_pending !== null && filters.nudge_pending !== undefined) count += 1;
   if (filters.temperature) count += 1;
   if (
     filters.days
@@ -241,6 +254,7 @@ const normalizeFilterSnapshot = (filters = {}) => ({
   intent: filters.intent || '',
   vip: filters.vip ?? null,
   re_enquiry: filters.re_enquiry ?? null,
+  nudge_pending: filters.nudge_pending ?? null,
   temperature: filters.temperature || '',
   days: filters.days || '',
   created_from: filters.created_from || '',
@@ -290,6 +304,7 @@ export const snapshotFiltersForView = (filters, search) => ({
   sales_owners: [...(filters.sales_owners || [])],
   vip: filters.vip ?? null,
   re_enquiry: filters.re_enquiry ?? null,
+  nudge_pending: filters.nudge_pending ?? null,
   intent: filters.intent || '',
   temperature: filters.temperature || '',
   days: filters.days || '',
@@ -322,6 +337,7 @@ export const applyViewFiltersToState = (viewFilters) => {
     intent: viewFilters.intent || '',
     vip: viewFilters.vip ?? null,
     re_enquiry: viewFilters.re_enquiry ?? null,
+    nudge_pending: viewFilters.nudge_pending ?? null,
     temperature: viewFilters.temperature || '',
     days: viewFilters.days || '',
     created_from: viewFilters.created_from || '',

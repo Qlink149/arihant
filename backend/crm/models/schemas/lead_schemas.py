@@ -16,6 +16,10 @@ class LeadBase(BaseModel):
     project_ids: Optional[List[str]] = None
     re_enquiry: Optional[bool] = None
     re_enquired_at: Optional[datetime] = None
+    nudge_pending: Optional[bool] = None
+    last_nudged_at: Optional[datetime] = None
+    last_nudged_at_dt: Optional[datetime] = None
+    last_nudged_by_user_id: Optional[str] = None
     pipeline_category: Optional[str] = None
     lead_status: Optional[str] = "New"
     lead_source: Optional[str] = None
@@ -63,6 +67,11 @@ class LeadUpdatePatch(BaseModel):
     project: Optional[str] = None
     projects: Optional[List[str]] = None
     re_enquiry: Optional[bool] = None
+    re_enquired_at: Optional[datetime] = None
+    nudge_pending: Optional[bool] = None
+    last_nudged_at: Optional[datetime] = None
+    last_nudged_at_dt: Optional[datetime] = None
+    last_nudged_by_user_id: Optional[str] = None
     pipeline_category: Optional[str] = None
     lead_status: Optional[str] = None
     lead_source: Optional[str] = None

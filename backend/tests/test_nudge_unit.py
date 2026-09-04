@@ -48,6 +48,10 @@ async def test_nudge_admin_creates_notification_and_timeline(monkeypatch):
     push = mock_db.leads.update_one.await_args.args[1]["$push"]["context_updates"]
     assert push["type"] == "nudge"
     assert push["description"] == "Nudge by Admin"
+    set_fields = mock_db.leads.update_one.await_args.args[1]["$set"]
+    assert set_fields["nudge_pending"] is True
+    assert set_fields["last_nudged_by_user_id"] == "admin-1"
+    assert "last_nudged_at_dt" in set_fields
 
 
 @pytest.mark.asyncio

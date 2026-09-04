@@ -173,6 +173,18 @@ describe('leadFilters', () => {
     expect(listParams.re_enquiry).toBe(true);
   });
 
+  it('parses and encodes nudge filter (URL nudge → nudge_pending)', () => {
+    const filters = filtersFromSearchParams(new URLSearchParams('nudge=1'));
+    expect(filters.nudge_pending).toBe(true);
+    expect(countActiveFilters(filters)).toBe(1);
+
+    const encoded = filtersToSearchParams({ ...emptyLeadFilters(), nudge_pending: true }, '');
+    expect(encoded.get('nudge')).toBe('1');
+
+    const listParams = buildLeadListParams({ ...emptyLeadFilters(), nudge_pending: true });
+    expect(listParams.nudge_pending).toBe(true);
+  });
+
   it('applyViewFiltersToState migrates legacy project string to projects array', () => {
     const { filters } = applyViewFiltersToState({ project: 'Tower A, Tower B' });
     expect(filters.projects).toEqual(['Tower A', 'Tower B']);

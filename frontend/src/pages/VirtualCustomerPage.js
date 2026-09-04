@@ -30,6 +30,7 @@ import {
   ChevronDown,
   Crown,
   Repeat,
+  Bell,
   User,
   Building,
   MapPin,
@@ -1476,6 +1477,24 @@ const VirtualCustomerPage = () => {
             >
               <Repeat size={14} className="mr-2" />
               Re Enquiry
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={() => {
+                setActiveFilterViewId(null);
+                setFilters({
+                  ...filters,
+                  nudge_pending: filters.nudge_pending === true ? null : true,
+                });
+              }}
+              className={`bg-crm-elevated border-crm-border text-crm-fg hover:bg-white/5 ${
+                filters.nudge_pending === true ? 'border-[#C5A059] text-[#C5A059]' : ''
+              }`}
+              data-testid="nudge-filter"
+            >
+              <Bell size={14} className="mr-2" />
+              Nudge
             </Button>
 
             {/* Clear Filters */}

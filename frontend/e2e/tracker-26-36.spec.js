@@ -173,7 +173,7 @@ test.describe('Change Tracker 26–36 (disposable e2e DB)', () => {
     await expect(page.getByText(e2eFirstName(runId)).first()).toBeVisible({ timeout: 20000 });
   });
 
-  test('#32 nudge from Digital Twin', async ({ page }) => {
+  test('#32 nudge from Digital Twin + VC nudge filter until assignee acts', async ({ page }) => {
     await ensureAdminApi();
     const lead = await createE2ELead(adminToken, {
       assigned_user_id: repMe.id,
@@ -183,10 +183,25 @@ test.describe('Change Tracker 26–36 (disposable e2e DB)', () => {
     });
     phones.push(lead.phone);
 
+    // Nudge via API first so we can assert pending without killing the browser session.
+    await apiJson('POST', `/leads/${lead.id}/nudge`, { token: adminToken });
+    const pendingList = await apiJson(
+      'GET',
+      `/leads?nudge_pending=true&search=${encodeURIComponent(e2eFirstName(runId))}&limit=50`,
+      { token: adminToken }
+    );
+    const pendingRows = Array.isArray(pendingList) ? pendingList : pendingList.leads || [];
+    expect(pendingRows.some((l) => l.id === lead.id)).toBe(true);
+
     await authenticatePage(page);
     await page.goto(`/lead/${lead.id}`);
+    // Twin button still works (may dedupe within 60s — either toast is fine)
     await page.getByTestId('nudge-btn').click();
     await expect(page.getByText(/Nudge/i).first()).toBeVisible();
+
+    await page.goto(`/virtual-customer?nudge=1&search=${encodeURIComponent(e2eFirstName(runId))}`);
+    await expect(page.getByTestId('nudge-filter')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText(e2eFirstName(runId)).first()).toBeVisible({ timeout: 20000 });
 
     const repLogin = await loginApi(
       process.env.E2E_REP_EMAIL || 'e2e-rep@arihant.local',
@@ -198,6 +213,20 @@ test.describe('Change Tracker 26–36 (disposable e2e DB)', () => {
     const list = notifs.notifications || notifs;
     const types = list.map((n) => n.type || n.notification_type);
     expect(types).toContain('admin_nudge');
+
+    await apiJson('POST', `/leads/${lead.id}/context`, {
+      token: repLogin.access_token,
+      body: { note: 'E2E assignee acted after nudge', update_type: 'general_note' },
+    });
+
+    await ensureAdminApi();
+    const afterList = await apiJson(
+      'GET',
+      `/leads?nudge_pending=true&search=${encodeURIComponent(e2eFirstName(runId))}&limit=50`,
+      { token: adminToken }
+    );
+    const afterRows = Array.isArray(afterList) ? afterList : afterList.leads || [];
+    expect(afterRows.some((l) => l.id === lead.id)).toBe(false);
   });
 
   test('#29 VC filter bar is sticky', async ({ page }) => {

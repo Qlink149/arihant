@@ -67,7 +67,7 @@ Product decisions locked (no further code change): **#5, #12/#13, #19, #21, #38*
 | 29 | Freeze VC header/filters | **Done** | sticky; e2e #29 | — |
 | 30 | WA dashboard under My Dashboard | **Done** | tab + tiles; e2e #30 | — |
 | 31 | Meta Zapier resub + project | **Done** | intake description; e2e #31 (fixture display) | Live Zapier POST not hit in e2e |
-| 32 | Admin Nudge → notify | **Done** | nudge API + e2e asserts `admin_nudge` | — |
+| 32 | Admin Nudge → notify | **Done** | `nudge_pending` flag + VC Nudge chip; clears on assignee act; e2e #32 | No historical backfill of old nudges |
 | 33 | Bulk select / assign | **Done** | bulk status + assign in e2e #33 | Admin/manager only |
 | 34 | WA RHS recent note | **Done** | under Assignee; e2e combined | — |
 | 35 | Template edit before send | **Done** | mocked WATI; e2e #35 | — |

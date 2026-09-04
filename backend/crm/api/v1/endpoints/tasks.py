@@ -172,6 +172,10 @@ async def add_context_update(
         mentioned_users=mentioned_users,
     )
 
+    from crm.services.nudge_pending import clear_nudge_pending_if_assignee
+
+    await clear_nudge_pending_if_assignee(lead_id, current_user, lead=lead)
+
     from crm.services.ai_lead_regen import schedule_lead_ai_refresh
 
     schedule_lead_ai_refresh(lead_id, background_tasks)
@@ -352,6 +356,10 @@ async def add_task(lead_id: str, task: TaskCreate, current_user: dict = Depends(
     }
 
     await db.leads.update_one({"id": lead_id}, {"$push": {"context_updates": context_entry}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}})
+
+    from crm.services.nudge_pending import clear_nudge_pending_if_assignee
+
+    await clear_nudge_pending_if_assignee(lead_id, current_user, lead=lead)
 
     # Scheduling a new follow-up clears older overdue task debt from Missed Follow-up.
     from crm.services.lead_follow_up import complete_overdue_pending_tasks
@@ -611,6 +619,9 @@ async def update_task(task_id: str, update: TaskUpdatePatch, current_user: dict 
             {"id": task["lead_id"]},
             {"$push": {"context_updates": context_entry}, "$set": lead_set},
         )
+        from crm.services.nudge_pending import clear_nudge_pending_if_assignee
+
+        await clear_nudge_pending_if_assignee(lead_id, current_user)
 
     if lead_id and (
         completing

@@ -267,6 +267,11 @@ async def ensure_db_indexes():
             sparse=True,
             name="leads_reEnquiry_sparse",
         )
+        await db.leads.create_index(
+            [("nudge_pending", 1), ("last_nudged_at_dt", -1)],
+            sparse=True,
+            name="leads_nudgePending_lastNudged_sparse",
+        )
         await db.leads.create_index([("assigned_user_id", 1), ("updated_at_dt", -1)], name="leads_assignedUser_updatedAtDt")
         await db.leads.create_index(
             [("normalized_phone", 1)],

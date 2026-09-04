@@ -297,6 +297,7 @@ async def list_leads(
     intent: Optional[str] = None,
     vip: Optional[bool] = None,
     re_enquiry: Optional[bool] = None,
+    nudge_pending: Optional[bool] = None,
     status: Optional[str] = None,
     statuses: Optional[list] = None,
     search: Optional[str] = None,
@@ -331,6 +332,7 @@ async def list_leads(
         intent=intent,
         vip=vip,
         re_enquiry=re_enquiry,
+        nudge_pending=nudge_pending,
         status=status,
         statuses=statuses,
         days=days,
@@ -786,6 +788,10 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     if is_visit_completed_transition:
         await record_site_visit_event(lead_id, merged, actor=current_user, completed_at_dt=now_dt)
+
+    from crm.services.nudge_pending import clear_nudge_pending_if_assignee
+
+    await clear_nudge_pending_if_assignee(lead_id, current_user, lead=existing)
 
     # After stage change cancels SLA tasks, sync next_action_date unless this
     # transition explicitly set a new follow-up date (Visit Completed / Interested / SV).

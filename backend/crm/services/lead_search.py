@@ -261,6 +261,7 @@ def build_leads_list_query(
     intent: Optional[str] = None,
     vip: Optional[bool] = None,
     re_enquiry: Optional[bool] = None,
+    nudge_pending: Optional[bool] = None,
     status: Optional[str] = None,
     statuses: Optional[Sequence[str]] = None,
     days_cutoff_iso: Optional[str] = None,
@@ -314,6 +315,8 @@ def build_leads_list_query(
         extra.append({"vip": vip})
     if re_enquiry is not None:
         extra.append({"re_enquiry": re_enquiry})
+    if nudge_pending is not None:
+        extra.append({"nudge_pending": nudge_pending})
     if status_values:
         extra.append(case_insensitive_regex_or_filter("lead_status", status_values, exact=True))
     if days_cutoff_iso:
