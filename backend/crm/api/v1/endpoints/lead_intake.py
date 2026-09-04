@@ -12,6 +12,7 @@ from crm.services.api_key_service import resolve_api_key, touch_api_key_last_use
 from crm.services.lead_intake_service import (
     IntakeRateLimitError,
     IntakeValidationError,
+    contact_fingerprint,
     ingest_lead,
     write_intake_log,
 )
@@ -25,6 +26,12 @@ def _client_ip(request: Request) -> Optional[str]:
         return forwarded.split(",")[0].strip() or None
     if request.client:
         return request.client.host
+    return None
+
+
+def _payload_keys(body: Any) -> Optional[list]:
+    if isinstance(body, dict):
+        return sorted(str(k) for k in body.keys())
     return None
 
 
@@ -87,6 +94,9 @@ async def lead_intake(
             content={"success": False, "detail": "Request body is required"},
         )
 
+    keys = _payload_keys(body)
+    fingerprint = contact_fingerprint(body)
+
     try:
         result, status = await ingest_lead(body=body, api_key=api_key, ip=ip)
         # Touch last_used after successful auth path (including validation failures? only success)
@@ -102,6 +112,8 @@ async def lead_intake(
             reason="validation_error",
             lead_id=None,
             http_status=422,
+            payload_keys=keys,
+            contact_fingerprint=fingerprint,
         )
         await touch_api_key_last_used(api_key["id"])
         return JSONResponse(
@@ -118,6 +130,8 @@ async def lead_intake(
             reason="rate_limited",
             lead_id=None,
             http_status=429,
+            payload_keys=keys,
+            contact_fingerprint=fingerprint,
         )
         return JSONResponse(
             status_code=429,
@@ -134,6 +148,10 @@ async def lead_intake(
             reason="internal_error",
             lead_id=None,
             http_status=500,
+            error_type=type(e).__name__,
+            error_message=str(e)[:300],
+            payload_keys=keys,
+            contact_fingerprint=fingerprint,
         )
         return JSONResponse(
             status_code=500,

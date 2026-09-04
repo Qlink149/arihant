@@ -117,13 +117,19 @@ def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
 
 
 def _apply_contact_phones(lead_dict: Dict[str, Any]) -> None:
-    """Normalize phone and work_phone in-place."""
+    """Normalize phone and work_phone in-place. Omit nulls (sparse unique index)."""
     if "phone" in lead_dict:
         phone = lead_dict.get("phone")
-        lead_dict["normalized_phone"] = normalize_phone(phone) if phone else None
+        if phone:
+            lead_dict["normalized_phone"] = normalize_phone(phone)
+        else:
+            lead_dict.pop("normalized_phone", None)
     if "work_phone" in lead_dict:
         work = lead_dict.get("work_phone")
-        lead_dict["normalized_work_phone"] = normalize_phone(work) if work else None
+        if work:
+            lead_dict["normalized_work_phone"] = normalize_phone(work)
+        else:
+            lead_dict.pop("normalized_work_phone", None)
 
 
 def _validate_site_visit_count(value: Any) -> int:
@@ -231,7 +237,6 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     lead_dict.update(
         {
             "id": lead_id,
-            "normalized_phone": normalized_phone,
             "intent": determine_lead_intent(lead_dict),
             "vip": is_vip_lead(lead_dict),
             "assigned_to": manual_assignee_name,
@@ -251,6 +256,10 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
             "updated_at_dt": now_dt,
         }
     )
+    if normalized_phone:
+        lead_dict["normalized_phone"] = normalized_phone
+    else:
+        lead_dict.pop("normalized_phone", None)
 
     if should_auto_set_meta_qualified(
         lead_dict,
@@ -446,11 +455,21 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
             "work_phone": patch.get("work_phone", existing.get("work_phone")),
         }
         _apply_contact_phones(merged_phones)
+        unset_fields: Dict[str, str] = {}
         if "phone" in patch:
-            patch["normalized_phone"] = merged_phones["normalized_phone"]
+            if "normalized_phone" in merged_phones:
+                patch["normalized_phone"] = merged_phones["normalized_phone"]
+            else:
+                patch.pop("normalized_phone", None)
+                unset_fields["normalized_phone"] = ""
         if "work_phone" in patch:
-            patch["normalized_work_phone"] = merged_phones["normalized_work_phone"]
-
+            if "normalized_work_phone" in merged_phones:
+                patch["normalized_work_phone"] = merged_phones["normalized_work_phone"]
+            else:
+                patch.pop("normalized_work_phone", None)
+                unset_fields["normalized_work_phone"] = ""
+    else:
+        unset_fields = {}
     if "site_visit_count" in patch:
         patch["site_visit_count"] = _validate_site_visit_count(patch["site_visit_count"])
 
@@ -784,7 +803,10 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     patch["context_updates"] = existing.get("context_updates", []) + extra_ctx + [context_update]
 
-    await db.leads.update_one({"id": lead_id}, {"$set": patch})
+    update_doc: Dict[str, Any] = {"$set": patch}
+    if unset_fields:
+        update_doc["$unset"] = unset_fields
+    await db.leads.update_one({"id": lead_id}, update_doc)
 
     if is_visit_completed_transition:
         await record_site_visit_event(lead_id, merged, actor=current_user, completed_at_dt=now_dt)

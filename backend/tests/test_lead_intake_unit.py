@@ -838,3 +838,223 @@ async def test_create_api_key_stores_hash_not_plaintext(monkeypatch):
     assert inserted["key_hash"] == keys.hash_api_key(result["plaintext_key"])
     assert inserted["project_id"] == "melange"
     assert inserted["rate_limit_per_min"] == 30
+
+
+def test_coerce_consent_common_forms():
+    assert intake.coerce_consent(True) is True
+    assert intake.coerce_consent("yes") is True
+    assert intake.coerce_consent("1") is True
+    assert intake.coerce_consent(1) is True
+    assert intake.coerce_consent("checked") is True
+    assert intake.coerce_consent(False) is False
+    assert intake.coerce_consent("no") is False
+    assert intake.coerce_consent(0) is False
+    assert intake.coerce_consent("maybe") is None
+
+
+def test_normalize_intake_body_wp_aliases_and_utm_meta():
+    body = intake.normalize_intake_body(
+        {
+            "First Name": "Aiswarya",
+            "Last Name": "Naveen",
+            "Email": "aiswaryaanaveen@gmail.com",
+            "Mobile Number": "+918072565736",
+            "Preferred Budget": "45 - 60 Lacs.",
+            "Marketing Acceptance": "yes",
+            "Source": "fb",
+            "Medium": "Instagram_Feed",
+            "Campaign": "R-16 - Leads",
+            "Content": "Private slice of paradise",
+        }
+    )
+    assert body["first_name"] == "Aiswarya"
+    assert body["last_name"] == "Naveen"
+    assert body["email"] == "aiswaryaanaveen@gmail.com"
+    assert body["phone"] == "+918072565736"
+    assert body["budget"] == "45 - 60 Lacs."
+    assert body["consent"] is True
+    assert body["source"] == "fb"
+    assert body["meta"]["utm_source"] == "fb"
+    assert body["meta"]["utm_medium"] == "Instagram_Feed"
+    assert body["meta"]["utm_campaign"] == "R-16 - Leads"
+    assert body["meta"]["utm_content"] == "Private slice of paradise"
+
+
+def test_validate_accepts_consent_string_yes():
+    data = intake.validate_intake_payload(
+        {
+            "First Name": "A",
+            "Email": "a@b.com",
+            "Marketing Acceptance": "yes",
+        }
+    )
+    assert data["consent"] is True
+    assert data["first_name"] == "A"
+
+
+def test_contact_fingerprint_no_full_pii():
+    fp = intake.contact_fingerprint(
+        {"phone": "+918072565736", "email": "aiswaryaanaveen@gmail.com"}
+    )
+    assert fp is not None
+    assert "8072565736" not in fp
+    assert "aiswaryaanaveen" not in fp
+    assert "phone_last4=5736" in fp
+    assert "email_domain=gmail.com" in fp
+
+
+@pytest.mark.asyncio
+async def test_create_new_lead_omits_null_normalized_phone(monkeypatch):
+    mock_db = MagicMock()
+    mock_db.leads.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.assignment_router.route_new_lead", new_callable=AsyncMock):
+        with patch("crm.services.whatsapp_service.send_lead_ack", new_callable=AsyncMock):
+            await intake._create_new_lead(
+                {
+                    "first_name": "EmailOnly",
+                    "last_name": "",
+                    "email": "only@example.com",
+                    "phone": None,
+                    "budget": None,
+                    "schedule_visit": None,
+                    "consent": True,
+                    "meta": None,
+                    "intake_spam": False,
+                },
+                api_key={"project_name": "Reserve 16", "project_id": "reserve-16"},
+                source="Reserve 16",
+            )
+    inserted = mock_db.leads.insert_one.await_args.args[0]
+    assert "normalized_phone" not in inserted
+    assert inserted.get("phone") is None
+
+
+@pytest.mark.asyncio
+async def test_ingest_duplicate_key_null_phone_soft_dedupes_by_email(monkeypatch):
+    """Regression: DuplicateKeyError on null phone must not become HTTP 500."""
+    from pymongo.errors import DuplicateKeyError
+
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "key-r16",
+        "project_name": "Reserve 16",
+        "project_id": "reserve-16",
+        "rate_limit_per_min": 60,
+    }
+    existing = {
+        "id": "existing-email",
+        "email": "only@example.com",
+        "first_name": "Old",
+        "last_name": "",
+        "lead_status": "Contacted",
+        "project": "Reserve 16",
+        "project_id": "reserve-16",
+    }
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(return_value=existing)
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr(intake, "_find_recent_lead", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        intake,
+        "_create_new_lead",
+        AsyncMock(side_effect=DuplicateKeyError("E11000 normalized_phone null")),
+    )
+    monkeypatch.setattr(
+        intake,
+        "_update_existing_submission",
+        AsyncMock(return_value="existing-email"),
+    )
+
+    result, status = await intake.ingest_lead(
+        body={"first_name": "New", "email": "only@example.com", "consent": True},
+        api_key=api_key,
+    )
+    assert status == 200
+    assert result["deduped"] is True
+    assert result["lead_id"] == "existing-email"
+
+
+@pytest.mark.asyncio
+async def test_ingest_duplicate_key_unmerged_returns_409(monkeypatch):
+    from pymongo.errors import DuplicateKeyError
+
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "key-1",
+        "project_name": "Reserve 16",
+        "project_id": "reserve-16",
+        "rate_limit_per_min": 60,
+    }
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(return_value=None)
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr(intake, "_find_recent_lead", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        intake,
+        "_create_new_lead",
+        AsyncMock(side_effect=DuplicateKeyError("E11000")),
+    )
+
+    result, status = await intake.ingest_lead(
+        body={"first_name": "X", "email": "x@y.com", "consent": True},
+        api_key=api_key,
+    )
+    assert status == 409
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_ingest_wp_shaped_payload_dedupes_unqualified_phone(monkeypatch):
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "b2c24299-2c3f-48af-aae8-d36b70fae91f",
+        "project_name": "Reserve 16",
+        "project_id": "reserve-16",
+        "rate_limit_per_min": 60,
+    }
+    existing = {
+        "id": "a26eee18",
+        "first_name": "Meenakshi",
+        "last_name": "Meenakshi",
+        "lead_status": "Unqualified",
+        "normalized_phone": "8072565736",
+        "project": "Reserve 16",
+        "project_id": "reserve-16",
+    }
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+    # 10s miss, 30d phone hit
+    find = AsyncMock(side_effect=[None, existing])
+    monkeypatch.setattr(intake, "_find_recent_lead", find)
+    monkeypatch.setattr(
+        intake,
+        "_update_existing_submission",
+        AsyncMock(return_value="a26eee18"),
+    )
+    create = AsyncMock()
+    monkeypatch.setattr(intake, "_create_new_lead", create)
+
+    result, status = await intake.ingest_lead(
+        body={
+            "First Name": "Aiswarya",
+            "Last Name": "Naveen",
+            "Email": "aiswaryaanaveen@gmail.com",
+            "Mobile Number": "+918072565736",
+            "Preferred Budget": "45 - 60 Lacs.",
+            "Marketing Acceptance": "yes",
+            "Source": "fb",
+            "Medium": "Instagram_Feed",
+            "Campaign": "R-16 - Leads",
+        },
+        api_key=api_key,
+    )
+    assert status == 200
+    assert result["lead_id"] == "a26eee18"
+    create.assert_not_awaited()
+    # phone_only 30d merge used normalized phone
+    assert find.await_args_list[1].kwargs["phone_only"] is True

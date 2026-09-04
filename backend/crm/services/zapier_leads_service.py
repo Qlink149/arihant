@@ -255,7 +255,7 @@ async def process_zapier_lead(body: dict) -> Dict[str, Any]:
         )
         return {
             "success": bool(result.get("success")),
-            "reason": "ingested",
+            "reason": "ingested" if result.get("success") else "ingest_failed",
             "lead_id": result.get("lead_id"),
             "deduped": result.get("deduped"),
             "http_status": status,

@@ -123,6 +123,116 @@ def digits_phone(value: Any) -> Optional[str]:
     return digits[:MAX_PHONE_LEN] if digits else None
 
 
+# Canonical field ← WordPress / Gravity / marketing form aliases
+_FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "first_name": ("First Name", "firstName", "firstname", "FirstName"),
+    "last_name": ("Last Name", "lastName", "lastname", "LastName"),
+    "email": ("Email", "E-mail", "email_address", "Email Address"),
+    "phone": (
+        "Mobile Number",
+        "mobile",
+        "phone_number",
+        "Phone Number",
+        "Phone",
+        "mobile_number",
+    ),
+    "budget": ("Preferred Budget", "Budget"),
+    "schedule_visit": ("Site Visit Preference", "scheduleVisit"),
+    "source": ("Source", "utm_source"),
+    "consent": ("Marketing Acceptance", "marketing_acceptance", "Consent"),
+}
+
+_META_UTM_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "utm_source": ("Source", "utm_source"),
+    "utm_medium": ("Medium", "utm_medium"),
+    "utm_campaign": ("Campaign", "utm_campaign"),
+    "utm_content": ("Content", "utm_content"),
+}
+
+
+def coerce_consent(value: Any) -> Optional[bool]:
+    """Coerce common form truthy/falsey values to bool. None if unparseable."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("true", "1", "yes", "y", "on", "checked"):
+            return True
+        if s in ("false", "0", "no", "n", "off", ""):
+            return False
+    return None
+
+
+def _first_present(body: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in body and body[key] is not None and str(body[key]).strip() != "":
+            return body[key]
+    return None
+
+
+def normalize_intake_body(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Map WP/alias keys onto canonical intake fields. Canonical wins when both present."""
+    if not isinstance(body, dict):
+        return body
+    out = dict(body)
+
+    for canonical, aliases in _FIELD_ALIASES.items():
+        if canonical in out and out[canonical] is not None and str(out[canonical]).strip() != "":
+            continue
+        aliased = _first_present(out, aliases)
+        if aliased is not None:
+            out[canonical] = aliased
+
+    meta: Dict[str, Any] = {}
+    raw_meta = out.get("meta")
+    if isinstance(raw_meta, dict):
+        meta.update(raw_meta)
+    for utm_key, aliases in _META_UTM_ALIASES.items():
+        if utm_key in meta and meta[utm_key] is not None and str(meta[utm_key]).strip() != "":
+            continue
+        # Prefer explicit utm_* on body; else WP label aliases (skip if already used as source)
+        if utm_key in out and out[utm_key] is not None and str(out[utm_key]).strip() != "":
+            meta[utm_key] = out[utm_key]
+            continue
+        for alias in aliases:
+            if alias == "Source" and out.get("source") is not None:
+                # source already mapped; still copy into meta for analytics
+                meta.setdefault("utm_source", out.get("source"))
+                break
+            if alias in out and out[alias] is not None and str(out[alias]).strip() != "":
+                meta[utm_key] = out[alias]
+                break
+    if meta:
+        out["meta"] = meta
+
+    if "consent" in out:
+        coerced = coerce_consent(out.get("consent"))
+        if coerced is not None:
+            out["consent"] = coerced
+
+    return out
+
+
+def contact_fingerprint(body: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Non-PII contact hint for audit logs (last-4 phone / email domain)."""
+    if not isinstance(body, dict):
+        return None
+    parts: List[str] = []
+    phone = digits_phone(body.get("phone") or body.get("Mobile Number") or body.get("phone_number"))
+    if phone and len(phone) >= 4:
+        parts.append(f"phone_last4={phone[-4:]}")
+    email = _strip_str(body.get("email") or body.get("Email"), MAX_EMAIL_LEN)
+    if email and "@" in email:
+        parts.append(f"email_domain={email.rsplit('@', 1)[-1].lower()}")
+    return ",".join(parts) if parts else None
+
+
 def sanitize_meta(meta: Any) -> Optional[Dict[str, Any]]:
     if meta is None:
         return None
@@ -167,12 +277,17 @@ def validate_intake_payload(body: Dict[str, Any]) -> Dict[str, Any]:
             [{"loc": ["body"], "msg": "Request body is required", "type": "value_error"}]
         )
 
+    body = normalize_intake_body(body)
     errors: List[Dict[str, Any]] = []
 
     if "consent" not in body:
         errors.append({"loc": ["consent"], "msg": "Field required", "type": "missing"})
-    elif not isinstance(body.get("consent"), bool):
-        errors.append({"loc": ["consent"], "msg": "must be a boolean", "type": "type_error"})
+    else:
+        consent_val = coerce_consent(body.get("consent"))
+        if consent_val is None:
+            errors.append({"loc": ["consent"], "msg": "must be a boolean", "type": "type_error"})
+        else:
+            body = {**body, "consent": consent_val}
 
     first_name = _strip_str(body.get("first_name"), MAX_NAME_LEN)
     if not first_name:
@@ -260,25 +375,36 @@ async def write_intake_log(
     lead_id: Optional[str],
     http_status: int,
     deduped: Optional[bool] = None,
+    error_type: Optional[str] = None,
+    error_message: Optional[str] = None,
+    payload_keys: Optional[List[str]] = None,
+    contact_fingerprint: Optional[str] = None,
 ) -> None:
     try:
-        await db.lead_intake_logs.insert_one(
-            {
-                "id": str(uuid.uuid4()),
-                "timestamp": iso_utc_now(),
-                "created_at": iso_utc_now(),
-                "created_at_dt": utc_now(),
-                "project_name": project_name,
-                "project_id": project_id,
-                "api_key_id": api_key_id,
-                "ip": ip,
-                "success": success,
-                "reason": reason[:300],
-                "lead_id": lead_id,
-                "http_status": http_status,
-                "deduped": deduped,
-            }
-        )
+        doc: Dict[str, Any] = {
+            "id": str(uuid.uuid4()),
+            "timestamp": iso_utc_now(),
+            "created_at": iso_utc_now(),
+            "created_at_dt": utc_now(),
+            "project_name": project_name,
+            "project_id": project_id,
+            "api_key_id": api_key_id,
+            "ip": ip,
+            "success": success,
+            "reason": reason[:300],
+            "lead_id": lead_id,
+            "http_status": http_status,
+            "deduped": deduped,
+        }
+        if error_type:
+            doc["error_type"] = str(error_type)[:120]
+        if error_message:
+            doc["error_message"] = str(error_message)[:300]
+        if payload_keys is not None:
+            doc["payload_keys"] = [str(k)[:64] for k in payload_keys[:80]]
+        if contact_fingerprint:
+            doc["contact_fingerprint"] = str(contact_fingerprint)[:120]
+        await db.lead_intake_logs.insert_one(doc)
     except Exception as e:
         logger.error("lead_intake_logs insert failed: %s", e)
 
@@ -640,7 +766,9 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         lead_dict.pop("projects", None)
     if not lead_dict.get("project_ids"):
         lead_dict.pop("project_ids", None)
-    lead_dict["normalized_phone"] = normalize_phone(data.get("phone")) if data.get("phone") else None
+    # Sparse unique index indexes explicit null — omit field when no phone.
+    if data.get("phone"):
+        lead_dict["normalized_phone"] = normalize_phone(data["phone"])
     temp_patch = {"lead_status": "New"}
     apply_nurture_temperature_rules({}, temp_patch, is_create=True)
     lead_dict["temperature"] = temp_patch.get("temperature")
@@ -683,11 +811,15 @@ async def ingest_lead(
     """Validate + ingest. Returns (response_dict, http_status).
 
     Raises IntakeValidationError, IntakeRateLimitError.
+    Known duplicate-key conflicts return 409 (never raw 500).
     Unexpected errors are logged and re-raised for the endpoint to map to 500.
     """
     project_name = api_key.get("project_name") or ""
     project_id = api_key.get("project_id") or ""
     api_key_id = api_key.get("id")
+    body = normalize_intake_body(body if isinstance(body, dict) else {})
+    payload_keys = sorted(str(k) for k in body.keys()) if isinstance(body, dict) else []
+    fingerprint = contact_fingerprint(body)
 
     check_rate_limit(api_key_id or "unknown", api_key.get("rate_limit_per_min") or 60)
 
@@ -714,6 +846,8 @@ async def ingest_lead(
             lead_id=recent["id"],
             http_status=200,
             deduped=True,
+            payload_keys=payload_keys,
+            contact_fingerprint=fingerprint,
         )
         return {"success": True, "lead_id": recent["id"], "deduped": True}, 200
 
@@ -747,31 +881,99 @@ async def ingest_lead(
             lead_id=lead_id,
             http_status=200,
             deduped=True,
+            payload_keys=payload_keys,
+            contact_fingerprint=fingerprint,
         )
         return {"success": True, "lead_id": lead_id, "deduped": True}, 200
 
     try:
         lead_id = await _create_new_lead(data, api_key=api_key, source=source)
-    except DuplicateKeyError:
-        # Global unique normalized_phone — treat as soft dedupe of that lead
-        existing_phone = None
+    except DuplicateKeyError as e:
+        # Unique sparse phone index (or race). Soft-dedupe; never re-raise to 500.
+        existing_match: Optional[dict] = None
+        reason = "deduped_unique_phone"
         if normalized:
-            existing_phone = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
-        if existing_phone:
-            lead_id = await _update_existing_submission(existing_phone, data, source, api_key=api_key)
+            existing_match = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+        if not existing_match and data.get("email"):
+            existing_match = await _find_recent_lead(
+                project_id=project_id,
+                email=data.get("email"),
+                normalized_phone=None,
+                within_days=DEDUPE_WINDOW_DAYS,
+                require_project_id=True,
+            )
+            if not existing_match:
+                existing_match = await db.leads.find_one(
+                    {"email": data["email"]},
+                    {"_id": 0},
+                )
+            reason = "deduped_unique_email"
+        if existing_match:
+            try:
+                lead_id = await _update_existing_submission(
+                    existing_match, data, source, api_key=api_key
+                )
+            except Exception as upd_err:
+                logger.error(
+                    "intake dedupe update failed api_key_id=%s: %s",
+                    api_key_id,
+                    upd_err,
+                    exc_info=True,
+                )
+                await write_intake_log(
+                    project_name=project_name,
+                    project_id=project_id,
+                    api_key_id=api_key_id,
+                    ip=ip,
+                    success=False,
+                    reason="dedupe_update_failed",
+                    lead_id=existing_match.get("id"),
+                    http_status=409,
+                    error_type=type(upd_err).__name__,
+                    error_message=str(upd_err)[:300],
+                    payload_keys=payload_keys,
+                    contact_fingerprint=fingerprint,
+                )
+                return {
+                    "success": False,
+                    "detail": "Could not merge duplicate lead",
+                }, 409
             await write_intake_log(
                 project_name=project_name,
                 project_id=project_id,
                 api_key_id=api_key_id,
                 ip=ip,
                 success=True,
-                reason="deduped_unique_phone",
+                reason=reason,
                 lead_id=lead_id,
                 http_status=200,
                 deduped=True,
+                payload_keys=payload_keys,
+                contact_fingerprint=fingerprint,
             )
             return {"success": True, "lead_id": lead_id, "deduped": True}, 200
-        raise
+
+        logger.error(
+            "intake DuplicateKeyError unmerged api_key_id=%s: %s",
+            api_key_id,
+            e,
+            exc_info=True,
+        )
+        await write_intake_log(
+            project_name=project_name,
+            project_id=project_id,
+            api_key_id=api_key_id,
+            ip=ip,
+            success=False,
+            reason="duplicate_key_unmerged",
+            lead_id=None,
+            http_status=409,
+            error_type="DuplicateKeyError",
+            error_message=str(e)[:300],
+            payload_keys=payload_keys,
+            contact_fingerprint=fingerprint,
+        )
+        return {"success": False, "detail": "Duplicate lead conflict"}, 409
 
     reason = "created_spam" if data.get("intake_spam") else "created"
     await write_intake_log(
@@ -784,5 +986,7 @@ async def ingest_lead(
         lead_id=lead_id,
         http_status=201,
         deduped=False,
+        payload_keys=payload_keys,
+        contact_fingerprint=fingerprint,
     )
     return {"success": True, "lead_id": lead_id, "deduped": False}, 201

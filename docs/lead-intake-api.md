@@ -145,3 +145,59 @@ await submitLead({
 ```
 
 ---
+
+## Field aliases (WordPress / Gravity-style)
+
+Canonical fields are preferred when both are present. Aliases accepted before validation:
+
+| Canonical | Aliases |
+|-----------|---------|
+| `first_name` | `First Name`, `firstName` |
+| `last_name` | `Last Name`, `lastName` |
+| `email` | `Email`, `Email Address` |
+| `phone` | `Mobile Number`, `mobile`, `Phone Number`, `phone_number` |
+| `budget` | `Preferred Budget`, `Budget` |
+| `consent` | `Marketing Acceptance` (also coerces `yes`/`1`/`true`/`checked`) |
+| `source` | `Source` |
+
+UTM-ish labels (`Source`, `Medium`, `Campaign`, `Content`) are copied into `meta.utm_*`.
+
+---
+
+## Failure audit (`lead_intake_logs`)
+
+Failed / success rows may include: `error_type`, `error_message` (≤300), `payload_keys`, `contact_fingerprint` (`phone_last4=…`, `email_domain=…` — no full PII).
+
+Known duplicate-index conflicts return **409** (not 500). Email-only creates omit `normalized_phone` so the unique sparse phone index is not hit with BSON `null`.
+
+---
+
+## Backfill LP misses
+
+```bash
+cd backend
+python scripts/backfill_lp_intake.py                  # dry-run Submission #342
+python scripts/backfill_lp_intake.py --env-file .env.e2e --apply
+python scripts/backfill_lp_intake.py --apply --allow-prod   # prod only with both flags
+python scripts/backfill_lp_intake.py --file export.csv --apply --allow-prod
+```
+
+---
+
+## Ops: Caddy access logs (droplet `arihant-crm`)
+
+Default Caddyfile had no access logging. After deploy, set:
+
+```
+arihant-api.claraai.tech {
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+    reverse_proxy localhost:8000 {
+        flush_interval -1
+    }
+}
+```
+
+Then: `sudo systemctl reload caddy`
