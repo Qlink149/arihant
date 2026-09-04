@@ -111,8 +111,8 @@ const LEAD_CRITERIA = {
   todays_leads: {
     title: "Today's new leads",
     rules: [
-      'Leads created on today\'s IST calendar day.',
-      'Snapshot scope: project filter only.',
+      'Leads created in the last 24 hours (not future-dated) OR re-enquired on today\'s IST calendar day.',
+      'Snapshot scope: project filter only — not limited by lead intake period.',
     ],
   },
   hot: {
@@ -547,7 +547,7 @@ const DashboardPage = () => {
             tile="todays_leads"
             testId="todays-leads-tile"
             title="Today's New Leads"
-            subtitle="Created today (IST)"
+            subtitle="Created last 24h or re-enquired today"
             value={operational.todays_leads}
             icon={UserPlus}
             iconClass="text-teal-500"

@@ -112,15 +112,23 @@ def _todays_leads_clause(
 
     Avoids the after-hours cutoff bug where a lead created just before midnight IST
     "disappeared" from Today's Leads the next morning.
+
+    Create branch is closed on the upper side (`<= now`) so future `created_at_dt`
+    values from bad imports cannot match the rolling window.
     """
     rolling_start_utc = now_utc - timedelta(hours=24)
     created_last_24h = {
         "$or": [
-            {"created_at_dt": {"$gte": rolling_start_utc}},
+            {"created_at_dt": {"$gte": rolling_start_utc, "$lte": now_utc}},
             {
                 "$and": [
                     {"created_at_dt": {"$exists": False}},
-                    {"created_at": {"$gte": rolling_start_utc.isoformat()}},
+                    {
+                        "created_at": {
+                            "$gte": rolling_start_utc.isoformat(),
+                            "$lte": now_utc.isoformat(),
+                        }
+                    },
                 ]
             },
         ]

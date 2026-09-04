@@ -770,7 +770,7 @@ export const LeadDataTable = memo(function LeadDataTable({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 border-crm-border text-crm-fg-secondary hover:text-white gap-1.5"
+            className="h-8 border-crm-border text-crm-fg-secondary hover:text-crm-fg gap-1.5"
             onClick={() => {
               setPendingAssigneeId('');
               setAssignOpen(true);
@@ -784,7 +784,7 @@ export const LeadDataTable = memo(function LeadDataTable({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 border-crm-border text-crm-fg-secondary hover:text-white gap-1.5"
+            className="h-8 border-crm-border text-crm-fg-secondary hover:text-crm-fg gap-1.5"
             onClick={() => {
               setPendingStatus('');
               setPendingLostReason('');
@@ -798,7 +798,7 @@ export const LeadDataTable = memo(function LeadDataTable({
           <button
             type="button"
             onClick={clearSelection}
-            className="ml-1 p-1.5 rounded-md text-crm-fg-muted hover:text-white hover:bg-white/10"
+            className="ml-1 p-1.5 rounded-md text-crm-fg-muted hover:text-crm-fg hover:bg-white/10"
             aria-label="Clear selection"
             data-testid="bulk-clear-btn"
           >
@@ -819,7 +819,7 @@ export const LeadDataTable = memo(function LeadDataTable({
               </SelectTrigger>
               <SelectContent className="bg-crm-elevated border-crm-border text-crm-fg max-h-64">
                 {assigneeOptions.map((user) => (
-                  <SelectItem key={user.id} value={String(user.id)} className="text-white hover:bg-[#C5A059]/10">
+                  <SelectItem key={user.id} value={String(user.id)} className="text-crm-fg hover:bg-[#C5A059]/10">
                     {user.full_name}
                     {user.role ? ` (${user.role})` : ''}
                   </SelectItem>
@@ -866,7 +866,7 @@ export const LeadDataTable = memo(function LeadDataTable({
               </SelectTrigger>
               <SelectContent className="bg-crm-elevated border-crm-border text-crm-fg max-h-64">
                 {LEAD_STATUSES.map((status) => (
-                  <SelectItem key={status} value={status} className="text-white hover:bg-[#C5A059]/10">
+                  <SelectItem key={status} value={status} className="text-crm-fg hover:bg-[#C5A059]/10">
                     {status}
                   </SelectItem>
                 ))}
@@ -885,7 +885,7 @@ export const LeadDataTable = memo(function LeadDataTable({
                     </SelectTrigger>
                     <SelectContent className="bg-crm-elevated border-crm-border text-crm-fg max-h-64">
                       {LOST_REASON_OPTIONS.map((reason) => (
-                        <SelectItem key={reason} value={reason} className="text-white hover:bg-[#C5A059]/10">
+                        <SelectItem key={reason} value={reason} className="text-crm-fg hover:bg-[#C5A059]/10">
                           {reason}
                         </SelectItem>
                       ))}

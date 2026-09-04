@@ -374,6 +374,29 @@ async def ensure_db_indexes():
 
         await db.lead_filter_views.create_index([("user_id", 1)], name="lead_filter_views_user_id")
 
+        # site_visit_events — #53/#54 permanent Visit Completed log (range queries need indexes)
+        try:
+            await db.site_visit_events.create_index(
+                [("completed_at_dt", 1)],
+                name="site_visit_events_completed_at_dt",
+            )
+        except Exception:
+            # May already exist as auto-named completed_at_dt_1
+            pass
+        await db.site_visit_events.create_index(
+            [("lead_id", 1), ("completed_at_dt", 1)],
+            name="site_visit_events_lead_completed",
+        )
+        await db.site_visit_events.create_index(
+            [("assigned_user_id", 1), ("completed_at_dt", 1)],
+            name="site_visit_events_owner_completed",
+        )
+        await db.site_visit_events.create_index(
+            [("id", 1)],
+            unique=True,
+            name="site_visit_events_id_uq",
+        )
+
         # lead_view_grants — temporary view-only access (exact lookup); TTL auto-expire
         await db.lead_view_grants.create_index(
             [("user_id", 1), ("lead_id", 1)],

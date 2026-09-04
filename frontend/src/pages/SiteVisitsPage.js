@@ -73,22 +73,23 @@ const SiteVisitsPage = () => {
   return (
     <div className="space-y-4" data-testid="site-visits-page">
       <div>
-        <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="site-visits-title">
+        <h1 className="text-xl font-semibold text-crm-fg tracking-tight" data-testid="site-visits-title">
           Site Visits <span className="text-[#C5A059]">Report</span>
         </h1>
         <p className="text-crm-fg-muted mt-1 text-sm">
-          Permanent log of visit completions by project — survives later status changes.
+          Counts each time a lead moves to <span className="text-crm-fg-secondary">Visit Completed</span>
+          {' '}— not call tasks or site-visit notes. Log survives later status changes.
         </p>
       </div>
 
       {/* Filters */}
-      <div className="bg-crm-elevated border border-white/5 rounded-xl p-4 flex flex-wrap items-end gap-3" data-testid="site-visits-filters">
+      <div className="bg-crm-elevated border border-crm-border rounded-xl p-4 flex flex-wrap items-end gap-3" data-testid="site-visits-filters">
         <div>
           <label className="text-crm-fg-secondary text-xs mb-1.5 block">Period</label>
           <select
             value={preset}
             onChange={(e) => setPreset(e.target.value)}
-            className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+            className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
             data-testid="site-visits-preset"
           >
             {PRESET_OPTIONS.map((opt) => (
@@ -104,7 +105,7 @@ const SiteVisitsPage = () => {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
                 data-testid="site-visits-date-from"
               />
             </div>
@@ -114,7 +115,7 @@ const SiteVisitsPage = () => {
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
+                className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-crm-fg text-sm focus:border-[#C5A059]/50 focus:outline-none"
                 data-testid="site-visits-date-to"
               />
             </div>
@@ -125,7 +126,7 @@ const SiteVisitsPage = () => {
           <select
             value={salesOwnerId}
             onChange={(e) => setSalesOwnerId(e.target.value)}
-            className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-white text-sm min-w-[180px] focus:border-[#C5A059]/50 focus:outline-none"
+            className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-crm-fg text-sm min-w-[180px] focus:border-[#C5A059]/50 focus:outline-none"
             data-testid="site-visits-owner-select"
           >
             <option value="">All sales owners</option>
@@ -142,14 +143,14 @@ const SiteVisitsPage = () => {
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-crm-elevated border border-white/5 rounded-xl p-5 flex items-center gap-4"
+        className="bg-crm-elevated border border-crm-border rounded-xl p-5 flex items-center gap-4"
         data-testid="site-visits-total-card"
       >
         <div className="w-11 h-11 rounded-lg bg-[#C5A059]/10 flex items-center justify-center">
           <CalendarCheck size={22} className="text-[#C5A059]" />
         </div>
         <div>
-          <p className="text-white text-2xl font-semibold" data-testid="site-visits-total">{total}</p>
+          <p className="text-crm-fg text-2xl font-semibold" data-testid="site-visits-total">{total}</p>
           <p className="text-crm-fg-muted text-xs mt-0.5">Total visits completed</p>
         </div>
       </motion.div>
@@ -159,10 +160,10 @@ const SiteVisitsPage = () => {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="bg-crm-elevated border border-white/5 rounded-xl p-6"
+        className="bg-crm-elevated border border-crm-border rounded-xl p-6"
         data-testid="site-visits-by-project"
       >
-        <h3 className="text-white font-medium mb-4 flex items-center gap-2">
+        <h3 className="text-crm-fg font-medium mb-4 flex items-center gap-2">
           <Building size={18} className="text-[#C5A059]" /> Visits by project
         </h3>
 
@@ -171,14 +172,18 @@ const SiteVisitsPage = () => {
         ) : byProject.length === 0 ? (
           <div className="text-center py-10" data-testid="site-visits-empty">
             <Users className="mx-auto text-crm-fg-muted" size={36} />
-            <p className="text-crm-fg-muted text-sm mt-3">No site visits completed in this period.</p>
+            <p className="text-crm-fg-muted text-sm mt-3">No Visit Completed transitions in this period.</p>
+            <p className="text-crm-fg-muted text-xs mt-1.5 max-w-md mx-auto">
+              Completing a “Call For Site Visit” task or adding a site-visit note does not count here —
+              only status → Visit Completed.
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
             {byProject.map((row) => (
               <div key={row.project} className="flex items-center gap-3" data-testid={`site-visits-row-${row.project}`}>
-                <span className="text-white text-sm w-40 shrink-0 truncate" title={row.project}>{row.project}</span>
-                <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+                <span className="text-crm-fg text-sm w-40 shrink-0 truncate" title={row.project}>{row.project}</span>
+                <div className="flex-1 h-2 rounded-full bg-crm-muted overflow-hidden">
                   <div
                     className="h-full rounded-full bg-[#C5A059]"
                     style={{ width: `${Math.max(4, (row.count / maxCount) * 100)}%` }}

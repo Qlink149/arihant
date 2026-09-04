@@ -81,7 +81,7 @@ Product decisions locked (no further code change): **#5, #12/#13, #19, #21, #38*
 | 43 | Remove Dormant | **Done** | dormant URL ignored; Gone Cold status; e2e #43 | Leftover label key `dormant` in `leadOverview.js` map (not a live tile) |
 | 44 | @tag agents on notes | **Done** | mentions + picker; e2e #39/#44 | — |
 | 45 | AI Summary accuracy | **Done with notes** | Live audit 15 prod leads on `openai/gpt-oss-120b`: **14 PASS / 1 WEAK / 0 FAIL** ([AI_SUMMARY_ACCURACY_AUDIT.md](./AI_SUMMARY_ACCURACY_AUDIT.md)) | Model migrated from retired `llama-3.3-70b-versatile`. WEAK: ***3907** (lost_reason wording soft). Prod UI still shows stale Aug caches until regen. |
-| 46 | Today's Leads last 24h | **Done** | rolling 24h + copy; e2e #46/#48 | — |
+| 46 | Today's Leads last 24h | **Done** | rolling 24h clamped to `<= now` (excludes future `created_at_dt`); Dashboard copy; e2e #46/#48 | Future-date audit: [FUTURE_CREATED_AT_AUDIT.md](./FUTURE_CREATED_AT_AUDIT.md) |
 | 47 | Marketing dashboard data | **Skipped** | Manual spend page exists; no Meta import | Out of scope per you |
 | 48 | Re-enquiry in Today's leads | **Done** | IST-day `re_enquired_at`; e2e + unit | — |
 | 49 | DataDna Email + Lost Reason | **Done** | e2e #49 | — |
@@ -120,6 +120,8 @@ Still open / skipped: **#14** (follow-up without task — internal), **#47** Mar
 | [frontend/e2e/tracker-46-54.spec.js](../frontend/e2e/tracker-46-54.spec.js) | Tightened #48 re-enquiry, #50 UI, #51 exact location |
 | [backend/scripts/e2e_fixtures.py](../backend/scripts/e2e_fixtures.py) | ISO date strings coerced for `*_at` / `*_dt` patches |
 | [backend/scripts/audit_ai_summary_accuracy.py](../backend/scripts/audit_ai_summary_accuracy.py) | #45 prod read-only live LLM accuracy audit |
+| [backend/scripts/audit_future_created_at.py](../backend/scripts/audit_future_created_at.py) | Read-only future `created_at_dt` audit (Today's New Leads pollution) |
+| [docs/FUTURE_CREATED_AT_AUDIT.md](./FUTURE_CREATED_AT_AUDIT.md) | Future-date findings + repair plan; Junk status policy for todays_leads |
 | [docs/AI_SUMMARY_ACCURACY_AUDIT.md](./AI_SUMMARY_ACCURACY_AUDIT.md) | #45 live accuracy audit (`openai/gpt-oss-120b`, 14/15 PASS) |
 
 ## Cleanup

@@ -182,10 +182,27 @@ def test_todays_leads_uses_rolling_24h_created_or_re_enquired_today():
     assert "created_at_dt" in blob
     assert "re_enquired_at" in blob
     assert "$or" in blob
-    # rolling window should be now - 24h, not IST midnight
+    # rolling window should be [now - 24h, now], not IST midnight and not open-ended
     created_clause = filt["$or"][0]
-    rolling_start = created_clause["$or"][0]["created_at_dt"]["$gte"]
-    assert rolling_start == now - timedelta(hours=24)
+    created_dt_window = created_clause["$or"][0]["created_at_dt"]
+    assert created_dt_window["$gte"] == now - timedelta(hours=24)
+    assert created_dt_window["$lte"] == now
+    created_str_window = created_clause["$or"][1]["$and"][1]["created_at"]
+    assert created_str_window["$gte"] == (now - timedelta(hours=24)).isoformat()
+    assert created_str_window["$lte"] == now.isoformat()
+
+
+def test_todays_leads_excludes_future_created_at_dt():
+    """Bad imports with future created_at_dt must not match the create branch."""
+    now = datetime(2026, 9, 4, 6, 30, 0, tzinfo=timezone.utc)
+    ctx = build_metric_context({}, uid="u1", name="Rep", is_manager=False, now_dt=now)
+    filt = metric_filter_for_key("todays_leads", ctx)
+    created_dt_window = filt["$or"][0]["$or"][0]["created_at_dt"]
+    assert created_dt_window["$lte"] == now
+    # Future date would fail $lte now while still satisfying an open-ended $gte
+    future = datetime(2026, 12, 1, 15, 16, 13, tzinfo=timezone.utc)
+    assert future >= created_dt_window["$gte"]
+    assert not (future <= created_dt_window["$lte"])
 
 
 def test_todays_leads_re_enquiry_window_matches_ist_calendar_day():

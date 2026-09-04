@@ -24,7 +24,7 @@ export function LeadRowActions({ leadId, onNote, onNudge, canNudge, nudgeDisable
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>
+          <TooltipContent className="bg-crm-elevated border border-crm-border text-crm-fg">
             {nudgeDisabled ? 'Assign a rep before nudging' : 'Nudge by Admin'}
           </TooltipContent>
         </Tooltip>
