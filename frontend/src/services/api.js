@@ -217,6 +217,15 @@ export const whatsappAPI = {
     api.post(`/whatsapp/send-brochure/${leadId}`, null, {
       params: project ? { project } : undefined,
     }),
+  /** Multipart attach — let axios set multipart boundary (override default JSON). */
+  sendAttachment: (leadId, file, caption) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (caption) form.append('caption', caption);
+    return api.post(`/whatsapp/send-attachment/${leadId}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
   sendPricing: (leadId) => api.post(`/whatsapp/send-pricing/${leadId}`),
   sendSiteVisitRequest: (leadId) => api.post(`/whatsapp/send-site-visit-request/${leadId}`),
   sendSiteVisitDone: (leadId) => api.post(`/whatsapp/send-site-visit-done/${leadId}`),

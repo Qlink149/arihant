@@ -22,6 +22,7 @@ from typing import Optional
 from urllib.parse import quote, unquote, urlparse
 
 import httpx
+from fastapi import HTTPException, UploadFile
 from crm.services.lead_project_fields import primary_project_label
 
 from crm.core.state import (
@@ -65,6 +66,54 @@ _INBOX_PEER_CANDIDATE_CAP = 500
 _INBOX_DEFAULT_LIMIT = 50
 _INBOX_MAX_LIMIT = 100
 _INBOX_FILTERS = frozenset({"all", "unread", "mine"})
+
+# Agent attach-and-send (session file) — metadata only in Mongo, never file blobs.
+_ATTACHMENT_MAX_BYTES = 16 * 1024 * 1024
+_ATTACHMENT_ALLOWED_EXT = frozenset({
+    ".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".webp",
+})
+_ATTACHMENT_ALLOWED_MIME = frozenset({
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/octet-stream",  # browsers often send this; still gated by extension
+})
+_ATTACHMENT_IMAGE_EXT = frozenset({".jpg", ".jpeg", ".png", ".webp"})
+
+
+def _attachment_ext(filename: str) -> str:
+    name = (filename or "").strip()
+    if not name or "." not in name:
+        return ""
+    return "." + name.rsplit(".", 1)[-1].lower()
+
+
+def _validate_attachment_upload(filename: str, content_type: Optional[str], size: int) -> Optional[str]:
+    """Return an error string if the upload is not allowed; else None."""
+    if size is None or size <= 0:
+        return "Empty file"
+    if size > _ATTACHMENT_MAX_BYTES:
+        return f"File too large (max {_ATTACHMENT_MAX_BYTES // (1024 * 1024)} MB)"
+    ext = _attachment_ext(filename)
+    if ext not in _ATTACHMENT_ALLOWED_EXT:
+        return "Unsupported file type. Allowed: PDF, DOC, DOCX, JPEG, PNG, WebP"
+    mime = (content_type or "").split(";")[0].strip().lower()
+    if mime and mime not in _ATTACHMENT_ALLOWED_MIME:
+        # Extension already allowlisted; reject only clearly wrong MIME families
+        if mime.startswith("video/") or mime.startswith("audio/") or mime.startswith("text/"):
+            return "Unsupported file type. Allowed: PDF, DOC, DOCX, JPEG, PNG, WebP"
+    return None
+
+
+def _attachment_message_type(filename: str, content_type: Optional[str]) -> str:
+    ext = _attachment_ext(filename)
+    mime = (content_type or "").split(";")[0].strip().lower()
+    if ext in _ATTACHMENT_IMAGE_EXT or mime.startswith("image/"):
+        return "image"
+    return "document"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1065,31 +1114,30 @@ async def _wati_send_template(
         return resp
 
 
-async def _wati_send_file_via_url(phone: str, file_url: str, filename: str = "document.pdf"):
+async def _wati_send_session_file(
+    phone: str,
+    content: bytes,
+    filename: str = "document.pdf",
+    content_type: str = "application/octet-stream",
+    caption: Optional[str] = None,
+):
     """
-    Send a file to an active session.
-    Prefer WATI v1 sendSessionFile (multipart). v3 fileViaUrl 404s on this tenant.
+    Send file bytes to an active WhatsApp session via WATI v1 sendSessionFile.
+    Does not store bytes in CRM — caller only persists message metadata.
     """
-    if not file_url:
+    if content is None:
         return None
     filename = (filename or "document.pdf").strip() or "document.pdf"
+    content_type = (content_type or "application/octet-stream").split(";")[0].strip() or "application/octet-stream"
+    caption_val = (caption or filename).strip() or filename
     last_resp = None
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            file_resp = await client.get(file_url, timeout=60.0)
-            if file_resp.status_code >= 400:
-                logger.warning(
-                    f"Brochure download failed {file_resp.status_code} for {file_url}"
-                )
-                return file_resp
-            content = file_resp.content
-            content_type = file_resp.headers.get("content-type") or "application/pdf"
-
             for target in _wati_session_targets(phone):
                 resp = await client.post(
                     f"{WATI_API_ENDPOINT}/api/v1/sendSessionFile/{target}",
                     headers={"Authorization": f"Bearer {WATI_API_TOKEN}"},
-                    params={"caption": filename},
+                    params={"caption": caption_val},
                     files={"file": (filename, content, content_type)},
                     timeout=60.0,
                 )
@@ -1103,6 +1151,30 @@ async def _wati_send_file_via_url(phone: str, file_url: str, filename: str = "do
         logger.error(f"WATI sendSessionFile error for {phone}: {e}")
         return last_resp
     return last_resp
+
+
+async def _wati_send_file_via_url(phone: str, file_url: str, filename: str = "document.pdf"):
+    """
+    Download a public URL then send via session file.
+    Prefer WATI v1 sendSessionFile (multipart). v3 fileViaUrl 404s on this tenant.
+    """
+    if not file_url:
+        return None
+    filename = (filename or "document.pdf").strip() or "document.pdf"
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            file_resp = await client.get(file_url, timeout=60.0)
+            if file_resp.status_code >= 400:
+                logger.warning(
+                    f"Brochure download failed {file_resp.status_code} for {file_url}"
+                )
+                return file_resp
+            content = file_resp.content
+            content_type = file_resp.headers.get("content-type") or "application/pdf"
+    except Exception as e:
+        logger.error(f"WATI sendSessionFile download error for {phone}: {e}")
+        return None
+    return await _wati_send_session_file(phone, content, filename, content_type, caption=filename)
 
 
 async def _wati_get_history(phone: str, page_size: int = 50, max_pages: int = 5) -> list:
@@ -2421,6 +2493,146 @@ async def send_lead_ack(lead_id: str, lead: dict) -> dict:
     except Exception as e:
         logger.error(f"send_lead_ack failed for lead {lead_id}: {e}")
         return {"success": False, "error": str(e)}
+
+
+async def send_attachment_to_lead(
+    lead_id: str,
+    file: UploadFile,
+    current_user: dict,
+    caption: Optional[str] = None,
+) -> dict:
+    """
+    Agent attach-and-send: multipart bytes → WATI sendSessionFile.
+    Persists message metadata only (never file blobs in Mongo).
+    Requires an open 24h WhatsApp session.
+    """
+    if WHATSAPP_PROVIDER == "disabled":
+        return {"success": False, "error": "WhatsApp is not enabled on this server"}
+    if WHATSAPP_PROVIDER != "wati":
+        return {"success": False, "error": f"Unknown WHATSAPP_PROVIDER: {WHATSAPP_PROVIDER}"}
+    if not WATI_API_TOKEN:
+        return {"success": False, "error": "WhatsApp not available — WATI token not configured on server"}
+
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    phone = _wati_phone(lead.get("phone", ""))
+    if not phone:
+        return {"success": False, "error": "Lead has no phone number"}
+
+    filename = (file.filename or "document").strip() or "document"
+    content_type = (file.content_type or "application/octet-stream").strip()
+    raw = await file.read()
+    size = len(raw or b"")
+
+    validation_err = _validate_attachment_upload(filename, content_type, size)
+    if validation_err:
+        return {"success": False, "error": validation_err}
+
+    session_open = await _is_session_open(phone)
+    if not session_open:
+        return {
+            "success": False,
+            "error": (
+                "No active WhatsApp session — the customer has not messaged in the last 24 hours. "
+                "Select an approved template to reach out."
+            ),
+        }
+
+    lead_name = lead.get("first_name") or lead.get("name") or phone
+    await _wati_ensure_contact(phone, lead_name)
+
+    caption_clean = (caption or "").strip() or None
+    resp = await _wati_send_session_file(
+        phone,
+        raw,
+        filename=filename,
+        content_type=content_type,
+        caption=caption_clean or filename,
+    )
+    if resp is None:
+        return {"success": False, "error": "Failed to send file to WhatsApp"}
+
+    try:
+        result = resp.json()
+    except Exception:
+        result = {"raw": getattr(resp, "text", "")}
+
+    if not _wati_session_send_ok(resp.status_code, result if isinstance(result, dict) else {}):
+        err = _friendly_wati_send_error(
+            resp.status_code,
+            result if isinstance(result, dict) else {},
+            kind="file",
+        )
+        logger.error(
+            f"WATI sendSessionFile failed {phone}: {resp.status_code} {getattr(resp, 'text', '')[:300]}"
+        )
+        return {"success": False, "error": err, "status_code": resp.status_code}
+
+    now_dt = utc_now()
+    now_iso = iso_utc_now()
+    wati_msg_id = _wati_session_send_message_id(result if isinstance(result, dict) else {})
+    msg_type = _attachment_message_type(filename, content_type)
+    content = caption_clean or filename
+    msg_doc = {
+        "id": str(uuid.uuid4()),
+        "wati_message_id": wati_msg_id or None,
+        "gupshup_message_id": None,
+        "direction": "outbound",
+        "destination": phone,
+        "message_type": msg_type,
+        "content": content,
+        "media_filename": filename,
+        # No media_url until WATI history sync provides a getMedia path — never store bytes.
+        "status": "sent",
+        "sent_by": current_user["id"],
+        "sent_by_user_id": current_user["id"],
+        "created_at": now_iso,
+        "created_at_dt": now_dt,
+    }
+    await _upsert_whatsapp_message(msg_doc)
+
+    context_update = {
+        "type": "whatsapp",
+        "timestamp": now_iso,
+        "timestamp_dt": now_dt,
+        "description": f"WhatsApp attachment sent: {filename}",
+        "agent": current_user.get("full_name") or current_user.get("id"),
+        "actor_user_id": current_user["id"],
+        "message_id": wati_msg_id or None,
+    }
+    await db.leads.update_one(
+        {"id": lead_id},
+        {"$push": {"context_updates": context_update}, "$set": {"updated_at": now_iso, "updated_at_dt": now_dt}},
+    )
+    try:
+        from crm.services.ai_lead_regen import enqueue_lead_ai_refresh
+        from crm.services.lead_follow_up import clear_missed_follow_up_after_activity
+        from crm.services.lead_overview_service import ist_day_window
+
+        enqueue_lead_ai_refresh(lead_id)
+        today_str, _, _ = ist_day_window()
+        await clear_missed_follow_up_after_activity(
+            lead_id,
+            today_str=today_str,
+            actor_name=current_user.get("full_name") or "User",
+        )
+    except Exception as clear_err:
+        logger.warning(
+            "post-attachment lead hooks failed for %s: %s",
+            lead_id,
+            clear_err,
+        )
+
+    return {
+        "success": True,
+        "status": "sent",
+        "message_id": wati_msg_id,
+        "destination": phone,
+        "message_type": msg_type,
+        "media_filename": filename,
+    }
 
 
 async def send_pricing(lead_id: str, current_user: dict) -> dict:

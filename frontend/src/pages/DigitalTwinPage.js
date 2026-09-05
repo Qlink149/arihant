@@ -299,9 +299,11 @@ const DigitalTwinPage = () => {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
+  const [chatSessionOpen, setChatSessionOpen] = useState(false);
   const [syncingChat, setSyncingChat] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
+  const chatAttachInputRef = useRef(null);
   const [showContextModal, setShowContextModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [contextNote, setContextNote] = useState('');
@@ -462,6 +464,9 @@ const DigitalTwinPage = () => {
       const response = await whatsappAPI.getLeadChat(leadId);
       const localMessages = sortChatAscending(response.data.messages || []);
       setChatHistory(localMessages);
+      if (typeof response.data.session_open === 'boolean') {
+        setChatSessionOpen(response.data.session_open);
+      }
       if (showModal) setShowChatHistory(true);
 
       // 2) Always background-sync from WATI so OLD WhatsApp messages gap-fill into DB
@@ -470,6 +475,9 @@ const DigitalTwinPage = () => {
       try {
         const synced = await whatsappAPI.syncLeadChat(leadId);
         setChatHistory(sortChatAscending(synced.data.messages || []));
+        if (typeof synced.data.session_open === 'boolean') {
+          setChatSessionOpen(synced.data.session_open);
+        }
       } catch (syncErr) {
         console.warn('WhatsApp background sync skipped:', syncErr);
       } finally {
@@ -486,6 +494,9 @@ const DigitalTwinPage = () => {
     try {
       const res = await whatsappAPI.syncLeadChat(leadId);
       setChatHistory(sortChatAscending(res.data.messages || []));
+      if (typeof res.data.session_open === 'boolean') {
+        setChatSessionOpen(res.data.session_open);
+      }
       const n = res.data.synced ?? 0;
       toast.success(n ? `Synced ${n} message${n === 1 ? '' : 's'} from WhatsApp` : 'Chat up to date');
     } catch (error) {
@@ -595,6 +606,40 @@ const DigitalTwinPage = () => {
         error?.response?.data?.detail ||
         'Network or server error. Please try again.';
       toast.error('Message not sent', { description: String(detail) });
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const handleSendAttachmentFromChat = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !leadId) return;
+    if (!chatSessionOpen) {
+      toast.error('Attachment not sent', {
+        description:
+          'No active WhatsApp session — the customer has not messaged in the last 24 hours.',
+      });
+      return;
+    }
+    setSendingMessage(true);
+    try {
+      const response = await whatsappAPI.sendAttachment(leadId, file);
+      if (response.data.success) {
+        toast.success('Attachment sent');
+        await fetchChatHistory(false);
+        fetchLead();
+      } else {
+        toast.error('Attachment not sent', {
+          description: response.data.error || 'Failed to send attachment',
+        });
+      }
+    } catch (error) {
+      const detail =
+        error?.response?.data?.error ||
+        error?.response?.data?.detail ||
+        'Network or server error. Please try again.';
+      toast.error('Attachment not sent', { description: String(detail) });
     } finally {
       setSendingMessage(false);
     }
@@ -1766,7 +1811,35 @@ const DigitalTwinPage = () => {
 
           {/* Message Input */}
           <div className="flex-shrink-0 pt-4 border-t border-crm-border">
-            <div className="flex gap-2">
+            {!chatSessionOpen && (
+              <p className="text-amber-600 text-xs mb-2 text-center">
+                Outside 24h window — attachments require an open WhatsApp session.
+              </p>
+            )}
+            <div className="flex gap-2 items-center">
+              <input
+                ref={chatAttachInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleSendAttachmentFromChat}
+                data-testid="chat-attach-input"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => chatAttachInputRef.current?.click()}
+                disabled={sendingMessage || !chatSessionOpen}
+                title={
+                  chatSessionOpen
+                    ? 'Attach PDF, DOC, or image'
+                    : 'Attachments require an open 24h WhatsApp session'
+                }
+                className="h-12 w-12 rounded-full border-crm-border text-crm-fg-secondary p-0 disabled:opacity-50 shrink-0"
+                data-testid="chat-attach-btn"
+              >
+                <Paperclip size={18} />
+              </Button>
               <input
                 type="text"
                 value={messageText}

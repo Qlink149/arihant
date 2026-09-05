@@ -4,7 +4,7 @@ import json
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
 
 from crm.core.state import get_current_user, logger, WHATSAPP_PROVIDER
 from crm.services.dashboard_scope import resolve_lead_or_403
@@ -81,6 +81,23 @@ async def send_brochure_to_lead(
     """Send the project brochure (template + PDF) to the lead via WATI."""
     await resolve_lead_or_403(lead_id, current_user)
     return await whatsapp_service.send_brochure(lead_id, current_user, project=project)
+
+
+@router.post("/whatsapp/send-attachment/{lead_id}")
+async def send_attachment_to_lead(
+    lead_id: str,
+    file: UploadFile = File(...),
+    caption: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Send an agent-uploaded PDF/DOC/image to the lead via open WhatsApp session.
+    File bytes are forwarded to WATI only — not stored as blobs in Mongo.
+    """
+    await resolve_lead_or_403(lead_id, current_user)
+    return await whatsapp_service.send_attachment_to_lead(
+        lead_id, file, current_user, caption=caption
+    )
 
 
 @router.post("/whatsapp/send-pricing/{lead_id}")

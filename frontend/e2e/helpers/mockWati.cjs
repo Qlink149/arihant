@@ -33,14 +33,20 @@ async function installWatiOutboundMocks(page, { capture = [] } = {}) {
 
     const isSend =
       method === 'POST'
-      && (/\/send/i.test(url) || /\/brochure/i.test(url) || /\/pricing/i.test(url));
+      && (
+        /\/send-attachment/i.test(url)
+        || /\/send/i.test(url)
+        || /\/brochure/i.test(url)
+        || /\/pricing/i.test(url)
+      );
 
     if (isSend) {
       let body = null;
       try {
         body = req.postDataJSON();
       } catch {
-        body = req.postData();
+        // multipart FormData (attachments) — keep raw postData string/buffer marker
+        body = req.postData() || { multipart: true };
       }
       capture.push({ url, method, body });
       await route.fulfill({
@@ -50,6 +56,7 @@ async function installWatiOutboundMocks(page, { capture = [] } = {}) {
           success: true,
           mocked: true,
           message_id: `e2e-mock-${Date.now()}`,
+          media_filename: /send-attachment/i.test(url) ? 'e2e-attach.pdf' : undefined,
         }),
       });
       return;

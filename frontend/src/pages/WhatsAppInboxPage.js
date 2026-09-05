@@ -14,6 +14,7 @@ import {
   UserPlus,
   FileText,
   IndianRupee,
+  Paperclip,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { leadsAPI, whatsappAPI } from '../services/api';
@@ -147,10 +148,13 @@ const WhatsAppInboxPage = () => {
     sync,
     sendText,
     sendTemplate,
+    sendAttachment,
   } = useLeadWhatsAppThread(selected?.lead_id || null, {
     phone: selected?.peer_phone || selected?.phone || null,
     autoLoad: Boolean(selectedKey),
   });
+
+  const attachInputRef = useRef(null);
 
   const fetchInbox = useCallback(
     async ({ silent = false, append = false, skip = 0, preserveScroll = false } = {}) => {
@@ -563,6 +567,32 @@ const WhatsAppInboxPage = () => {
 
   const effectiveSessionOpen = selected?.session_open || sessionOpen;
   const composerBlocked = !effectiveSessionOpen && !selectedTemplate;
+  const canAttach = Boolean(selected?.lead_id) && effectiveSessionOpen && !sending;
+
+  const handleAttachClick = () => {
+    if (!canAttach) return;
+    attachInputRef.current?.click();
+  };
+
+  const handleAttachFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selected?.lead_id) return;
+    if (!effectiveSessionOpen) {
+      toast.error('Attachment not sent', {
+        description:
+          'No active WhatsApp session — the customer has not messaged in the last 24 hours.',
+      });
+      return;
+    }
+    if (sending || sendingAction.current) return;
+    sendingAction.current = true;
+    const ok = await sendAttachment(file);
+    sendingAction.current = false;
+    if (ok) {
+      fetchInbox({ silent: true, skip: 0, preserveScroll: true });
+    }
+  };
 
   return (
     <div className="h-[calc(100vh-5.5rem)] min-h-[480px] flex flex-col gap-3">
@@ -953,7 +983,32 @@ const WhatsAppInboxPage = () => {
                     </Button>
                   </div>
                 )}
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <input
+                    ref={attachInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={handleAttachFile}
+                    data-testid="wa-attach-input"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleAttachClick}
+                    disabled={!canAttach}
+                    title={
+                      !selected?.lead_id
+                        ? 'Link a lead to send attachments'
+                        : !effectiveSessionOpen
+                          ? 'Attachments require an open 24h WhatsApp session'
+                          : 'Attach PDF, DOC, or image'
+                    }
+                    className="h-11 w-11 rounded-full border-crm-border text-crm-fg-secondary p-0 disabled:opacity-50 shrink-0"
+                    data-testid="wa-attach-btn"
+                  >
+                    <Paperclip size={18} />
+                  </Button>
                   <input
                     type="text"
                     value={draft}

@@ -189,6 +189,36 @@ export function useLeadWhatsAppThread(leadId, { phone, autoLoad = true } = {}) {
     [leadId, phone, load]
   );
 
+  const sendAttachment = useCallback(
+    async (file, caption) => {
+      if (!file || !leadId) return false;
+      setSending(true);
+      try {
+        const response = await whatsappAPI.sendAttachment(leadId, file, caption);
+        if (response.data.success) {
+          toast.success('Attachment sent');
+          await load({ withSync: false });
+          load({ withSync: true });
+          return true;
+        }
+        toast.error('Attachment not sent', {
+          description: response.data.error || 'Failed to send attachment',
+        });
+        return false;
+      } catch (err) {
+        const detail =
+          err?.response?.data?.error ||
+          err?.response?.data?.detail ||
+          'Network or server error. Please try again.';
+        toast.error('Attachment not sent', { description: String(detail) });
+        return false;
+      } finally {
+        setSending(false);
+      }
+    },
+    [leadId, load]
+  );
+
   useEffect(() => {
     if (!autoLoad || !hasThread) {
       setMessages([]);
@@ -210,6 +240,7 @@ export function useLeadWhatsAppThread(leadId, { phone, autoLoad = true } = {}) {
     sync,
     sendText,
     sendTemplate,
+    sendAttachment,
     setMessages,
   };
 }

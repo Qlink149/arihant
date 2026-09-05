@@ -310,4 +310,49 @@ test.describe('Change Tracker 26–36 (disposable e2e DB)', () => {
     expect(JSON.stringify(params)).toMatch(/Priya/);
     expect(JSON.stringify(params)).toMatch(/Vivriti/);
   });
+
+  test('WA inbox attach sends multipart to send-attachment (mocked)', async ({ page }) => {
+    await ensureAdminApi();
+    const phone = randomE2EPhone();
+    phones.push(phone);
+    const lead = await createE2ELead(adminToken, {
+      phone,
+      project: 'Vivriti',
+      assigned_user_id: adminMe.id,
+      assigned_to_name: 'Admin',
+    });
+
+    // Open 24h session via synthetic inbound (local webhook only)
+    await postWatiInbound({
+      waId: phone,
+      text: 'E2E inbound for attach session',
+      senderName: `${e2eFirstName(runId)} Attach`,
+    });
+
+    const capture = [];
+    await installWatiOutboundMocks(page, { capture });
+    await authenticatePage(page);
+    await page.goto('/whatsapp');
+
+    await page.getByTestId(`wa-thread-${lead.id}`).click({ timeout: 15000 }).catch(async () => {
+      await page.getByText(phone.slice(-4)).first().click();
+    });
+
+    const attachBtn = page.getByTestId('wa-attach-btn');
+    await expect(attachBtn).toBeVisible({ timeout: 15000 });
+    await expect(attachBtn).toBeEnabled({ timeout: 20000 });
+
+    await page.getByTestId('wa-attach-input').setInputFiles({
+      name: 'e2e-floorplan.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 e2e-attach'),
+    });
+
+    await expect
+      .poll(
+        () => capture.some((c) => /send-attachment/i.test(c.url)),
+        { timeout: 15000 }
+      )
+      .toBeTruthy();
+  });
 });
