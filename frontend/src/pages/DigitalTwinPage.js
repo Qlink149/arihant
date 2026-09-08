@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { leadsAPI, whatsappAPI, usersAPI } from '../services/api';
 import { LeadProfileHeader } from '../components/leads/LeadProfileHeader';
 import { LeadAvatar } from '../components/leads/LeadAvatar';
-import NoteMentionPicker from '../components/leads/NoteMentionPicker';
+import NoteTextareaWithMentions from '../components/leads/NoteTextareaWithMentions';
+import NoteTimelineDescription from '../components/leads/NoteTimelineDescription';
 import { StickySummaryBar } from '../components/leads/StickySummaryBar';
 import { DataDnaGrid } from '../components/leads/DataDnaGrid';
 import { RoleBasedTimeInput } from '../components/ui/RoleBasedTimeInput';
@@ -1247,7 +1248,13 @@ const DigitalTwinPage = () => {
                         </div>
                       ))}
                       {update.description && (
-                        <p className="text-crm-fg-muted text-xs mt-2">{update.description}</p>
+                        <div className="mt-2">
+                          <NoteTimelineDescription
+                            description={update.description}
+                            mentionedNames={update.mentioned_names}
+                            className="text-crm-fg-muted text-xs"
+                          />
+                        </div>
                       )}
                     </div>
                   ) : editingContextIndex === update._source_index ? (
@@ -1282,7 +1289,13 @@ const DigitalTwinPage = () => {
                     </div>
                   ) : (
                     <div className="mt-2 group/note relative">
-                      <p className="text-crm-fg pr-8">{update.description}</p>
+                      <div className="pr-8">
+                        <NoteTimelineDescription
+                          description={update.description}
+                          mentionedNames={update.mentioned_names}
+                          className="text-crm-fg"
+                        />
+                      </div>
                       {isEditableTimelineNote(update) && typeof update._source_index === 'number' && (
                         <button
                           type="button"
@@ -1377,16 +1390,16 @@ const DigitalTwinPage = () => {
             </div>
             <div>
               <label className="text-crm-fg-muted text-xs uppercase tracking-wider block mb-2">Note</label>
-              <textarea value={contextNote} onChange={e => setContextNote(e.target.value)}
-                placeholder="e.g., Customer visited site today… Use @Name or pick agents below"
-                className="w-full h-32 px-4 py-3 bg-crm-muted border border-crm-border rounded-lg text-crm-fg placeholder:text-crm-fg-muted resize-none"
-                data-testid="context-note-input" />
+              <NoteTextareaWithMentions
+                value={contextNote}
+                onChange={setContextNote}
+                mentionedIds={contextMentions}
+                onMentionsChange={setContextMentions}
+                disabled={savingContext}
+                placeholder="e.g., Customer visited site today… Type @ to mention an agent"
+                data-testid="context-note"
+              />
             </div>
-            <NoteMentionPicker
-              selectedIds={contextMentions}
-              onChange={setContextMentions}
-              disabled={savingContext}
-            />
             <p className="text-crm-fg-muted text-xs">This note will be added to the timeline and the AI Summary will be regenerated. Assignee and @mentioned agents are notified.</p>
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => setShowContextModal(false)} className="flex-1 border-crm-border text-crm-fg hover:bg-white/5">Cancel</Button>

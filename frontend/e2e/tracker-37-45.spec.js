@@ -164,6 +164,36 @@ test.describe('Change Tracker 37–45 (disposable e2e DB)', () => {
     await expect(page.getByRole('columnheader', { name: 'Project' })).toBeVisible();
   });
 
+  test('#39b inline @mention inserts name into note + timeline', async ({ page }) => {
+    await ensureAdminApi();
+    const lead = await createE2ELead(adminToken, {
+      project: 'E2E Bold Project',
+    });
+    phones.push(lead.phone);
+
+    await authenticatePage(page);
+    await page.goto(`/lead/${lead.id}`);
+    await expect(page.getByTestId('context-timeline')).toBeVisible();
+
+    await page.getByTestId('update-context-btn').click();
+    await expect(page.getByTestId('context-modal')).toBeVisible();
+    await expect(page.getByTestId('note-mention-picker')).toHaveCount(0);
+
+    const noteInput = page.getByTestId('context-note-input');
+    await noteInput.click();
+    await noteInput.fill('Follow up with ');
+    await noteInput.pressSequentially('@E2E', { delay: 40 });
+    await expect(page.getByTestId('inline-mention-suggestions')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId(`inline-mention-option-${repMe.id}`).click();
+    await expect(noteInput).toHaveValue(/@E2E Rep/);
+
+    await page.getByTestId('save-context-btn').click();
+    await expect(page.getByTestId('context-modal')).toBeHidden({ timeout: 15000 });
+    await expect(page.getByTestId('timeline-mention-token').filter({ hasText: '@E2E Rep' })).toBeVisible({
+      timeout: 15000,
+    });
+  });
+
   test('#43 dormant chip not shown from legacy URL', async ({ page }) => {
     await authenticatePage(page);
     await page.goto('/virtual-customer?dormant=1');

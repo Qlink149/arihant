@@ -8,7 +8,7 @@ import { LeadListTable } from '../components/leads/LeadListTable';
 import { LeadExportModal } from '../components/leads/LeadExportModal';
 import { MultiSelectFilterDropdown } from '../components/leads/MultiSelectFilterDropdown';
 import { LeadFilterViewsBar } from '../components/leads/LeadFilterViewsBar';
-import NoteMentionPicker from '../components/leads/NoteMentionPicker';
+import NoteTextareaWithMentions from '../components/leads/NoteTextareaWithMentions';
 import {
   applyViewFiltersToState,
   buildLeadListParams,
@@ -1621,18 +1621,16 @@ const VirtualCustomerPage = () => {
             <DialogTitle className="font-serif text-xl">Add note</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            <textarea
+            <NoteTextareaWithMentions
               value={quickNote}
-              onChange={(e) => setQuickNote(e.target.value)}
-              placeholder="Write a note for this lead… Use @Name or pick agents below"
-              rows={4}
-              className="w-full px-3 py-2 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none resize-none"
-              data-testid="quick-note-input"
-            />
-            <NoteMentionPicker
-              selectedIds={quickNoteMentions}
-              onChange={setQuickNoteMentions}
+              onChange={setQuickNote}
+              mentionedIds={quickNoteMentions}
+              onMentionsChange={setQuickNoteMentions}
               disabled={savingQuickNote}
+              rows={4}
+              placeholder="Write a note for this lead… Type @ to mention an agent"
+              className="w-full px-3 py-2 bg-crm-muted border border-crm-border rounded-lg text-crm-fg text-sm placeholder:text-crm-fg-muted focus:border-[#C5A059]/50 focus:outline-none resize-none"
+              data-testid="quick-note"
             />
             <div className="flex justify-end gap-2">
               <Button
