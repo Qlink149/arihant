@@ -417,8 +417,12 @@ class SLAEngineService:
         """
         Acquire a single-job lock. Relies on unique index on cron_locks.job.
         Only succeeds when we create/refresh an expired lock ourselves.
+
+        Ownership is proven via a per-attempt UUID token — not locked_at == now_dt,
+        because Mongo BSON Date truncates microseconds and that equality almost always fails.
         """
         expires = now_dt + timedelta(minutes=_CRON_LOCK_TTL_MINUTES)
+        owner = str(uuid.uuid4())
         try:
             result = await db.cron_locks.find_one_and_update(
                 {
@@ -433,6 +437,7 @@ class SLAEngineService:
                         "job": _CRON_LOCK_JOB,
                         "locked_at": now_dt,
                         "expires_at": expires,
+                        "owner": owner,
                     }
                 },
                 upsert=True,
@@ -444,13 +449,9 @@ class SLAEngineService:
         except Exception as e:
             logger.warning("SLA cron lock not acquired: %s", e)
             return False
-        locked_at = coerce_datetime((result or {}).get("locked_at"))
-        if locked_at and locked_at.tzinfo is None:
-            locked_at = locked_at.replace(tzinfo=timezone.utc)
-        if locked_at is None:
+        if not result:
             return False
-        # Exact match only — no soft <2s window that allows double runners
-        return locked_at == now_dt
+        return (result.get("owner") or "") == owner
 
     async def _load_name_to_user_id(self) -> Dict[str, str]:
         users = await db.users.find({}, {"_id": 0, "id": 1, "full_name": 1}).to_list(500)

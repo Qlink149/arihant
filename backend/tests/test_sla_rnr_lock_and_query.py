@@ -35,27 +35,71 @@ async def _cron_lock_rejects_duplicate_key():
     assert ok is False
 
 
-def test_cron_lock_requires_exact_locked_at():
-    asyncio.run(_cron_lock_requires_exact_locked_at())
+def test_cron_lock_requires_matching_owner_token():
+    asyncio.run(_cron_lock_requires_matching_owner_token())
 
 
-async def _cron_lock_requires_exact_locked_at():
+async def _cron_lock_requires_matching_owner_token():
     engine = SLAEngineService()
     now = utc_now()
-    other = now - timedelta(seconds=1)
     fake_locks = MagicMock()
-    fake_locks.find_one_and_update = AsyncMock(
-        return_value={"job": "process_slas", "locked_at": other}
-    )
 
+    # Wrong owner → reject (another writer won the race)
+    fake_locks.find_one_and_update = AsyncMock(
+        return_value={
+            "job": "process_slas",
+            "locked_at": now,
+            "owner": "someone-else",
+        }
+    )
     with patch("crm.services.sla_engine.db") as mock_db:
         mock_db.cron_locks = fake_locks
         ok = await engine._acquire_cron_lock(now)
     assert ok is False
 
-    fake_locks.find_one_and_update = AsyncMock(
-        return_value={"job": "process_slas", "locked_at": now}
-    )
+    # Echo back whatever owner we $set → accept
+    async def echo_owner(filter, update, **kwargs):
+        owner = update["$set"]["owner"]
+        return {
+            "job": "process_slas",
+            "locked_at": now,
+            "expires_at": update["$set"]["expires_at"],
+            "owner": owner,
+        }
+
+    fake_locks.find_one_and_update = AsyncMock(side_effect=echo_owner)
+    with patch("crm.services.sla_engine.db") as mock_db:
+        mock_db.cron_locks = fake_locks
+        ok = await engine._acquire_cron_lock(now)
+    assert ok is True
+
+
+def test_cron_lock_succeeds_when_locked_at_truncated_to_ms():
+    """Mongo BSON Date drops microseconds; owner token must still prove ownership."""
+    asyncio.run(_cron_lock_succeeds_when_locked_at_truncated_to_ms())
+
+
+async def _cron_lock_succeeds_when_locked_at_truncated_to_ms():
+    engine = SLAEngineService()
+    now = utc_now()
+    # Ensure we have sub-ms precision that Mongo would drop
+    if now.microsecond % 1000 == 0:
+        now = now + timedelta(microseconds=123)
+
+    async def echo_truncated(filter, update, **kwargs):
+        owner = update["$set"]["owner"]
+        locked_at = update["$set"]["locked_at"]
+        truncated = locked_at.replace(microsecond=(locked_at.microsecond // 1000) * 1000)
+        return {
+            "job": "process_slas",
+            "locked_at": truncated,
+            "expires_at": update["$set"]["expires_at"],
+            "owner": owner,
+        }
+
+    fake_locks = MagicMock()
+    fake_locks.find_one_and_update = AsyncMock(side_effect=echo_truncated)
+
     with patch("crm.services.sla_engine.db") as mock_db:
         mock_db.cron_locks = fake_locks
         ok = await engine._acquire_cron_lock(now)
