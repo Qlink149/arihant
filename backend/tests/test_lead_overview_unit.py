@@ -119,6 +119,80 @@ def test_follow_up_clauses_union_task_lead_ids():
     assert "$or" in missed_str
     assert "lid-1" in today_str
     assert "lid-2" in missed_str
+    assert "$nor" in today_str
+
+
+def test_follow_up_today_excludes_overdue_signals():
+    """Missed wins: overdue NAD or overdue task id must not appear in today."""
+    ctx = build_metric_context(
+        {},
+        uid="u1",
+        name="Rep",
+        is_manager=False,
+        now_dt=datetime(2026, 5, 26, 6, 30, 0, tzinfo=timezone.utc),
+    )
+    today = follow_up_today_clause(
+        ctx,
+        ["lead-due-today"],
+        missed_task_lead_ids=["lead-overdue"],
+    )
+    today_s = str(today)
+    assert "lead-due-today" in today_s
+    assert "lead-overdue" in today_s  # listed under $nor exclude
+    assert "$nor" in today_s
+    assert "$lt" in today_s
+
+    # Enrich-style dedupe: dual-signal lead only in missed task id list
+    today_ids = ["lead-both", "lead-today-only"]
+    missed_ids = ["lead-both", "lead-missed-only"]
+    missed_set = set(missed_ids)
+    today_ids = [lid for lid in today_ids if lid not in missed_set]
+    assert today_ids == ["lead-today-only"]
+
+    ctx["follow_up_today_task_lead_ids"] = today_ids
+    ctx["missed_follow_up_task_lead_ids"] = missed_ids
+    today_filt = metric_filter_for_key("follow_up_today", ctx)
+    missed_filt = metric_filter_for_key("missed_follow_up", ctx)
+    assert "lead-today-only" in str(today_filt)
+    assert "lead-both" in str(missed_filt)
+    assert "lead-missed-only" in str(missed_filt)
+
+
+def test_follow_up_today_only_nad_today():
+    ctx = build_metric_context(
+        {},
+        uid="u1",
+        name="Rep",
+        is_manager=False,
+        now_dt=datetime(2026, 5, 26, 6, 30, 0, tzinfo=timezone.utc),
+    )
+    clause = follow_up_today_clause(ctx, None, missed_task_lead_ids=None)
+    assert {"next_action_date": "2026-05-26"} in _or_branches(clause)
+    assert "$nor" in str(clause)
+
+
+def _or_branches(clause: dict) -> list:
+    """Collect $or arrays from nested $and."""
+    found = []
+    if "$or" in clause:
+        found.append(clause["$or"])
+    for part in clause.get("$and") or []:
+        if isinstance(part, dict) and "$or" in part:
+            found.append(part["$or"])
+    return found[0] if found else []
+
+
+def test_missed_only_overdue_nad_clause():
+    ctx = build_metric_context(
+        {},
+        uid="u1",
+        name="Rep",
+        is_manager=False,
+        now_dt=datetime(2026, 5, 26, 6, 30, 0, tzinfo=timezone.utc),
+    )
+    missed = missed_follow_up_clause(ctx, None)
+    assert "$lt" in str(missed)
+    assert "2026-05-26" in str(missed)
 
 
 def test_sv_conducted_includes_follow_up_stages():

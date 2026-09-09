@@ -76,7 +76,7 @@ const LEAD_CRITERIA = {
   missed_follow_up: {
     title: 'Missed follow-ups',
     rules: [
-      'Active pipeline leads where next_action_date or a pending task due date is before today (IST). Excludes Gone Cold and terminal statuses.',
+      'Active pipeline leads with overdue next_action_date or any overdue pending task (IST). If a lead also has a task due today, it still counts here only (missed wins). Excludes Gone Cold and terminal statuses.',
       'Uses snapshot scope: project filter only — not limited by lead intake period.',
     ],
   },
@@ -104,7 +104,7 @@ const LEAD_CRITERIA = {
   follow_up_today: {
     title: 'Follow up today',
     rules: [
-      'Active pipeline leads where next_action_date or a pending task due date equals today (IST). Excludes Gone Cold and terminal statuses.',
+      'Active pipeline leads due today (next_action_date or pending task due today, IST) with no overdue follow-up debt. Leads that also have an overdue date appear under Missed Follow-ups instead.',
       'Uses snapshot scope: project filter only — not limited by lead intake period.',
     ],
   },

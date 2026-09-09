@@ -157,15 +157,39 @@ def _follow_up_eligible_clause() -> dict:
     }
 
 
-def follow_up_today_clause(ctx: dict, task_lead_ids: Optional[List[str]] = None) -> dict:
-    """Active pipeline leads due today via next_action_date or pending tasks."""
+def follow_up_today_clause(
+    ctx: dict,
+    task_lead_ids: Optional[List[str]] = None,
+    *,
+    missed_task_lead_ids: Optional[List[str]] = None,
+) -> dict:
+    """
+    Active pipeline leads due today via next_action_date or pending tasks.
+
+    Mutually exclusive with missed: any overdue NAD or overdue pending task
+    excludes the lead from "today" (missed wins).
+    """
     today_str = ctx["today_str"]
     date_match: list[dict] = [{"next_action_date": today_str}]
     if task_lead_ids:
-        date_match.append({"id": {"$in": task_lead_ids}})
+        date_match.append({"id": {"$in": list(task_lead_ids)}})
+
+    overdue: list[dict] = [
+        {
+            "next_action_date": {
+                "$exists": True,
+                "$nin": [None, ""],
+                "$lt": today_str,
+            },
+        }
+    ]
+    if missed_task_lead_ids:
+        overdue.append({"id": {"$in": list(missed_task_lead_ids)}})
+
     return merge_query(
         _follow_up_eligible_clause(),
         {"$or": date_match},
+        {"$nor": overdue},
     )
 
 
@@ -183,7 +207,7 @@ def missed_follow_up_clause(ctx: dict, task_lead_ids: Optional[List[str]] = None
         }
     ]
     if task_lead_ids:
-        date_match.append({"id": {"$in": task_lead_ids}})
+        date_match.append({"id": {"$in": list(task_lead_ids)}})
     return merge_query(
         _follow_up_eligible_clause(),
         {"$or": date_match},

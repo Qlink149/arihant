@@ -171,7 +171,11 @@ def _re_engaged_clause(recent_cutoff_utc: datetime) -> dict:
 def _build_follow_up_today_filter(ctx: dict) -> dict:
     return merge_query(
         ctx["base_filter"],
-        follow_up_today_clause(ctx, ctx.get("follow_up_today_task_lead_ids")),
+        follow_up_today_clause(
+            ctx,
+            ctx.get("follow_up_today_task_lead_ids"),
+            missed_task_lead_ids=ctx.get("missed_follow_up_task_lead_ids"),
+        ),
     )
 
 
@@ -439,8 +443,10 @@ async def enrich_follow_up_task_ids(ctx: dict, *, base_filter: Optional[dict] = 
         pending_task_due_lead_ids(today_str, due_today=True, scope_lead_ids=scope_lead_ids),
         pending_task_due_lead_ids(today_str, overdue=True, scope_lead_ids=scope_lead_ids),
     )
-    ctx["follow_up_today_task_lead_ids"] = today_ids
+    # Missed wins: a lead with any overdue pending task is not "due today".
+    missed_set = set(missed_ids)
     ctx["missed_follow_up_task_lead_ids"] = missed_ids
+    ctx["follow_up_today_task_lead_ids"] = [lid for lid in today_ids if lid not in missed_set]
     return ctx
 
 
