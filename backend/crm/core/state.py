@@ -126,6 +126,20 @@ ZAPIER_WEBHOOK_SECRET = os.environ.get("ZAPIER_WEBHOOK_SECRET", "")
 # Webflow form_submission webhook (enquiry forms → CRM)
 WEBFLOW_WEBHOOK_SECRET = os.environ.get("WEBFLOW_WEBHOOK_SECRET", "")
 
+# MCUBE Classic inbound telephony (On Call / On Hangup push)
+MCUBE_ENABLED = os.environ.get("MCUBE_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+MCUBE_WEBHOOK_SECRET = os.environ.get("MCUBE_WEBHOOK_SECRET", "")
+MCUBE_ALLOWED_IPS = [
+    p.strip()
+    for p in (os.environ.get("MCUBE_ALLOWED_IPS") or "").split(",")
+    if p.strip()
+]
+MCUBE_ALLOWLIST_ENFORCE = os.environ.get("MCUBE_ALLOWLIST_ENFORCE", "false").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 # ── Project → Brochure PDF filename mapping ─────────────────────────────────
 # Keys must match project names/IDs stored on leads (case-insensitive lookup).
 # Filenames must match files in backend/static/.
@@ -538,6 +552,59 @@ async def ensure_db_indexes():
         await db.leads.create_index(
             [("project_id", 1), ("normalized_phone", 1), ("created_at_dt", -1)],
             name="leads_project_normPhone_createdAtDt",
+        )
+
+        # users — MCUBE agent phone fallback
+        await db.users.create_index(
+            [("normalized_mcube_number", 1)],
+            unique=True,
+            sparse=True,
+            name="users_normalized_mcube_number_uq_sparse",
+        )
+
+        # mcube_events — durable inbound ingest
+        await db.mcube_events.create_index(
+            [("processed", 1), ("received_at_dt", 1)],
+            name="mcube_events_processed_receivedAtDt",
+        )
+        await db.mcube_events.create_index(
+            [("call_id", 1)],
+            sparse=True,
+            name="mcube_events_callId_sparse",
+        )
+        await db.mcube_events.create_index(
+            [("id", 1)],
+            unique=True,
+            name="mcube_events_id_uq",
+        )
+
+        # calls — MCUBE CDR
+        await db.calls.create_index(
+            [("id", 1)],
+            unique=True,
+            name="calls_id_uq",
+        )
+        await db.calls.create_index(
+            [("call_id", 1)],
+            unique=True,
+            sparse=True,
+            name="calls_callId_uq_sparse",
+        )
+        await db.calls.create_index(
+            [("lead_id", 1), ("start_time_dt", -1)],
+            name="calls_leadId_startTimeDt",
+        )
+        await db.calls.create_index(
+            [("customer_number_10", 1), ("start_time_dt", -1)],
+            name="calls_customer10_startTimeDt",
+        )
+        await db.calls.create_index(
+            [("direction", 1), ("status", 1), ("start_time_dt", -1)],
+            name="calls_direction_status_startTimeDt",
+        )
+        await db.calls.create_index(
+            [("is_finalized", 1), ("start_time_dt", -1)],
+            name="calls_finalized_startTimeDt",
         )
 
         logger.info("DB indexes ensured")

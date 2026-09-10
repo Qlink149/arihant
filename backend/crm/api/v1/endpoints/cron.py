@@ -61,3 +61,12 @@ async def backfill_lead_stats_cron(authorization: str | None = Header(default=No
     _verify_cron_secret(authorization)
     result = await backfill_lead_stats()
     return result
+
+
+@router.post("/process-mcube-events")
+async def process_mcube_events_cron(authorization: str | None = Header(default=None)):
+    """Mop-up unprocessed MCUBE inbound events (BackgroundTasks fallback)."""
+    _verify_cron_secret(authorization)
+    from crm.services.mcube.process import process_pending_mcube_events
+
+    return await process_pending_mcube_events()

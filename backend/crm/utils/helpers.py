@@ -30,6 +30,35 @@ def ist_wall_to_utc_dt(due_date: str, due_time: Optional[str] = None) -> datetim
     return local.astimezone(timezone.utc)
 
 
+def parse_mcube_dt(value: Optional[str]) -> Optional[datetime]:
+    """
+    Parse MCUBE naive IST wall-clock strings to timezone-aware UTC.
+    Accepts "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DD HH:MM", and ISO-ish variants.
+    Never raises; returns None on empty/unparseable input.
+    Do NOT pass MCUBE strings through coerce_datetime (naive would be tagged UTC).
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s or s.startswith("0000-00-00"):
+        return None
+    s = s.replace("Z", "").strip()
+    # Drop trailing offset like +05:30 if present
+    s = re.sub(r"[+-]\d{2}:?\d{2}$", "", s).strip()
+    s = re.sub(r"(\.\d{6})\d+", r"\1", s)
+    if " " in s and "T" not in s:
+        s = s.replace(" ", "T", 1)
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", s):
+            s = f"{s}:00"
+        local = datetime.fromisoformat(s)
+        if local.tzinfo is not None:
+            return local.astimezone(timezone.utc)
+        return local.replace(tzinfo=IST).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
 def coerce_datetime(value: Union[None, str, datetime]) -> Optional[datetime]:
     if value is None:
         return None

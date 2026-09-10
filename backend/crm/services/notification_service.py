@@ -33,6 +33,8 @@ SLA_PAUSED_ALLOWED_TYPES = frozenset({
     "admin_nudge",
     "lead_note",
     "lead_note_mention",
+    "mcube_missed_call",
+    "mcube_unmatched_call",
 })
 
 

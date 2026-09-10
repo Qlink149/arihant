@@ -17,6 +17,7 @@ from crm.api.v1.endpoints import (
     meta_capi,
     misc,
     my_dashboard,
+    mcube_telephony,
     notifications,
     platform_ops,
     projects,
@@ -59,6 +60,7 @@ for r in [
     meta_capi.router,
     zapier_leads_webhook.router,
     webflow_leads_webhook.router,
+    mcube_telephony.router,
     misc.router,
 ]:
     api_router.include_router(r)

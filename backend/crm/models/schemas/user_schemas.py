@@ -8,6 +8,7 @@ class UserBase(BaseModel):
     email: EmailStr
     full_name: str
     phone: Optional[str] = None
+    mcube_number: Optional[str] = None
     role: Literal["admin", "manager", "general_manager", "rep"] = "rep"
 
 
@@ -42,6 +43,7 @@ class UserResponse(UserBase):
     model_config = ConfigDict(extra="ignore")
     id: str
     is_active: bool = True
+    normalized_mcube_number: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
