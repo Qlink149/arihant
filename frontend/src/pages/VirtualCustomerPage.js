@@ -243,6 +243,7 @@ const VirtualCustomerPage = () => {
   const [quickNote, setQuickNote] = useState('');
   const [quickNoteMentions, setQuickNoteMentions] = useState([]);
   const [savingQuickNote, setSavingQuickNote] = useState(false);
+  const [addCustomerMentions, setAddCustomerMentions] = useState([]);
 
   const [newCustomer, setNewCustomer] = useState({ ...EMPTY_NEW_CUSTOMER });
   
@@ -267,6 +268,14 @@ const VirtualCustomerPage = () => {
     location: 'preset',
     lead_source: 'preset',
   });
+
+  const resetAddCustomerForm = useCallback(() => {
+    setNewCustomer({ ...EMPTY_NEW_CUSTOMER });
+    setLeadStatusTouched(false);
+    setCreateNurtureLabel('');
+    setAddCustomerMentions([]);
+    setAddCustomerFieldModes({ project: 'preset', budget: 'preset', location: 'preset', lead_source: 'preset' });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1036,23 +1045,28 @@ const VirtualCustomerPage = () => {
       }
       const created = await leadsAPI.create(payload);
       const createdLeadId = created?.data?.id;
+      const noteText = (newCustomer.presales_description || '').trim();
       const shouldAppendStatusNote = leadStatusTouched && !!createdLeadId && !!newCustomer.lead_status;
+
+      if (createdLeadId && noteText) {
+        await leadsAPI.addContext(createdLeadId, {
+          note: noteText.slice(0, 500),
+          update_type: 'general_note',
+          mentioned_user_ids: addCustomerMentions,
+        });
+      }
 
       if (shouldAppendStatusNote) {
         const description = `Status set to ${newCustomer.lead_status}`.slice(0, 500);
         await leadsAPI.addContext(createdLeadId, {
-          type: 'note',
-          description,
-          timestamp: new Date().toISOString(),
+          note: description,
+          update_type: 'general_note',
         });
       }
 
       toast.success('Customer added successfully!');
       setShowAddCustomerModal(false);
-      setNewCustomer({ ...EMPTY_NEW_CUSTOMER });
-      setLeadStatusTouched(false);
-      setCreateNurtureLabel('');
-      setAddCustomerFieldModes({ project: 'preset', budget: 'preset', location: 'preset', lead_source: 'preset' });
+      resetAddCustomerForm();
       fetchLeads();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add customer');
@@ -1676,7 +1690,13 @@ const VirtualCustomerPage = () => {
       />
 
       {/* Add New Customer Modal */}
-      <Dialog open={showAddCustomerModal} onOpenChange={setShowAddCustomerModal}>
+      <Dialog
+        open={showAddCustomerModal}
+        onOpenChange={(open) => {
+          setShowAddCustomerModal(open);
+          if (!open) resetAddCustomerForm();
+        }}
+      >
         <DialogContent
           className="bg-crm-elevated border-crm-border text-crm-fg max-w-2xl max-h-[90vh] overflow-y-auto"
           aria-describedby={undefined}
@@ -2039,11 +2059,16 @@ const VirtualCustomerPage = () => {
             {/* Notes */}
             <div>
               <label className="text-crm-fg-secondary text-sm mb-2 block">Additional Notes</label>
-              <textarea
+              <NoteTextareaWithMentions
                 value={newCustomer.presales_description}
-                onChange={(e) => setNewCustomer({ ...newCustomer, presales_description: e.target.value })}
-                placeholder="Any additional information about the customer..."
+                onChange={(text) => setNewCustomer({ ...newCustomer, presales_description: text })}
+                mentionedIds={addCustomerMentions}
+                onMentionsChange={setAddCustomerMentions}
+                disabled={submittingCustomer}
+                rows={4}
+                placeholder="Any additional information about the customer… Type @ to mention an agent"
                 className="w-full h-24 px-4 py-3 bg-crm-muted border border-crm-border rounded-md text-crm-fg placeholder:text-crm-fg-muted resize-none"
+                data-testid="add-customer-note-with-mentions"
               />
             </div>
 
@@ -2052,7 +2077,10 @@ const VirtualCustomerPage = () => {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setShowAddCustomerModal(false)}
+                onClick={() => {
+                  setShowAddCustomerModal(false);
+                  resetAddCustomerForm();
+                }}
                 className="flex-1 border-crm-border text-crm-fg hover:bg-white/5"
               >
                 Cancel

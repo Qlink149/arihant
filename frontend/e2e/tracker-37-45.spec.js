@@ -9,6 +9,7 @@ const {
   apiJson,
 } = require('./helpers/api.cjs');
 const { authenticatePage, refreshApiSession } = require('./helpers/auth.cjs');
+const { randomE2EPhone, e2eFirstName } = require('./helpers/safety.cjs');
 
 test.describe.configure({ mode: 'serial' });
 test.describe.configure({ timeout: 120_000 });
@@ -192,6 +193,45 @@ test.describe('Change Tracker 37–45 (disposable e2e DB)', () => {
     await expect(page.getByTestId('timeline-mention-token').filter({ hasText: '@E2E Rep' })).toBeVisible({
       timeout: 15000,
     });
+  });
+
+  test('#44 create-lead Additional Notes inline @mention + notify', async ({ page }) => {
+    await ensureAdminApi();
+    const phone = randomE2EPhone();
+    const firstName = e2eFirstName(runId);
+    phones.push(phone);
+
+    await authenticatePage(page);
+    await page.goto('/virtual-customer');
+    await expect(page.getByTestId('virtual-customer-title')).toBeVisible();
+
+    await page.getByTestId('add-customer-btn').click();
+    await expect(page.getByRole('heading', { name: 'Add New Customer' })).toBeVisible();
+
+    await page.getByPlaceholder('First Name').fill(firstName);
+    await page.getByPlaceholder('+91 XXXXX XXXXX').fill(phone);
+
+    const noteInput = page.getByTestId('add-customer-note-with-mentions-input');
+    await noteInput.click();
+    await noteInput.fill('Registered via CP. ');
+    await noteInput.pressSequentially('@E2E', { delay: 40 });
+    await expect(page.getByTestId('inline-mention-suggestions')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId(`inline-mention-option-${repMe.id}`).click();
+    await expect(noteInput).toHaveValue(/@E2E Rep/);
+
+    await page.getByRole('button', { name: 'Add Customer' }).click();
+    await expect(page.getByRole('heading', { name: 'Add New Customer' })).toBeHidden({ timeout: 15000 });
+
+    const repLogin = await loginApi(
+      process.env.E2E_REP_EMAIL || 'e2e-rep@arihant.local',
+      process.env.E2E_REP_PASSWORD || 'E2eRep!Pass123'
+    );
+    const notifs = await apiJson('GET', '/notifications?unread_only=true&limit=50', {
+      token: repLogin.access_token,
+    });
+    const list = notifs.notifications || notifs;
+    const types = list.map((n) => n.type || n.notification_type);
+    expect(types.some((t) => t === 'lead_note' || t === 'lead_note_mention')).toBeTruthy();
   });
 
   test('#43 dormant chip not shown from legacy URL', async ({ page }) => {
