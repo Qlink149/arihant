@@ -7,11 +7,12 @@ from typing import Any, Dict, Optional
 
 from crm.constants.lead_status import is_terminal_lead_status
 from crm.constants.mcube import is_missed_status
-from crm.core.state import MCUBE_ENABLED, db, logger, utc_now
-from crm.services.mcube.calls import upsert_call_from_inbound
+from crm.core.state import MCUBE_AUTO_CREATE_LEADS, MCUBE_ENABLED, db, logger, utc_now
+from crm.services.mcube.calls import map_inbound_fields, upsert_call_from_inbound
 from crm.services.mcube.events import mark_event_attempt_failed, mark_event_processed
 from crm.services.mcube.match import list_admin_users, match_lead_by_customer_phone, match_user_by_agent
 from crm.services.mcube.timeline import record_call_on_lead
+from crm.services.mcube_lead_intake import create_mcube_unknown_lead
 from crm.services.notification_service import create_notification
 
 
@@ -29,7 +30,10 @@ async def process_mcube_event_doc(event: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         result = await _process_inbound_payload(payload, event_id=event_id)
-        await mark_event_processed(event_id, error=None)
+        if result.get("skipped"):
+            await mark_event_processed(event_id, error=result.get("skip_reason", "skipped_ping"))
+        else:
+            await mark_event_processed(event_id, error=None)
         return result
     except Exception as e:
         logger.exception("MCUBE event processing failed event_id=%s: %s", event_id, e)
@@ -39,13 +43,38 @@ async def process_mcube_event_doc(event: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "") -> Dict[str, Any]:
     customer = str(payload.get("callfrom") or "").strip()
+    callid = str(payload.get("callid") or "").strip()
+    if not callid and not customer:
+        return {"ok": True, "skipped": True, "skip_reason": "skipped_ping", "event_id": event_id}
+
     empemail = str(payload.get("empemail") or "").strip()
     agent_phone = str(payload.get("callto") or payload.get("empnumber") or "").strip()
     agent_name = str(
         payload.get("agentname") or payload.get("assignto") or payload.get("eid") or ""
     ).strip()
 
+    mapped_preview = map_inbound_fields(payload)
     lead, method, candidates = await match_lead_by_customer_phone(customer)
+    auto_created = False
+
+    if (
+        MCUBE_AUTO_CREATE_LEADS
+        and method == "unmatched"
+        and mapped_preview.get("is_finalized")
+        and mapped_preview.get("customer_number_10")
+    ):
+        caller_name = str(payload.get("callername") or "").strip()
+        new_lead = await create_mcube_unknown_lead(
+            customer,
+            caller_name=caller_name,
+            call_id=callid,
+        )
+        if new_lead:
+            lead = new_lead
+            method = "mcube_auto_create"
+            candidates = [new_lead["id"]]
+            auto_created = True
+
     user = await match_user_by_agent(
         empemail=empemail,
         agent_phone=agent_phone,
@@ -64,8 +93,16 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
         assigned_to_name=assigned_to_name,
     )
 
-    # Fill empty lead owner only (never steal)
-    if lead and assigned_user_id and not (lead.get("assigned_user_id") or "").strip():
+    if call.get("skipped"):
+        return {
+            "ok": True,
+            "skipped": True,
+            "skip_reason": "skipped_no_call_id",
+            "event_id": event_id,
+        }
+
+    # Fill empty lead owner only (never steal); skip auto-created leads (stay on Admin)
+    if lead and not auto_created and assigned_user_id and not (lead.get("assigned_user_id") or "").strip():
         await db.leads.update_one(
             {"id": lead["id"], "$or": [{"assigned_user_id": {"$exists": False}}, {"assigned_user_id": ""}, {"assigned_user_id": None}]},
             {
@@ -101,7 +138,7 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
 
         await _maybe_notify_missed(lead=lead, call=call, assigned_user_id=assigned_user_id, assigned_to_name=assigned_to_name)
 
-    if method in ("unmatched", "ambiguous") and call.get("is_finalized"):
+    if method == "ambiguous" and call.get("is_finalized"):
         await _notify_unmatched(call=call, method=method, candidates=candidates)
 
     return {
@@ -111,6 +148,7 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
         "lead_match_method": method,
         "assigned_user_id": assigned_user_id,
         "timeline_written": timeline_written,
+        "auto_created_lead": auto_created,
         "event_id": event_id,
     }
 

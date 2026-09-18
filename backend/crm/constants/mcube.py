@@ -13,11 +13,22 @@ INBOUND_DIALSTATUS_MAP = {
     "busy": ("BUSY_CUSTOMER", False),
     "noanswer": ("NO_ANSWER", False),
     "no answer": ("NO_ANSWER", False),
+    "connecting": ("IN_PROGRESS", False),
+    "voicemsg": ("VOICEMAIL", False),
+    "voicemail": ("VOICEMAIL", False),
 }
 
-MISSED_SET = frozenset({"CANCELLED", "BUSY_AGENT", "BUSY_CUSTOMER", "NO_ANSWER"})
+MISSED_SET = frozenset({"CANCELLED", "BUSY_AGENT", "BUSY_CUSTOMER", "NO_ANSWER", "VOICEMAIL"})
 TERMINAL_STATUSES = frozenset(
-    {"ANSWERED", "CANCELLED", "BUSY_AGENT", "BUSY_CUSTOMER", "NO_ANSWER", "UNKNOWN"}
+    {
+        "ANSWERED",
+        "CANCELLED",
+        "BUSY_AGENT",
+        "BUSY_CUSTOMER",
+        "NO_ANSWER",
+        "VOICEMAIL",
+        "UNKNOWN",
+    }
 )
 
 # Keys redacted from persisted raw payloads

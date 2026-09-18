@@ -1318,14 +1318,28 @@ const DigitalTwinPage = () => {
                   )}
                   
                   {/* Call specific details */}
-                  {update.type === 'call' && update.key_points && (
+                  {update.type === 'call' && (update.key_points || update.recording_url) && (
                     <div className="mt-3 p-3 bg-black/30 rounded">
-                      <p className="text-[#C5A059] text-xs uppercase tracking-wider mb-2">Key Points</p>
-                      <ul className="text-crm-fg-secondary text-sm space-y-1">
-                        {update.key_points.map((point, i) => (
-                          <li key={i}>• {point}</li>
-                        ))}
-                      </ul>
+                      {update.recording_url && (
+                        <a
+                          href={update.recording_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block text-[#C5A059] text-sm underline hover:text-[#d4b87a] mb-2"
+                        >
+                          Listen to recording
+                        </a>
+                      )}
+                      {update.key_points && (
+                        <>
+                          <p className="text-[#C5A059] text-xs uppercase tracking-wider mb-2">Key Points</p>
+                          <ul className="text-crm-fg-secondary text-sm space-y-1">
+                            {update.key_points.map((point, i) => (
+                              <li key={i}>• {point}</li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
                       {update.next_steps && (
                         <div className="mt-2 pt-2 border-t border-crm-border">
                           <p className="text-[#C5A059] text-xs">Next Steps: {update.next_steps}</p>

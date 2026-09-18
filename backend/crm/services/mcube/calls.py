@@ -85,16 +85,38 @@ def map_inbound_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     if wall_seconds is not None:
         doc["wall_seconds"] = wall_seconds
 
-    # Finalize when hangup-like: dialstatus present and endtime/duration/recording
-    if dial_raw and status != "UNKNOWN":
-        if _nonempty(payload.get("endtime")) or duration_seconds is not None or recording_available:
-            doc["is_finalized"] = True
-        else:
-            doc["is_finalized"] = False
-    else:
-        doc["is_finalized"] = False
+    doc["is_finalized"] = _compute_is_finalized(
+        dial_raw=dial_raw,
+        status=status,
+        payload=payload,
+        duration_seconds=duration_seconds,
+        recording_available=recording_available,
+    )
 
     return doc
+
+
+def _compute_is_finalized(
+    *,
+    dial_raw: str,
+    status: str,
+    payload: Dict[str, Any],
+    duration_seconds: Optional[int],
+    recording_available: bool,
+) -> bool:
+    """Hangup events finalize; CONNECTING / empty dialstatus stay partial."""
+    if not dial_raw or status == "IN_PROGRESS":
+        return False
+    hangup_signals = (
+        _nonempty(payload.get("endtime"))
+        or duration_seconds is not None
+        or recording_available
+    )
+    if not hangup_signals:
+        return False
+    if status != "UNKNOWN":
+        return True
+    return recording_available
 
 
 def _merge_nonempty(existing: dict, incoming: dict) -> dict:
@@ -167,6 +189,10 @@ async def upsert_call_from_inbound(
         await db.calls.update_one({"call_id": call_id}, {"$set": merged})
         return merged
 
+    if not call_id:
+        # GET/ping payloads without callid must not hit calls_callId_uq_sparse
+        return {**mapped, **extras, "id": None, "skipped": True}
+
     doc = {
         "id": str(uuid.uuid4()),
         **mapped,
@@ -176,8 +202,5 @@ async def upsert_call_from_inbound(
         "first_seen_at_dt": now_dt,
         "last_event_at_dt": now_dt,
     }
-    if not doc.get("call_id"):
-        # Cannot unique-index null clusters meaningfully; still store with uuid-only id
-        pass
     await db.calls.insert_one(doc)
     return doc

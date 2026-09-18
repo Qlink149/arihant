@@ -151,3 +151,71 @@ async def _ambiguous():
     inserted = mock_db.calls.insert_one.await_args.args[0]
     assert inserted.get("lead_id") in (None, "")
     assert inserted.get("lead_match_method") == "ambiguous"
+
+
+def test_ping_payload_skipped_without_calls_insert():
+    asyncio.run(_ping_payload_skipped_without_calls_insert())
+
+
+async def _ping_payload_skipped_without_calls_insert():
+    with patch("crm.services.mcube.process.MCUBE_ENABLED", True):
+        result = await _process_inbound_payload({"token": "only"}, event_id="evt-ping")
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "skipped_ping"
+
+
+def test_unmatched_finalized_auto_creates_lead_and_timeline():
+    asyncio.run(_unmatched_finalized_auto_creates_lead_and_timeline())
+
+
+async def _unmatched_finalized_auto_creates_lead_and_timeline():
+    payload = _fixture_payload()
+    payload["callid"] = "auto-create-call-1"
+    payload["callfrom"] = "9916043625"
+    new_lead = {
+        "id": "lead-auto-1",
+        "first_name": "Inbound",
+        "last_name": "3625",
+        "lead_status": "New",
+        "assigned_user_id": "admin-roshni",
+        "assigned_to": "Admin",
+        "context_updates": [],
+    }
+    user = {"id": "agent-1", "full_name": "Narendran", "email": "narendran@arihants.co.in"}
+
+    mock_db = MagicMock()
+    mock_db.calls.find_one = AsyncMock(return_value=None)
+    mock_db.calls.insert_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(return_value={**new_lead, "context_updates": []})
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.lead_events.insert_one = AsyncMock()
+    mock_db.notifications.find_one = AsyncMock(return_value=None)
+    mock_db.notifications.insert_one = AsyncMock()
+
+    with (
+        patch("crm.services.mcube.process.MCUBE_ENABLED", True),
+        patch("crm.services.mcube.process.MCUBE_AUTO_CREATE_LEADS", True),
+        patch(
+            "crm.services.mcube.process.match_lead_by_customer_phone",
+            AsyncMock(return_value=(None, "unmatched", [])),
+        ),
+        patch("crm.services.mcube.process.create_mcube_unknown_lead", AsyncMock(return_value=new_lead)),
+        patch("crm.services.mcube.process.match_user_by_agent", AsyncMock(return_value=user)),
+        patch("crm.services.mcube.calls.db", mock_db),
+        patch("crm.services.mcube.timeline.db", mock_db),
+        patch("crm.services.mcube.process.db", mock_db),
+        patch("crm.services.lead_events.db", mock_db),
+        patch("crm.services.notification_service.db", mock_db),
+        patch("crm.services.notification_service.notifications_stream.publish", AsyncMock()),
+    ):
+        result = await _process_inbound_payload(payload, event_id="evt-auto")
+
+    assert result["auto_created_lead"] is True
+    assert result["lead_match_method"] == "mcube_auto_create"
+    assert result["timeline_written"] is True
+    inserted = mock_db.calls.insert_one.await_args.args[0]
+    assert inserted.get("lead_id") == "lead-auto-1"
+    push_update = mock_db.leads.update_one.await_args_list[-1].args[1]
+    entry = push_update["$push"]["context_updates"]
+    assert entry["type"] == "call"
+    assert entry.get("recording_url")

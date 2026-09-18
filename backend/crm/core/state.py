@@ -139,6 +139,11 @@ MCUBE_ALLOWLIST_ENFORCE = os.environ.get("MCUBE_ALLOWLIST_ENFORCE", "false").str
     "true",
     "yes",
 )
+MCUBE_AUTO_CREATE_LEADS = os.environ.get("MCUBE_AUTO_CREATE_LEADS", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # ── Project → Brochure PDF filename mapping ─────────────────────────────────
 # Keys must match project names/IDs stored on leads (case-insensitive lookup).

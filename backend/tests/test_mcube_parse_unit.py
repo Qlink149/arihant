@@ -4,6 +4,7 @@ from datetime import timezone
 from zoneinfo import ZoneInfo
 
 from crm.constants.mcube import normalize_inbound_dialstatus, is_missed_status
+from crm.services.mcube.calls import map_inbound_fields
 from crm.services.mcube.duration import parse_duration
 from crm.services.mcube.payload import lowercase_keys, redact_payload, _maybe_parse_data_wrapper
 from crm.utils.helpers import parse_mcube_dt
@@ -42,9 +43,43 @@ def test_normalize_inbound_dialstatus():
     assert normalize_inbound_dialstatus("Executive Busy") == ("BUSY_AGENT", False)
     assert normalize_inbound_dialstatus("Busy") == ("BUSY_CUSTOMER", False)
     assert normalize_inbound_dialstatus("CANCEL") == ("CANCELLED", False)
+    assert normalize_inbound_dialstatus("CONNECTING") == ("IN_PROGRESS", False)
+    assert normalize_inbound_dialstatus("VOICEMSG") == ("VOICEMAIL", False)
     assert normalize_inbound_dialstatus("weird") == ("UNKNOWN", False)
     assert is_missed_status("NO_ANSWER") is True
+    assert is_missed_status("VOICEMAIL") is True
     assert is_missed_status("ANSWERED") is False
+
+
+def test_voicemsg_hangup_finalizes_with_recording():
+    mapped = map_inbound_fields(
+        {
+            "callid": "voicemsg-call-1",
+            "callfrom": "9560017846",
+            "callto": "9841544444",
+            "dialstatus": "VOICEMSG",
+            "duration": "22",
+            "endtime": "2026-09-18 11:18:14",
+            "starttime": "2026-09-18 11:17:52",
+            "filename": "https://recordings.mcube.com/test.wav",
+        }
+    )
+    assert mapped["status"] == "VOICEMAIL"
+    assert mapped["is_finalized"] is True
+    assert mapped["recording_url"]
+
+
+def test_connecting_partial_not_finalized():
+    mapped = map_inbound_fields(
+        {
+            "callid": "connecting-call-1",
+            "callfrom": "9916043625",
+            "dialstatus": "CONNECTING",
+            "starttime": "2026-09-18 11:17:52",
+        }
+    )
+    assert mapped["status"] == "IN_PROGRESS"
+    assert mapped["is_finalized"] is False
 
 
 def test_redact_apikey_and_data_wrapper():
