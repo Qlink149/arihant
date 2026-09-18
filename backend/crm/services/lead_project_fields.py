@@ -122,6 +122,31 @@ def primary_project_label(lead: Optional[dict]) -> str:
     return str((lead or {}).get("project") or "").strip()
 
 
+def label_for_project_key(
+    lead: Optional[dict],
+    project_key: str,
+    fallback: str = "",
+) -> str:
+    """
+    Display name for a canonical project key when sending WhatsApp templates.
+
+    Prefers the lead's own project name (e.g. 'ECR - Reserve 16') over registry
+    short names (e.g. 'Reserve 16').
+    """
+    key = (project_key or "").strip().lower()
+    if not key:
+        return fallback
+    from crm.core.state import PROJECT_REGISTRY, resolve_lead_project_key
+
+    for name in coalesce_projects(lead):
+        if resolve_lead_project_key({"project": name}) == key:
+            return name
+    for entry in PROJECT_REGISTRY:
+        if entry["id"] == key:
+            return entry["name"]
+    return fallback or project_key
+
+
 def apply_coalesce_for_response(lead: dict) -> dict:
     """Populate projects/project_ids on a read path. Do not persist."""
     names = coalesce_projects(lead)

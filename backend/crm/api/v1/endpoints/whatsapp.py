@@ -101,10 +101,14 @@ async def send_attachment_to_lead(
 
 
 @router.post("/whatsapp/send-pricing/{lead_id}")
-async def send_pricing_to_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
+async def send_pricing_to_lead(
+    lead_id: str,
+    project: Optional[str] = Query(None, description="Optional project override for pricing template"),
+    current_user: dict = Depends(get_current_user),
+):
     """Send project pricing info via template to the lead."""
     await resolve_lead_or_403(lead_id, current_user)
-    return await whatsapp_service.send_pricing(lead_id, current_user)
+    return await whatsapp_service.send_pricing(lead_id, current_user, project=project)
 
 
 @router.post("/whatsapp/send-site-visit-request/{lead_id}")

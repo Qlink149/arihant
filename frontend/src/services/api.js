@@ -226,7 +226,10 @@ export const whatsappAPI = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-  sendPricing: (leadId) => api.post(`/whatsapp/send-pricing/${leadId}`),
+  sendPricing: (leadId, project) =>
+    api.post(`/whatsapp/send-pricing/${leadId}`, null, {
+      params: project ? { project } : undefined,
+    }),
   sendSiteVisitRequest: (leadId) => api.post(`/whatsapp/send-site-visit-request/${leadId}`),
   sendSiteVisitDone: (leadId) => api.post(`/whatsapp/send-site-visit-done/${leadId}`),
   setupWebhook: () => api.post('/integrations/gupshup/setup-webhook'),

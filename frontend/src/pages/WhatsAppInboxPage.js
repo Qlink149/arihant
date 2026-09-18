@@ -25,7 +25,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
-import { ChatMessageBubble, useLeadWhatsAppThread } from '../components/whatsapp';
+import {
+  ChatMessageBubble,
+  PricingProjectPickerDialog,
+  useLeadWhatsAppThread,
+} from '../components/whatsapp';
 import { CANONICAL_PROJECTS } from '../constants/leadPicklists';
 import { parseApiDate } from '../utils/datetime';
 import { formatLeadProjects, primaryLeadProject } from '../utils/leadProjects';
@@ -120,6 +124,8 @@ const WhatsAppInboxPage = () => {
   const [templateParamValues, setTemplateParamValues] = useState({});
   const [createOpen, setCreateOpen] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [pricingPickerOpen, setPricingPickerOpen] = useState(false);
+  const [pricingSending, setPricingSending] = useState(false);
   const [createForm, setCreateForm] = useState({
     first_name: '',
     last_name: '',
@@ -502,6 +508,26 @@ const WhatsAppInboxPage = () => {
       toast.error(`Failed to send ${label.toLowerCase()}`);
     } finally {
       sendingAction.current = false;
+    }
+  };
+
+  const handlePricingConfirm = async (projectKey) => {
+    if (!selected?.lead_id || pricingSending) return;
+    setPricingSending(true);
+    try {
+      const res = await whatsappAPI.sendPricing(selected.lead_id, projectKey);
+      if (res.data?.success) {
+        toast.success('Pricing sent');
+        setPricingPickerOpen(false);
+        await sync();
+        fetchInbox({ silent: true, skip: 0, preserveScroll: true });
+      } else {
+        toast.error('Failed to send pricing', { description: res.data?.error });
+      }
+    } catch {
+      toast.error('Failed to send pricing');
+    } finally {
+      setPricingSending(false);
     }
   };
 
@@ -966,7 +992,8 @@ const WhatsAppInboxPage = () => {
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs border-crm-border text-crm-fg-secondary"
-                      onClick={() => runTemplateAction('Pricing', whatsappAPI.sendPricing)}
+                      onClick={() => setPricingPickerOpen(true)}
+                      data-testid="whatsapp-send-pricing-btn"
                     >
                       Pricing
                     </Button>
@@ -1195,6 +1222,14 @@ const WhatsAppInboxPage = () => {
           </div>
         </aside>
       </div>
+
+      <PricingProjectPickerDialog
+        open={pricingPickerOpen}
+        onOpenChange={setPricingPickerOpen}
+        lead={leadDetail || displayLead}
+        onConfirm={handlePricingConfirm}
+        loading={pricingSending}
+      />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="bg-crm-elevated border-crm-border text-crm-fg max-w-md">

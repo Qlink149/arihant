@@ -20,6 +20,7 @@ import {
 import { formatTimeIST, parseApiDate } from '../utils/datetime';
 import { getMcubeRecordingFilenameNote, isMcubeRecordingUrl } from '../utils/mcubeRecording';
 import { primaryLeadProject } from '../utils/leadProjects';
+import { PricingProjectPickerDialog } from '../components/whatsapp/PricingProjectPickerDialog';
 import {
   buildTemplateParameters,
   parseTemplateVariables,
@@ -322,6 +323,7 @@ const DigitalTwinPage = () => {
   const [templateParamValues, setTemplateParamValues] = useState({});
   const [sendingBrochure, setSendingBrochure] = useState(false);
   const [sendingPricing, setSendingPricing] = useState(false);
+  const [pricingPickerOpen, setPricingPickerOpen] = useState(false);
   const [sendingSiteVisitReq, setSendingSiteVisitReq] = useState(false);
   const [sendingSiteVisitDone, setSendingSiteVisitDone] = useState(false);
   const [taskForm, setTaskForm] = useState({
@@ -668,12 +670,13 @@ const DigitalTwinPage = () => {
     }
   };
 
-  const handleSendPricing = async () => {
+  const handlePricingConfirm = async (projectKey) => {
     setSendingPricing(true);
     try {
-      const res = await whatsappAPI.sendPricing(leadId);
+      const res = await whatsappAPI.sendPricing(leadId, projectKey);
       if (res.data.success) {
         toast.success('Pricing info sent!');
+        setPricingPickerOpen(false);
         await fetchChatHistory(false);
         fetchLead();
       } else {
@@ -1724,10 +1727,11 @@ const DigitalTwinPage = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 border-t border-crm-border pt-3">
               {/* Send Pricing */}
               <Button
-                onClick={handleSendPricing}
+                onClick={() => setPricingPickerOpen(true)}
                 disabled={sendingPricing}
                 variant="outline"
                 className="w-full border-crm-border text-crm-fg-secondary hover:bg-white/5 hover:text-crm-fg disabled:opacity-50"
+                data-testid="digital-twin-send-pricing-btn"
               >
                 {sendingPricing ? (
                   <span className="flex items-center gap-2">
@@ -1913,6 +1917,14 @@ const DigitalTwinPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <PricingProjectPickerDialog
+        open={pricingPickerOpen}
+        onOpenChange={setPricingPickerOpen}
+        lead={lead}
+        onConfirm={handlePricingConfirm}
+        loading={sendingPricing}
+      />
     </div>
   );
 };

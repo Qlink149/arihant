@@ -8,6 +8,7 @@ from crm.services.lead_project_fields import (
     format_projects_display,
     incoming_slug_on_lead,
     normalize_lead_projects,
+    label_for_project_key,
     primary_project_label,
     should_reengage_status,
     split_project_string,
@@ -125,3 +126,8 @@ def test_apply_coalesce_for_response():
 def test_primary_project_label():
     assert primary_project_label({"projects": ["A", "B"]}) == "A"
     assert format_projects_display(["A", "B"]) == "A; B"
+
+
+def test_label_for_project_key_from_lead_projects():
+    lead = {"projects": ["Saligramam Melange", "ECR - Reserve 16"]}
+    assert label_for_project_key(lead, "reserve-16") == "ECR - Reserve 16"

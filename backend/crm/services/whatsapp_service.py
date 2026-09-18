@@ -23,7 +23,7 @@ from urllib.parse import quote, unquote, urlparse
 
 import httpx
 from fastapi import HTTPException, UploadFile
-from crm.services.lead_project_fields import primary_project_label
+from crm.services.lead_project_fields import label_for_project_key, primary_project_label
 
 from crm.core.state import (
     # WATI (active)
@@ -2635,7 +2635,7 @@ async def send_attachment_to_lead(
     }
 
 
-async def send_pricing(lead_id: str, current_user: dict) -> dict:
+async def send_pricing(lead_id: str, current_user: dict, project: Optional[str] = None) -> dict:
     """Template 2: Pricing Info (arihant_pricing_v1)."""
     if WHATSAPP_PROVIDER != "wati":
         return {"success": False, "error": "WhatsApp is not enabled on this server"}
@@ -2644,17 +2644,30 @@ async def send_pricing(lead_id: str, current_user: dict) -> dict:
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    project_key = resolve_lead_project_key(lead)
+    project_override = (project or "").strip()
+    if project_override:
+        project_key = resolve_lead_project_key(
+            {"project": project_override, "project_id": project_override}
+        )
+    else:
+        project_key = resolve_lead_project_key(lead)
+
     price_str = PROJECT_PRICING_MAP.get(project_key)
     if not price_str:
-        return {"success": False, "error": f"Starting price not configured for project: {lead.get('project') or 'not set'}"}
+        label = project_override or lead.get("project") or "not set"
+        return {"success": False, "error": f"Starting price not configured for project: {label}"}
+
+    if project_override:
+        project_label = label_for_project_key(lead, project_key, project_override)
+    else:
+        project_label = primary_project_label(lead) or "Arihant Spaces"
 
     msg = WhatsAppMessage(
         destination=lead.get("phone", ""),
         template_name="arihant_pricing_v1",
         template_parameters=[
             {"name": "1", "value": lead.get("first_name") or lead.get("name", "Customer")},
-            {"name": "2", "value": primary_project_label(lead) or "Arihant Spaces"},
+            {"name": "2", "value": project_label or "Arihant Spaces"},
             {"name": "3", "value": price_str},
         ]
     )
