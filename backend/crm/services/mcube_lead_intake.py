@@ -1,9 +1,9 @@
-"""Create leads for unknown MCUBE inbound callers (assigned to Admin / Roshni)."""
+"""Create leads for unknown MCUBE inbound callers (assigned to answering agent or Admin)."""
 
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pymongo.errors import DuplicateKeyError
 
@@ -30,10 +30,12 @@ async def create_mcube_unknown_lead(
     caller_name: str = "",
     *,
     call_id: str = "",
+    assignee: Optional[Dict[str, Any]] = None,
     notify: bool = True,
 ) -> Optional[dict]:
     """
-    Create a New lead for an unknown MCUBE inbound caller, assigned to Admin.
+    Create a New lead for an unknown MCUBE inbound caller.
+    Assigns to the answering agent (empemail match) when provided; else Admin fallback.
     Returns the lead dict, or None if phone invalid / create skipped.
     """
     normalized = normalize_phone(phone)
@@ -46,12 +48,20 @@ async def create_mcube_unknown_lead(
         return existing
 
     admin = await resolve_admin_wa_assignee()
+    owner = assignee if (assignee or {}).get("id") else admin
     first_name, last_name = _split_caller_name(caller_name, normalized)
     lead_id = str(uuid.uuid4())
     now_dt = utc_now()
     now_iso = iso_utc_now()
     created_desc = "Lead created from MCUBE inbound call"
-    assigned_desc = "Assigned to Admin from MCUBE inbound call"
+    if assignee and assignee.get("id"):
+        owner_name = assignee.get("full_name") or assignee.get("email") or "Agent"
+        empemail = (assignee.get("email") or "").strip()
+        assigned_desc = f"Assigned to {owner_name} from MCUBE inbound call"
+        if empemail:
+            assigned_desc = f"{assigned_desc} ({empemail})"
+    else:
+        assigned_desc = "Assigned to Admin from MCUBE inbound call"
     context_updates = [
         {
             "type": "created",
@@ -85,12 +95,13 @@ async def create_mcube_unknown_lead(
         "updated_at_dt": now_dt,
         "mcube_origin_call_id": call_id or None,
     }
-    if admin:
-        admin_name = admin.get("full_name") or ADMIN_WA_ASSIGNEE_NAME
-        lead_dict["assigned_to"] = admin_name
-        lead_dict["assigned_to_name"] = admin_name
-        lead_dict["assigned_user_id"] = admin["id"]
-        lead_dict["presales_agent"] = admin_name
+    if owner and owner.get("id"):
+        owner_name = owner.get("full_name") or ADMIN_WA_ASSIGNEE_NAME
+        owner_id = owner["id"]
+        lead_dict["assigned_to"] = owner_name
+        lead_dict["assigned_to_name"] = owner_name
+        lead_dict["assigned_user_id"] = owner_id
+        lead_dict["presales_agent"] = owner_name
         lead_dict["assigned_at"] = now_iso
         lead_dict["assigned_at_dt"] = now_dt
         context_updates.append(
@@ -100,12 +111,12 @@ async def create_mcube_unknown_lead(
                 "timestamp_dt": now_dt,
                 "description": assigned_desc,
                 "agent": "MCUBE",
-                "actor_user_id": "system-mcube",
-                "actor_name": "MCUBE",
+                "actor_user_id": owner_id if assignee else "system-mcube",
+                "actor_name": owner_name if assignee else "MCUBE",
             }
         )
     else:
-        logger.warning("MCUBE unknown lead: Admin user not found; creating unassigned lead phone=%s", normalized)
+        logger.warning("MCUBE unknown lead: no assignee or Admin found; creating unassigned lead phone=%s", normalized)
 
     temp_patch = {"lead_status": "New"}
     apply_nurture_temperature_rules({}, temp_patch, is_create=True)
@@ -119,12 +130,13 @@ async def create_mcube_unknown_lead(
         existing = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
         return existing
 
-    if notify and admin and admin.get("id"):
+    notify_user = owner if owner and owner.get("id") else None
+    if notify and notify_user and notify_user.get("id"):
         lead_name = f"{first_name} {last_name}".strip() or first_name
         try:
             await create_notification(
-                recipient_user_id=admin["id"],
-                recipient_name=admin.get("full_name") or ADMIN_WA_ASSIGNEE_NAME,
+                recipient_user_id=notify_user["id"],
+                recipient_name=notify_user.get("full_name") or ADMIN_WA_ASSIGNEE_NAME,
                 title="New Lead Assigned",
                 message=f"{lead_name} created from MCUBE inbound call",
                 notification_type="new_lead_assigned",

@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 from crm.constants.mcube import normalize_inbound_dialstatus
 from crm.core.state import db, iso_utc_now, utc_now
 from crm.services.mcube.duration import parse_duration
+from crm.services.mcube.recordings import normalize_mcube_recording_url
 from crm.utils.helpers import normalize_phone, parse_mcube_dt
 
 
@@ -36,8 +37,9 @@ def map_inbound_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     if start_dt and end_dt and end_dt >= start_dt:
         wall_seconds = int((end_dt - start_dt).total_seconds())
 
-    filename = str(payload.get("filename") or "").strip()
-    recording_available = bool(filename)
+    filename_raw = str(payload.get("filename") or "").strip()
+    recording_url, recording_filename = normalize_mcube_recording_url(filename_raw)
+    recording_available = bool(recording_url or recording_filename)
 
     call_type = str(payload.get("calltype") or payload.get("callType") or "inbound").strip()
     direction = "inbound"
@@ -62,7 +64,8 @@ def map_inbound_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         "status_raw": dial_raw,
         "status": status,
         "is_answered": is_answered,
-        "recording_url": filename,
+        "recording_url": recording_url,
+        "recording_filename": recording_filename,
         "recording_available": recording_available,
         "ref_id": str(payload.get("refid") or "").strip() or None,
         "gid": str(payload.get("gid") or "").strip(),

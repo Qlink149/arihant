@@ -19,7 +19,7 @@ MCUBE_ENABLED=false          # flip true when ready to process
 MCUBE_WEBHOOK_SECRET=...     # long random secret
 MCUBE_ALLOWED_IPS=           # optional; leave empty at first
 MCUBE_ALLOWLIST_ENFORCE=false
-MCUBE_AUTO_CREATE_LEADS=true # unknown inbound callers → New lead assigned to Admin
+MCUBE_AUTO_CREATE_LEADS=true # unknown inbound callers → New lead assigned to answering agent (empemail)
 ```
 
 Kill switch: with `MCUBE_ENABLED=false`, events are still **stored** in `mcube_events` (apikey redacted) but leads/timeline are not updated.
@@ -29,7 +29,9 @@ Kill switch: with `MCUBE_ENABLED=false`, events are still **stored** in `mcube_e
 | Scenario | Result |
 |----------|--------|
 | Known phone (single lead match) | `calls` upsert + activity timeline `type: call` with `recording_url` on hangup |
-| Unknown phone (no lead) | Auto-create **New** lead, assign to **Admin** (`roshni@arihantspaces.com`), timeline + recording |
+| Known phone, unassigned | On finalized hangup, assign to agent matched by **`empemail`** |
+| Known phone, other owner | Reassign to **`empemail`** agent; previous owner gets in-app notification |
+| Unknown phone (no lead) | Auto-create **New** lead, assign to **`empemail`** agent; Admin fallback if no match |
 | Ambiguous phone (multiple leads) | Admin notification only — **no** auto-create |
 | CONNECTING (On Call) | Partial `calls` row; timeline waits for hangup |
 | VOICEMSG / voicemail hangup | Finalized as `VOICEMAIL`; timeline + missed-call notify if applicable |
@@ -51,7 +53,8 @@ Reclaims `mcube_events` where `processed=false` and `attempts < 5`.
 1. `mcube_events` row (no raw apikey)
 2. `calls` row with `empemail` / `callfrom` / `filename`
 3. Lead `context_updates` entry `type: call` with `recording_url` and **Listen to recording** link in Digital Twin
-4. Unknown caller → new lead under Admin with source `MCUBE Inbound`
+4. Unknown caller → new lead under `empemail` agent (or Admin fallback) with source `MCUBE Inbound`
+5. Agent email audit: `python scripts/audit_mcube_agent_emails.py` (read-only; see [MCUBE_AGENT_EMAIL_ALIGNMENT.md](MCUBE_AGENT_EMAIL_ALIGNMENT.md))
 
 ## Backfill (after deploy)
 

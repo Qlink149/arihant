@@ -94,6 +94,7 @@ async def _process_inbound_sla_non_interference():
         patch("crm.services.mcube.process.MCUBE_ENABLED", True),
         patch("crm.services.mcube.process.match_lead_by_customer_phone", AsyncMock(return_value=(lead, "phone_primary", [lead["id"]]))),
         patch("crm.services.mcube.process.match_user_by_agent", AsyncMock(return_value=user)),
+        patch("crm.services.mcube.process.apply_mcube_inbound_assignment", AsyncMock(return_value=True)),
         patch("crm.services.mcube.calls.db", mock_db),
         patch("crm.services.mcube.timeline.db", mock_db),
         patch("crm.services.mcube.process.db", mock_db),
@@ -137,6 +138,7 @@ async def _ambiguous():
             AsyncMock(return_value=(None, "ambiguous", ["a", "b"])),
         ),
         patch("crm.services.mcube.process.match_user_by_agent", AsyncMock(return_value=None)),
+        patch("crm.services.mcube.process.apply_mcube_inbound_assignment", AsyncMock(return_value=False)),
         patch("crm.services.mcube.calls.db", mock_db),
         patch("crm.services.mcube.process.db", mock_db),
         patch("crm.services.mcube.match.db", mock_db),
@@ -199,8 +201,12 @@ async def _unmatched_finalized_auto_creates_lead_and_timeline():
             "crm.services.mcube.process.match_lead_by_customer_phone",
             AsyncMock(return_value=(None, "unmatched", [])),
         ),
-        patch("crm.services.mcube.process.create_mcube_unknown_lead", AsyncMock(return_value=new_lead)),
+        patch(
+            "crm.services.mcube.process.create_mcube_unknown_lead",
+            AsyncMock(return_value=new_lead),
+        ) as create_lead_mock,
         patch("crm.services.mcube.process.match_user_by_agent", AsyncMock(return_value=user)),
+        patch("crm.services.mcube.process.apply_mcube_inbound_assignment", AsyncMock(return_value=True)),
         patch("crm.services.mcube.calls.db", mock_db),
         patch("crm.services.mcube.timeline.db", mock_db),
         patch("crm.services.mcube.process.db", mock_db),
@@ -219,3 +225,94 @@ async def _unmatched_finalized_auto_creates_lead_and_timeline():
     entry = push_update["$push"]["context_updates"]
     assert entry["type"] == "call"
     assert entry.get("recording_url")
+    create_lead_mock.assert_awaited_once()
+    kwargs = create_lead_mock.await_args.kwargs
+    assert kwargs.get("assignee") == user
+
+
+def test_finalized_call_applies_inbound_assignment_to_answering_agent():
+    asyncio.run(_finalized_call_applies_inbound_assignment_to_answering_agent())
+
+
+async def _finalized_call_applies_inbound_assignment_to_answering_agent():
+    payload = _fixture_payload()
+    lead = {
+        "id": "lead-open",
+        "first_name": "Open",
+        "last_name": "Lead",
+        "lead_status": "New",
+        "assigned_user_id": "",
+        "context_updates": [],
+    }
+    answering = {"id": "agent-1", "full_name": "Malathy", "email": "malathy@arihants.co.in"}
+
+    mock_db = MagicMock()
+    mock_db.calls.find_one = AsyncMock(return_value=None)
+    mock_db.calls.insert_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(return_value={**lead, "context_updates": []})
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.lead_events.insert_one = AsyncMock()
+    mock_db.notifications.find_one = AsyncMock(return_value=None)
+    mock_db.notifications.insert_one = AsyncMock()
+
+    with (
+        patch("crm.services.mcube.process.MCUBE_ENABLED", True),
+        patch(
+            "crm.services.mcube.process.match_lead_by_customer_phone",
+            AsyncMock(return_value=(lead, "phone_primary", [lead["id"]])),
+        ),
+        patch("crm.services.mcube.process.match_user_by_agent", AsyncMock(return_value=answering)),
+        patch("crm.services.mcube.process.apply_mcube_inbound_assignment", AsyncMock(return_value=True)) as assign_mock,
+        patch("crm.services.mcube.calls.db", mock_db),
+        patch("crm.services.mcube.timeline.db", mock_db),
+        patch("crm.services.mcube.process.db", mock_db),
+        patch("crm.services.lead_events.db", mock_db),
+        patch("crm.services.notification_service.db", mock_db),
+        patch("crm.services.notification_service.notifications_stream.publish", AsyncMock()),
+    ):
+        await _process_inbound_payload(payload, event_id="evt-open")
+
+    assign_mock.assert_awaited_once_with("lead-open", answering, call_id=payload["callid"])
+
+
+def test_connecting_partial_does_not_assign_lead():
+    asyncio.run(_connecting_partial_does_not_assign_lead())
+
+
+async def _connecting_partial_does_not_assign_lead():
+    payload = _fixture_payload()
+    payload["dialstatus"] = "CONNECTING"
+    payload.pop("endtime", None)
+    payload.pop("filename", None)
+    payload.pop("duration", None)
+    lead = {
+        "id": "lead-open",
+        "first_name": "Open",
+        "last_name": "Lead",
+        "lead_status": "New",
+        "assigned_user_id": "",
+        "context_updates": [],
+    }
+    answering = {"id": "agent-1", "full_name": "Malathy", "email": "malathy@arihants.co.in"}
+
+    mock_db = MagicMock()
+    mock_db.calls.find_one = AsyncMock(return_value=None)
+    mock_db.calls.insert_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(return_value={**lead, "context_updates": []})
+    mock_db.leads.update_one = AsyncMock()
+
+    with (
+        patch("crm.services.mcube.process.MCUBE_ENABLED", True),
+        patch(
+            "crm.services.mcube.process.match_lead_by_customer_phone",
+            AsyncMock(return_value=(lead, "phone_primary", [lead["id"]])),
+        ),
+        patch("crm.services.mcube.process.match_user_by_agent", AsyncMock(return_value=answering)),
+        patch("crm.services.mcube.process.apply_mcube_inbound_assignment", AsyncMock(return_value=True)) as assign_mock,
+        patch("crm.services.mcube.calls.db", mock_db),
+        patch("crm.services.mcube.process.db", mock_db),
+    ):
+        result = await _process_inbound_payload(payload, event_id="evt-connecting")
+
+    assert result.get("timeline_written") is False
+    assign_mock.assert_not_awaited()

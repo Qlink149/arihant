@@ -18,6 +18,7 @@ import {
   TIMELINE_LOAD_MORE_STEP,
 } from '../utils/contextUpdates';
 import { formatTimeIST, parseApiDate } from '../utils/datetime';
+import { getMcubeRecordingFilenameNote, isMcubeRecordingUrl } from '../utils/mcubeRecording';
 import { primaryLeadProject } from '../utils/leadProjects';
 import {
   buildTemplateParameters,
@@ -1320,16 +1321,30 @@ const DigitalTwinPage = () => {
                   {/* Call specific details */}
                   {update.type === 'call' && (update.key_points || update.recording_url) && (
                     <div className="mt-3 p-3 bg-black/30 rounded">
-                      {update.recording_url && (
-                        <a
-                          href={update.recording_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-block text-[#C5A059] text-sm underline hover:text-[#d4b87a] mb-2"
-                        >
-                          Listen to recording
-                        </a>
+                      {isMcubeRecordingUrl(update.recording_url) && (
+                        <div className="mb-2 space-y-2">
+                          <a
+                            href={update.recording_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block text-[#C5A059] text-sm underline hover:text-[#d4b87a]"
+                          >
+                            Listen to recording
+                          </a>
+                          <audio
+                            controls
+                            preload="none"
+                            src={update.recording_url}
+                            className="w-full max-w-md h-9"
+                          />
+                        </div>
                       )}
+                      {!isMcubeRecordingUrl(update.recording_url) &&
+                        getMcubeRecordingFilenameNote(update.key_points) && (
+                          <p className="text-crm-fg-muted text-xs mb-2">
+                            {getMcubeRecordingFilenameNote(update.key_points)}
+                          </p>
+                        )}
                       {update.key_points && (
                         <>
                           <p className="text-[#C5A059] text-xs uppercase tracking-wider mb-2">Key Points</p>

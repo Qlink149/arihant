@@ -10,6 +10,7 @@ from crm.constants.mcube import is_missed_status
 from crm.core.state import MCUBE_AUTO_CREATE_LEADS, MCUBE_ENABLED, db, logger, utc_now
 from crm.services.mcube.calls import map_inbound_fields, upsert_call_from_inbound
 from crm.services.mcube.events import mark_event_attempt_failed, mark_event_processed
+from crm.services.mcube.assign import apply_mcube_inbound_assignment
 from crm.services.mcube.match import list_admin_users, match_lead_by_customer_phone, match_user_by_agent
 from crm.services.mcube.timeline import record_call_on_lead
 from crm.services.mcube_lead_intake import create_mcube_unknown_lead
@@ -54,6 +55,12 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
     ).strip()
 
     mapped_preview = map_inbound_fields(payload)
+    answering_agent = await match_user_by_agent(
+        empemail=empemail,
+        agent_phone=agent_phone,
+        agent_name=agent_name,
+    )
+
     lead, method, candidates = await match_lead_by_customer_phone(customer)
     auto_created = False
 
@@ -68,6 +75,7 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
             customer,
             caller_name=caller_name,
             call_id=callid,
+            assignee=answering_agent,
         )
         if new_lead:
             lead = new_lead
@@ -75,14 +83,8 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
             candidates = [new_lead["id"]]
             auto_created = True
 
-    user = await match_user_by_agent(
-        empemail=empemail,
-        agent_phone=agent_phone,
-        agent_name=agent_name,
-    )
-
-    assigned_user_id = (user or {}).get("id") or ""
-    assigned_to_name = (user or {}).get("full_name") or agent_name or ""
+    assigned_user_id = (answering_agent or {}).get("id") or ""
+    assigned_to_name = (answering_agent or {}).get("full_name") or agent_name or ""
 
     call = await upsert_call_from_inbound(
         payload,
@@ -101,19 +103,12 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
             "event_id": event_id,
         }
 
-    # Fill empty lead owner only (never steal); skip auto-created leads (stay on Admin)
-    if lead and not auto_created and assigned_user_id and not (lead.get("assigned_user_id") or "").strip():
-        await db.leads.update_one(
-            {"id": lead["id"], "$or": [{"assigned_user_id": {"$exists": False}}, {"assigned_user_id": ""}, {"assigned_user_id": None}]},
-            {
-                "$set": {
-                    "assigned_user_id": assigned_user_id,
-                    "assigned_to": assigned_to_name,
-                    "assigned_to_name": assigned_to_name,
-                }
-            },
+    if lead and call.get("is_finalized") and answering_agent and not auto_created:
+        await apply_mcube_inbound_assignment(
+            lead["id"],
+            answering_agent,
+            call_id=call.get("call_id") or callid,
         )
-        # Intentionally does NOT set updated_at / updated_at_dt
 
     timeline_written = False
     if lead and lead.get("id") and call.get("is_finalized"):

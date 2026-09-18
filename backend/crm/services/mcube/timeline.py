@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from crm.core.state import db, iso_utc_now, utc_now
 from crm.services.lead_events import log_lead_event
+from crm.services.mcube.recordings import normalize_mcube_recording_url
 
 
 async def append_call_timeline_entry(
@@ -42,7 +43,8 @@ def build_call_timeline_entry(
     direction = (call.get("direction") or "inbound").title()
     status = call.get("status") or "UNKNOWN"
     duration = call.get("duration_seconds")
-    recording = call.get("recording_url") or ""
+    url_candidate = (call.get("recording_url") or call.get("recording_filename") or "").strip()
+    recording_url, recording_filename = normalize_mcube_recording_url(url_candidate)
     customer = call.get("customer_number") or ""
     desc_parts = [f"{direction} call — {status}"]
     if duration is not None:
@@ -59,8 +61,10 @@ def build_call_timeline_entry(
         key_points.append(f"Duration: {duration}s")
     if call.get("agent_name") or agent_name:
         key_points.append(f"Agent: {agent_name or call.get('agent_name')}")
-    if recording:
-        key_points.append(f"Recording: {recording}")
+    if recording_url:
+        key_points.append(f"Recording: {recording_url}")
+    elif recording_filename:
+        key_points.append(f"Recording file: {recording_filename} (URL not provided)")
 
     return {
         "type": "call",
@@ -74,7 +78,8 @@ def build_call_timeline_entry(
         "next_steps": None,
         "transcript": "",
         "mcube_call_id": call.get("call_id") or "",
-        "recording_url": recording,
+        "recording_url": recording_url,
+        "recording_filename": recording_filename,
         "call_status": status,
         "direction": call.get("direction") or "inbound",
     }
