@@ -70,7 +70,7 @@ def sla_pause_summary(
     closes = business_closes_ist(now_dt)
     opens = next_business_open_ist(now_dt)
     hours_label = (
-        f"Mon–Sat {BUSINESS_START.strftime('%H:%M')}–{BUSINESS_END.strftime('%H:%M')} IST"
+        f"Mon–Sun {BUSINESS_START.strftime('%H:%M')}–{BUSINESS_END.strftime('%H:%M')} IST"
     )
 
     if routing_eligible:

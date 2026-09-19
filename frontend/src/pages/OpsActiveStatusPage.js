@@ -58,7 +58,7 @@ const OpsActiveStatusPage = () => {
     typeof reps[0]?.within_business_hours === 'boolean'
       ? reps[0].within_business_hours
       : reps.some((r) => r.within_business_hours);
-  const hoursLabel = reps[0]?.business_hours_label || 'Mon–Sat 10:00–17:30 IST';
+  const hoursLabel = reps[0]?.business_hours_label || 'Mon–Sun 10:00–17:30 IST';
 
   return (
     <div className="space-y-3 max-w-6xl" data-testid="ops-active-status-page">

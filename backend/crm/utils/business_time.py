@@ -1,5 +1,5 @@
 """
-Business-time elapsed seconds for SLA (Mon–Sat 10:00–17:30 Asia/Kolkata).
+Business-time elapsed seconds for SLA (Mon–Sun 10:00–17:30 Asia/Kolkata).
 
 Timers pause outside business hours and resume at 10:00 with remaining duration.
 """
@@ -28,31 +28,23 @@ def _to_ist(dt: datetime) -> datetime:
 
 
 def is_business_day_ist(dt: datetime) -> bool:
-    return _to_ist(dt).weekday() != 6
+    return True
 
 
 def is_business_hours_ist(now_dt: datetime) -> bool:
-    """Point-in-time check: Mon–Sat between 10:00 and 17:30 IST inclusive."""
+    """Point-in-time check: Mon–Sun between 10:00 and 17:30 IST inclusive."""
     ist = _to_ist(now_dt)
-    if ist.weekday() == 6:
-        return False
     t = ist.time()
     return BUSINESS_START <= t <= BUSINESS_END
 
 
 def next_business_open_ist(now_dt: datetime) -> datetime:
-    """Next Mon–Sat 10:00 IST as UTC (if currently open, returns today's open already past or now window start)."""
+    """Next 10:00 IST as UTC (if currently open, returns today's open already past or now window start)."""
     ist = _to_ist(now_dt)
-    # If before start on a business day → today's open
-    if ist.weekday() != 6 and ist.time() < BUSINESS_START:
+    if ist.time() < BUSINESS_START:
         return datetime.combine(ist.date(), BUSINESS_START, tzinfo=IST).astimezone(timezone.utc)
-    # Otherwise walk forward to next business day's open
     day = ist.date() + timedelta(days=1)
-    for _ in range(8):
-        if day.weekday() != 6:
-            return datetime.combine(day, BUSINESS_START, tzinfo=IST).astimezone(timezone.utc)
-        day += timedelta(days=1)
-    return datetime.combine(ist.date() + timedelta(days=1), BUSINESS_START, tzinfo=IST).astimezone(timezone.utc)
+    return datetime.combine(day, BUSINESS_START, tzinfo=IST).astimezone(timezone.utc)
 
 
 def business_closes_ist(now_dt: datetime) -> datetime | None:
@@ -110,14 +102,13 @@ def business_seconds_elapsed(start: datetime, end: datetime) -> int:
     last_day = end_ist.date()
 
     while day <= last_day:
-        if day.weekday() != 6:
-            win_start, win_end, win_seconds = _business_window_seconds_for_day(
-                datetime.combine(day, time.min, tzinfo=IST)
-            )
-            seg_start = max(start_ist, win_start)
-            seg_end = min(end_ist, win_end)
-            if seg_end > seg_start:
-                total += int((seg_end - seg_start).total_seconds())
+        win_start, win_end, _win_seconds = _business_window_seconds_for_day(
+            datetime.combine(day, time.min, tzinfo=IST)
+        )
+        seg_start = max(start_ist, win_start)
+        seg_end = min(end_ist, win_end)
+        if seg_end > seg_start:
+            total += int((seg_end - seg_start).total_seconds())
         day += timedelta(days=1)
 
     return total
@@ -133,9 +124,6 @@ def business_deadline(start: datetime, business_seconds: int) -> datetime:
     safety = 0
     while remaining > 0 and safety < 4000:
         safety += 1
-        if cursor.weekday() == 6:
-            cursor = datetime.combine(cursor.date() + timedelta(days=1), BUSINESS_START, tzinfo=IST)
-            continue
         win_start, win_end, _ = _business_window_seconds_for_day(cursor)
         seg_start = max(cursor, win_start)
         available = int((win_end - seg_start).total_seconds())
