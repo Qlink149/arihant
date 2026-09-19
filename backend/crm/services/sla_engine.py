@@ -660,30 +660,6 @@ class SLAEngineService:
                     )
 
     async def _process_rule_nurturing(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
-        cutoff_24h = now_dt - timedelta(hours=24)
-        query_warm = self._rule_query(
-            {
-                "lead_status": _RE_NURTURING,
-                "updated_at_dt": {"$lt": cutoff_24h},
-                "$or": [
-                    {"temperature": {"$exists": False}},
-                    {"temperature": None},
-                    {"temperature": ""},
-                ],
-                **_flag_not_set("sla_flags.nurturing.temperature_warm_at_dt"),
-            }
-        )
-        async for batch in _paginate_leads(db.leads, query_warm, projection={"_id": 0, "id": 1}):
-            for lead in batch:
-                self._queue_lead_mutation(
-                    lead["id"],
-                    {"temperature": "Warm"},
-                    "sla_flags.nurturing.temperature_warm_at_dt",
-                    now_dt,
-                    now_iso,
-                    "mutation:nurturing:warm",
-                )
-
         query_nurture = self._rule_query({"lead_status": _RE_NURTURING})
         async for batch in _paginate_leads(db.leads, query_nurture):
             for lead in batch:
