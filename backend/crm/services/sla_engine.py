@@ -52,6 +52,20 @@ _RE_REENGAGED = {"$regex": r"re[\s\-]*engaged", "$options": "i"}
 _SV_FOLLOWUP_STATUS = SV_FOLLOWUP_STATUS_QUERY
 
 
+async def _has_pending_sv_entry_task(lead_id: str, sla_rule: str) -> bool:
+    doc = await db.tasks.find_one(
+        {
+            "lead_id": lead_id,
+            "source": "sla",
+            "sla_rule": sla_rule,
+            "sla_threshold": "entry",
+            "status": "pending",
+        },
+        {"_id": 0, "id": 1},
+    )
+    return bool(doc)
+
+
 async def _paginate_leads(
     collection,
     query: dict,
@@ -968,11 +982,64 @@ class SLAEngineService:
                     "mutation:visit_completed:3d_followup",
                 )
 
+    async def _process_sv_followup_72h_escalation(
+        self,
+        now_dt: datetime,
+        now_iso: str,
+        name_to_user_id: Dict[str, str],
+        *,
+        sla_rule: str,
+        entered_field: str,
+        status_q: dict,
+    ) -> None:
+        cutoff = now_dt - timedelta(hours=72)
+        flag = f"sla_flags.{sla_rule}.escalate_72h_at_dt"
+        query = self._rule_query(
+            {
+                **status_q,
+                entered_field: {"$exists": True, "$ne": None, "$lt": cutoff},
+                **_flag_not_set(flag),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query):
+            for lead in batch:
+                ref = coerce_datetime(lead.get(entered_field))
+                if not ref:
+                    continue
+                if ref.tzinfo is None:
+                    ref = ref.replace(tzinfo=timezone.utc)
+                if now_dt < ref + timedelta(hours=72):
+                    continue
+                if not await _has_pending_sv_entry_task(lead["id"], sla_rule):
+                    continue
+                dedupe = f"sla:{sla_rule}:escalate_72h:{lead['id']}"
+                self._queue_task(
+                    lead,
+                    "SV Follow-up task pending 72 hours",
+                    dedupe,
+                    flag,
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    escalation_target="admin",
+                    priority="high",
+                    sla_rule=sla_rule,
+                    sla_threshold="escalate_72h",
+                )
+
     async def _process_rule_sv_followup_1(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
         """3-day follow-up backup for SV Follow-up 1 (primary scheduling is on status entry)."""
         status_q = {"lead_status": SV_FOLLOWUP_1_STATUS_QUERY}
+        await self._process_sv_followup_72h_escalation(
+            now_dt,
+            now_iso,
+            name_to_user_id,
+            sla_rule="sv_followup_1",
+            entered_field="sv_followup_1_entered_at_dt",
+            status_q=status_q,
+        )
         flag_3d = "sla_flags.sv_followup_1.3d_at_dt"
         cutoff_3d = now_dt - timedelta(days=3)
         today_ist = now_dt.astimezone(IST).date().isoformat()
@@ -1012,6 +1079,14 @@ class SLAEngineService:
     ) -> None:
         """7-day SV Follow-up 2: agent follow-up due + admin in-app alert + email."""
         status_q = {"lead_status": SV_FOLLOWUP_2_STATUS_QUERY}
+        await self._process_sv_followup_72h_escalation(
+            now_dt,
+            now_iso,
+            name_to_user_id,
+            sla_rule="sv_followup_2",
+            entered_field="sv_followup_2_entered_at_dt",
+            status_q=status_q,
+        )
         flag_7d = "sla_flags.sv_followup_2.admin_7d_at_dt"
         cutoff_7d = now_dt - timedelta(days=7)
         today_ist = now_dt.astimezone(IST).date().isoformat()

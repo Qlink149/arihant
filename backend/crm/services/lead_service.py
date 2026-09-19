@@ -659,9 +659,17 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
         if status_changed and is_sv_followup_1_status(next_status):
             patch["sv_followup_1_entered_at_dt"] = now_dt
             patch["next_action_date"] = _ist_follow_up_date(3, now_dt)
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.sv_followup_1.escalate_72h_at_dt": ""}},
+            )
         if status_changed and is_sv_followup_2_status(next_status):
             patch["sv_followup_2_entered_at_dt"] = now_dt
             patch["next_action_date"] = _ist_follow_up_date(7, now_dt)
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.sv_followup_2.escalate_72h_at_dt": ""}},
+            )
         if next_status.lower() == "future prospect" and (is_sla_activation or not existing.get("future_prospect_entered_at_dt")):
             patch["future_prospect_entered_at_dt"] = now_dt
         if "re-engaged" in next_status.lower() or next_status.lower() == "reengaged":
@@ -880,6 +888,28 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
             sla_rule="reengaged",
             sla_threshold="t0",
             stage="reengaged",
+        )
+
+    if status_changed and is_sv_followup_1_status(next_status):
+        merged_lead = {**existing, **patch}
+        await create_sla_task_for_lead(
+            merged_lead,
+            description="SV Follow-up — confirm booking intent",
+            dedupe_key=f"sla:sv_followup_1:entry:{lead_id}",
+            sla_rule="sv_followup_1",
+            sla_threshold="entry",
+            stage="sv_followup_1",
+        )
+
+    if status_changed and is_sv_followup_2_status(next_status):
+        merged_lead = {**existing, **patch}
+        await create_sla_task_for_lead(
+            merged_lead,
+            description="SV Follow-up 2 — move towards decision",
+            dedupe_key=f"sla:sv_followup_2:entry:{lead_id}",
+            sla_rule="sv_followup_2",
+            sla_threshold="entry",
+            stage="sv_followup_2",
         )
 
     if assignee_changed:
