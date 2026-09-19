@@ -602,9 +602,8 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                 {"id": lead_id},
                 {"$unset": {"sla_flags.rnr": ""}},
             )
-        if next_status.lower() == "contacted":
-            if is_sla_activation or not existing.get("contacted_at_dt"):
-                patch["contacted_at_dt"] = now_dt
+        if status_changed and next_status.lower() == "contacted":
+            patch["contacted_at_dt"] = now_dt
             await db.leads.update_one(
                 {"id": lead_id},
                 {
@@ -617,6 +616,9 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                         "sla_flags.new.no_eligible_last_tick_at_dt": "",
                         "sla_flags.new.reassign_30m_at_dt": "",
                         "sla_flags.new.reassign_1h_at_dt": "",
+                        "sla_flags.contacted.48h_at_dt": "",
+                        "sla_flags.contacted.72h_at_dt": "",
+                        "sla_flags.contacted.reassigned_7d_at_dt": "",
                     }
                 },
             )

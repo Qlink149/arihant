@@ -274,11 +274,16 @@ async def route_new_lead(lead_id: str) -> dict:
     }
 
 
-async def reassign_new_lead_in_pool(lead_id: str) -> dict:
-    """1h SLA: next person in the lead's project pool. Does not use global RR."""
+async def reassign_lead_in_pool(lead_id: str, *, reason: str) -> dict:
+    """Next person in the lead's project pool (status-agnostic). Does not use global New RR."""
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
         return {"ok": False, "reason": "not_found"}
+
+    previous_assigned_user_id = lead.get("assigned_user_id") or ""
+    previous_assigned_to = (
+        lead.get("assigned_to") or lead.get("presales_agent") or ""
+    )
 
     pool_key = lead.get("pool_key") or pool_key_for_lead(lead)
     if not pool_escalates(pool_key):
@@ -296,7 +301,7 @@ async def reassign_new_lead_in_pool(lead_id: str) -> dict:
         lead_id,
         agent["id"],
         agent.get("full_name") or "",
-        reason="sla_1h_reroute",
+        reason=reason,
         pool_key=pool_key,
         pool_routing=True,
     )
@@ -306,7 +311,7 @@ async def reassign_new_lead_in_pool(lead_id: str) -> dict:
         actor_name="SLA Engine",
         payload={
             "action": "reassign_pool",
-            "reason": "sla_1h_reroute",
+            "reason": reason,
             "pool_key": pool_key,
             "assigned_user_id": agent["id"],
             "assigned_to": agent.get("full_name"),
@@ -317,7 +322,14 @@ async def reassign_new_lead_in_pool(lead_id: str) -> dict:
         "assigned_to": agent.get("full_name"),
         "assigned_user_id": agent["id"],
         "pool_key": pool_key,
+        "previous_assigned_user_id": previous_assigned_user_id,
+        "previous_assigned_to": previous_assigned_to,
     }
+
+
+async def reassign_new_lead_in_pool(lead_id: str) -> dict:
+    """1h SLA: next person in the lead's project pool. Does not use global RR."""
+    return await reassign_lead_in_pool(lead_id, reason="sla_1h_reroute")
 
 
 async def reassign_new_lead(lead_id: str) -> dict:

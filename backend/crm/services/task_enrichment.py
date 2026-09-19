@@ -22,6 +22,7 @@ SLA_REASON_BY_KEY: Dict[tuple, str] = {
     ("rnr", "15d"): "RNR lead unchanged for 15+ days — escalate to admin.",
     ("contacted", "48h"): "Contacted lead has had no update for 48+ hours.",
     ("contacted", "72h"): "Contacted lead has had no update for 72+ hours — admin alert.",
+    ("contacted", "reassign_exhausted"): "Contacted lead — pool reassignment chain exhausted.",
     ("nurturing", "hot_2d"): "Hot nurturing lead with no activity for 2+ days.",
     ("nurturing", "warm_4d"): "Warm nurturing lead with no activity for 4+ days.",
     ("nurturing", "hot_escalate_14d"): "Hot nurturing lead with no status change in 14+ days.",

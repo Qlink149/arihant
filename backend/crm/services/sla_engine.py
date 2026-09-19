@@ -23,7 +23,8 @@ from crm.constants.lead_status import (
     terminal_exclusion_clause,
 )
 from crm.core.state import db, logger
-from crm.services.assignment_router import reassign_new_lead_in_pool
+from crm.services.assignment_router import reassign_lead_in_pool, reassign_new_lead_in_pool
+from crm.services.notification_service import create_notification
 from crm.services.lead_sla_utils import has_agent_activity_since, is_booking_progress_status
 from crm.services.project_assignment_pools import pool_escalates
 from crm.services.notifications_stream import notifications_stream
@@ -38,6 +39,10 @@ _POOL_EXHAUSTED_ALERT_COPY = (
 )
 _CRON_LOCK_TTL_MINUTES = 4
 
+# OPEN O8 — Phase 3 may flip CONTACTED_REASSIGN_USE_BUSINESS_DAYS to True.
+CONTACTED_REASSIGN_INTERVAL_DAYS = 7
+CONTACTED_REASSIGN_USE_BUSINESS_DAYS = False
+
 # Status matchers (case-insensitive)
 _RE_CONTACTED = {"$regex": r"^\s*contacted\s*$", "$options": "i"}
 _RE_NURTURING = {"$regex": r"nurtur", "$options": "i"}
@@ -50,6 +55,14 @@ _RE_GONE_COLD = {"$regex": r"gone\s*cold", "$options": "i"}
 _RE_FUTURE_PROSPECT = {"$regex": r"future\s*prospect", "$options": "i"}
 _RE_REENGAGED = {"$regex": r"re[\s\-]*engaged", "$options": "i"}
 _SV_FOLLOWUP_STATUS = SV_FOLLOWUP_STATUS_QUERY
+
+
+async def _lead_has_pending_task(lead_id: str) -> bool:
+    doc = await db.tasks.find_one(
+        {"lead_id": lead_id, "status": "pending"},
+        {"_id": 0, "id": 1},
+    )
+    return bool(doc)
 
 
 async def _has_pending_sv_entry_task(lead_id: str, sla_rule: str) -> bool:
@@ -727,6 +740,84 @@ class SLAEngineService:
                         sla_threshold=threshold,
                     )
 
+    async def _process_contacted_reassign(
+        self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
+    ) -> None:
+        interval = timedelta(days=CONTACTED_REASSIGN_INTERVAL_DAYS)
+        cutoff = now_dt - interval
+        flag = "sla_flags.contacted.reassigned_7d_at_dt"
+        query = self._rule_query(
+            {
+                "lead_status": _RE_CONTACTED,
+                "contacted_at_dt": {"$exists": True, "$ne": None, "$lt": cutoff},
+                **_flag_not_set(flag),
+            }
+        )
+        notify_copy = "Lead reassigned — unactioned in Contacted for 7 days."
+        async for batch in _paginate_leads(db.leads, query):
+            for lead in batch:
+                ref = coerce_datetime(lead.get("contacted_at_dt"))
+                if not ref:
+                    continue
+                if ref.tzinfo is None:
+                    ref = ref.replace(tzinfo=timezone.utc)
+                if now_dt < ref + interval:
+                    continue
+                if await _lead_has_pending_task(lead["id"]):
+                    continue
+                result = await reassign_lead_in_pool(lead["id"], reason="sla_contacted_7d_reroute")
+                if result.get("ok"):
+                    self._queue_lead_mutation(
+                        lead["id"],
+                        {},
+                        flag,
+                        now_dt,
+                        now_iso,
+                        "mutation:contacted:reassigned_7d",
+                    )
+                    lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
+                    prev_id = result.get("previous_assigned_user_id") or ""
+                    prev_name = result.get("previous_assigned_to") or ""
+                    new_id = result.get("assigned_user_id") or ""
+                    new_name = result.get("assigned_to") or ""
+                    if prev_id:
+                        await create_notification(
+                            recipient_user_id=prev_id,
+                            recipient_name=prev_name,
+                            title="Lead reassigned",
+                            message=notify_copy,
+                            notification_type="lead_transferred",
+                            lead_id=lead["id"],
+                            lead_name=lead_name,
+                            dedupe_key=f"contacted_reassign:prev:{lead['id']}:{now_dt.date().isoformat()}",
+                        )
+                    if new_id:
+                        await create_notification(
+                            recipient_user_id=new_id,
+                            recipient_name=new_name,
+                            title="Lead reassigned to you",
+                            message=notify_copy,
+                            notification_type="lead_transferred",
+                            lead_id=lead["id"],
+                            lead_name=lead_name,
+                            dedupe_key=f"contacted_reassign:new:{lead['id']}:{now_dt.date().isoformat()}",
+                        )
+                elif result.get("exhausted"):
+                    dedupe = f"sla:contacted:reassign_exhausted:{lead['id']}"
+                    self._queue_task(
+                        lead,
+                        "Contacted lead — pool reassignment exhausted",
+                        dedupe,
+                        flag,
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target="admin",
+                        priority="high",
+                        sla_rule="contacted",
+                        sla_threshold="reassign_exhausted",
+                    )
+
     async def _process_rule_contacted(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         for hours, threshold, desc, priority, target in (
             (48, "48h", "Follow up — log outcome for this lead", "medium", None),
@@ -757,6 +848,7 @@ class SLAEngineService:
                         sla_rule="contacted",
                         sla_threshold=threshold,
                     )
+        await self._process_contacted_reassign(now_dt, now_iso, name_to_user_id)
 
     async def _process_nurturing_hot_14d_escalation(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
