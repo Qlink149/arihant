@@ -1028,17 +1028,6 @@ class SLAEngineService:
                         sla_rule="reengaged",
                         sla_threshold=threshold,
                     )
-                    if threshold == "48h":
-                        re_flags = (lead.get("sla_flags") or {}).get("reengaged") or {}
-                        if not re_flags.get("gone_cold_48h_at_dt"):
-                            self._queue_lead_mutation(
-                                lead["id"],
-                                {"lead_status": "Gone Cold"},
-                                "sla_flags.reengaged.gone_cold_48h_at_dt",
-                                now_dt,
-                                now_iso,
-                                "mutation:reengaged:gone_cold_48h",
-                            )
 
     async def _process_rule_negotiation(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         status_q = {"lead_status": _RE_NEGOTIATION}
