@@ -758,7 +758,47 @@ class SLAEngineService:
                         sla_threshold=threshold,
                     )
 
+    async def _process_nurturing_hot_14d_escalation(
+        self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
+    ) -> None:
+        cutoff = now_dt - timedelta(days=14)
+        flag = "sla_flags.nurturing.hot_escalate_14d_at_dt"
+        query = self._rule_query(
+            {
+                "lead_status": _RE_NURTURING,
+                "temperature": {"$regex": r"^\s*hot\s*$", "$options": "i"},
+                **_entered_at_or_updated_fallback("nurture_entered_at_dt", cutoff),
+                **_flag_not_set(flag),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query):
+            for lead in batch:
+                ref = coerce_datetime(lead.get("nurture_entered_at_dt")) or coerce_datetime(
+                    lead.get("updated_at_dt")
+                )
+                if not ref:
+                    continue
+                if ref.tzinfo is None:
+                    ref = ref.replace(tzinfo=timezone.utc)
+                if now_dt < ref + timedelta(days=14):
+                    continue
+                dedupe = f"sla:nurturing:hot_escalate_14d:{lead['id']}"
+                self._queue_task(
+                    lead,
+                    "Hot lead — no status change in 14 days",
+                    dedupe,
+                    flag,
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    escalation_target="admin",
+                    priority="high",
+                    sla_rule="nurturing",
+                    sla_threshold="hot_escalate_14d",
+                )
+
     async def _process_rule_nurturing(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
+        await self._process_nurturing_hot_14d_escalation(now_dt, now_iso, name_to_user_id)
         query_nurture = self._rule_query({"lead_status": _RE_NURTURING})
         async for batch in _paginate_leads(db.leads, query_nurture):
             for lead in batch:

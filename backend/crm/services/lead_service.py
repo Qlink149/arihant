@@ -767,6 +767,10 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
             patch["nurture_entered_at_dt"] = now_dt
             patch["nurture_task_required_since_dt"] = now_dt
             patch["nurture_task_required_task_id"] = None
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.nurturing.hot_escalate_14d_at_dt": ""}},
+            )
         elif was_nurturing and not is_nurturing:
             patch["nurture_entered_at_dt"] = None
             patch["nurture_task_required_since_dt"] = None

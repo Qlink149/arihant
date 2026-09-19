@@ -24,6 +24,7 @@ SLA_REASON_BY_KEY: Dict[tuple, str] = {
     ("contacted", "72h"): "Contacted lead has had no update for 72+ hours — admin alert.",
     ("nurturing", "hot_2d"): "Hot nurturing lead with no activity for 2+ days.",
     ("nurturing", "warm_4d"): "Warm nurturing lead with no activity for 4+ days.",
+    ("nurturing", "hot_escalate_14d"): "Hot nurturing lead with no status change in 14+ days.",
     ("visit_scheduled", "missing_date"): "Site visit scheduled but visit date is missing.",
     ("visit_scheduled", "pre_24h"): "Site visit is within 24 hours — send client reminder.",
     ("visit_completed", "3d"): "Site visit completed 3+ days ago — follow up today.",
