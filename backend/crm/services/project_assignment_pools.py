@@ -12,7 +12,6 @@ from crm.core.state import resolve_lead_project_key
 DEFAULT_POOL_KEY = "_default"
 
 ANUSHA_EMAIL = "anusha@arihants.co.in"
-GOWTHAM_EMAIL = "gowtham@arihants.co.in"
 NARENDRAN_EMAIL = "narendran@arihants.co.in"
 MALATHY_EMAIL = "malathy@arihants.co.in"
 JIGAR_EMAIL = "jigar@arihants.co.in"
@@ -28,7 +27,7 @@ ANANTHRAMAN_EMAIL = "anantharaman@arihants.co.in"
 #   rr_list — fewest open New among remaining fallback_chain members
 PROJECT_ASSIGNMENT_POOLS: Dict[str, dict] = {
     "reserve-16": {
-        "primary": [ANUSHA_EMAIL, GOWTHAM_EMAIL],
+        "primary": [ANUSHA_EMAIL],
         "primary_mode": "rr",
         "fallback_chain": [
             NARENDRAN_EMAIL,
@@ -75,7 +74,7 @@ PROJECT_ASSIGNMENT_POOLS: Dict[str, dict] = {
         "escalate": False,
     },
     DEFAULT_POOL_KEY: {
-        "primary": [ANUSHA_EMAIL, GOWTHAM_EMAIL],
+        "primary": [ANUSHA_EMAIL],
         "primary_mode": "rr",
         "fallback_chain": [],
         "fallback_mode": "other_primary",
@@ -89,7 +88,7 @@ def normalize_email(value: Optional[str]) -> str:
 
 
 def pool_key_for_lead(lead: Optional[dict]) -> str:
-    """Canonical pool key. Unknown / empty project → default Anusha/Gowtham pool."""
+    """Canonical pool key. Unknown / empty project → default Anusha pool."""
     if lead and lead.get("pool_key"):
         existing = str(lead.get("pool_key") or "").strip()
         if existing in PROJECT_ASSIGNMENT_POOLS:

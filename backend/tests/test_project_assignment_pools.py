@@ -9,7 +9,6 @@ from crm.services.project_assignment_pools import (
     ANANTHRAMAN_EMAIL,
     ANUSHA_EMAIL,
     DEFAULT_POOL_KEY,
-    GOWTHAM_EMAIL,
     HARISH_EMAIL,
     JIGAR_EMAIL,
     MALATHY_EMAIL,
@@ -56,14 +55,12 @@ def test_melange_and_vipassana_do_not_escalate():
 def test_reserve_16_fallback_order_excludes_current_owner():
     pool = get_pool("reserve-16")
     remaining = next_hop_emails(pool, [ANUSHA_EMAIL], initial=False)
-    assert remaining[0] == GOWTHAM_EMAIL
-    assert remaining[1:] == [NARENDRAN_EMAIL, MALATHY_EMAIL, JIGAR_EMAIL, ANANTHRAMAN_EMAIL]
-
-
-def test_reserve_16_chain_after_both_primaries():
-    pool = get_pool("reserve-16")
-    remaining = next_hop_emails(pool, [ANUSHA_EMAIL, GOWTHAM_EMAIL], initial=False)
     assert remaining == [NARENDRAN_EMAIL, MALATHY_EMAIL, JIGAR_EMAIL, ANANTHRAMAN_EMAIL]
+
+
+def test_reserve_16_primary_is_anusha_only():
+    pool = get_pool("reserve-16")
+    assert next_hop_emails(pool, [], initial=True) == [ANUSHA_EMAIL]
 
 
 def test_krsna_mira_other_primary_then_stop():
@@ -82,10 +79,10 @@ def test_vivriti_fallback_is_narendran_malathy():
     assert next_hop_emails(pool, [ANUSHA_EMAIL], initial=False) == [NARENDRAN_EMAIL, MALATHY_EMAIL]
 
 
-def test_default_pool_other_primary_only():
+def test_default_pool_anusha_only_exhausts_after_primary():
     pool = get_pool(DEFAULT_POOL_KEY)
-    assert next_hop_emails(pool, [ANUSHA_EMAIL], initial=False) == [GOWTHAM_EMAIL]
-    assert next_hop_emails(pool, [ANUSHA_EMAIL, GOWTHAM_EMAIL], initial=False) == []
+    assert next_hop_emails(pool, [], initial=True) == [ANUSHA_EMAIL]
+    assert next_hop_emails(pool, [ANUSHA_EMAIL], initial=False) == []
 
 
 def _lead_with_updates(*entries, assigned_user_id="u-anusha", assigned_to="Anusha Omprakash"):
@@ -163,10 +160,10 @@ ANUSHA = {
 }
 GOWTHAM = {
     "id": "u-gowtham",
-    "email": GOWTHAM_EMAIL,
+    "email": "gowtham@arihants.co.in",
     "full_name": "Gowtham j",
     "role": "rep",
-    "is_active": True,
+    "is_active": False,
 }
 ROSHNI = {
     "id": "u-roshni",
@@ -248,31 +245,40 @@ async def _route_melange_assigns_roshni_only():
     assert "assigned_at_dt" in set_fields
 
 
-def test_route_empty_project_rr_picks_fewer_new():
-    asyncio.run(_route_empty_project_rr_picks_fewer_new())
+def test_route_empty_project_assigns_anusha_only():
+    asyncio.run(_route_empty_project_assigns_anusha_only())
 
 
-async def _route_empty_project_rr_picks_fewer_new():
+async def _route_empty_project_assigns_anusha_only():
     from crm.services import assignment_router as router
 
     lead = {"id": "L2", "lead_status": "New"}
     mock_db = _mock_router_db(lead)
 
-    async def _counts(user_id, full_name):
-        return {"u-anusha": 3, "u-gowtham": 1}[user_id]
-
     with patch.object(router, "db", mock_db):
         with patch.object(
             router,
             "resolve_users_by_emails",
-            AsyncMock(return_value=_users_by_email(ANUSHA, GOWTHAM)),
+            AsyncMock(return_value=_users_by_email(ANUSHA)),
         ):
             with patch.object(router, "is_pool_member_eligible", AsyncMock(return_value=True)):
-                with patch.object(router, "count_open_new_leads", side_effect=_counts):
+                with patch.object(router, "count_open_new_leads", AsyncMock(return_value=0)):
                     with patch.object(router, "create_notification", new_callable=AsyncMock):
                         result = await router.route_new_lead("L2")
-    assert result["assigned_user_id"] == "u-gowtham"
+    assert result["assigned_user_id"] == "u-anusha"
     assert result["pool_key"] == DEFAULT_POOL_KEY
+
+
+def test_inactive_gowtham_not_eligible_for_routing():
+    asyncio.run(_inactive_gowtham_not_eligible_for_routing())
+
+
+async def _inactive_gowtham_not_eligible_for_routing():
+    from crm.services import assignment_router as router
+
+    with patch.object(router, "is_active_for_routing", AsyncMock(return_value=False)):
+        with patch("crm.core.platform_ops.is_blocked_assignee", AsyncMock(return_value=False)):
+            assert await router.is_pool_member_eligible(GOWTHAM) is False
 
 
 def test_harish_admin_eligible_without_rep_duty():
@@ -288,11 +294,11 @@ async def _harish_admin_eligible_without_rep_duty():
             assert await router.is_pool_member_eligible(MALATHY) is False
 
 
-def test_reassign_reserve16_hops_to_other_primary():
-    asyncio.run(_reassign_reserve16_hops_to_other_primary())
+def test_reassign_reserve16_hops_to_fallback_chain():
+    asyncio.run(_reassign_reserve16_hops_to_fallback_chain())
 
 
-async def _reassign_reserve16_hops_to_other_primary():
+async def _reassign_reserve16_hops_to_fallback_chain():
     from crm.services import assignment_router as router
 
     lead = {
@@ -309,7 +315,7 @@ async def _reassign_reserve16_hops_to_other_primary():
         with patch.object(
             router,
             "resolve_users_by_emails",
-            AsyncMock(return_value=_users_by_email(ANUSHA, GOWTHAM, NARENDRAN, MALATHY, JIGAR)),
+            AsyncMock(return_value=_users_by_email(ANUSHA, NARENDRAN, MALATHY, JIGAR)),
         ):
             with patch.object(router, "is_pool_member_eligible", AsyncMock(return_value=True)):
                 with patch.object(router, "count_open_new_leads", AsyncMock(return_value=0)):
@@ -317,7 +323,7 @@ async def _reassign_reserve16_hops_to_other_primary():
                         with patch.object(router, "log_lead_event", new_callable=AsyncMock):
                             result = await router.reassign_new_lead_in_pool("L3")
     assert result["ok"] is True
-    assert result["assigned_user_id"] == "u-gowtham"
+    assert result["assigned_user_id"] == "u-narendran"
 
 
 def test_reassign_reserve16_last_hop_is_anantharaman():
@@ -334,7 +340,6 @@ async def _reassign_reserve16_last_hop_is_anantharaman():
         "assigned_user_id": "u-jigar",
         "pool_assignment_history": [
             "u-anusha",
-            "u-gowtham",
             "u-narendran",
             "u-malathy",
             "u-jigar",
@@ -342,7 +347,7 @@ async def _reassign_reserve16_last_hop_is_anantharaman():
         "lead_status": "New",
     }
     mock_db = _mock_router_db(lead)
-    users = _users_by_email(ANUSHA, GOWTHAM, NARENDRAN, MALATHY, JIGAR, ANANTHARAMAN)
+    users = _users_by_email(ANUSHA, NARENDRAN, MALATHY, JIGAR, ANANTHARAMAN)
     with patch.object(router, "db", mock_db):
         with patch.object(router, "resolve_users_by_emails", AsyncMock(return_value=users)):
             with patch.object(router, "is_pool_member_eligible", AsyncMock(return_value=True)):
@@ -368,7 +373,6 @@ async def _reassign_reserve16_exhausts_after_anantharaman():
         "assigned_user_id": "u-anantharaman",
         "pool_assignment_history": [
             "u-anusha",
-            "u-gowtham",
             "u-narendran",
             "u-malathy",
             "u-jigar",
@@ -377,7 +381,7 @@ async def _reassign_reserve16_exhausts_after_anantharaman():
         "lead_status": "New",
     }
     mock_db = _mock_router_db(lead)
-    users = _users_by_email(ANUSHA, GOWTHAM, NARENDRAN, MALATHY, JIGAR, ANANTHARAMAN)
+    users = _users_by_email(ANUSHA, NARENDRAN, MALATHY, JIGAR, ANANTHARAMAN)
     with patch.object(router, "db", mock_db):
         with patch.object(router, "resolve_users_by_emails", AsyncMock(return_value=users)):
             with patch.object(router, "is_pool_member_eligible", AsyncMock(return_value=True)):
@@ -457,7 +461,7 @@ async def _sla_new_skips_manual_and_activity_and_reassigns_pool():
         else:
             yield []
 
-    reassign = AsyncMock(return_value={"ok": True, "assigned_user_id": "u-gowtham"})
+    reassign = AsyncMock(return_value={"ok": True, "assigned_user_id": "u-narendran"})
 
     with patch("crm.services.sla_engine.is_business_hours_ist", return_value=True):
         with patch("crm.services.sla_engine.business_seconds_elapsed", return_value=3600):
