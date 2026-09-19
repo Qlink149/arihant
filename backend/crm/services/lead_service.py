@@ -48,7 +48,10 @@ from crm.services.meta_qualified_trigger import (
     should_auto_set_meta_qualified,
     should_send_qualified_lead_capi,
 )
-from crm.services.nurture_temperature import apply_nurture_temperature_rules
+from crm.services.nurture_temperature import (
+    apply_nurture_temperature_rules,
+    nurture_warm_to_hot_context_entry,
+)
 from crm.services.sla_helpers import create_sla_task_for_lead
 from crm.utils.helpers import (
     coerce_datetime,
@@ -744,6 +747,20 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                     "actor_name": current_user.get("full_name"),
                 }
             )
+
+    if (
+        status_changed
+        and prev_status.lower() == "nurturing"
+        and is_interested_status(next_status)
+        and (existing.get("temperature") or "").strip().lower() == "warm"
+    ):
+        extra_ctx.append(
+            nurture_warm_to_hot_context_entry(
+                "interested_transition",
+                actor_name=current_user.get("full_name") or "System",
+                actor_user_id=current_user.get("id") or "",
+            )
+        )
 
     # We'll generate a robust field-diff timeline entry after applying validation/rules,
     # so that diffs reflect the final stored values (especially temperature for Nurturing).

@@ -15,6 +15,7 @@ from crm.services.mcube.match import list_admin_users, match_lead_by_customer_ph
 from crm.services.mcube.timeline import record_call_on_lead
 from crm.services.mcube_lead_intake import create_mcube_unknown_lead
 from crm.services.notification_service import create_notification
+from crm.services.nurture_temperature import upgrade_nurturing_warm_to_hot_on_lead
 
 
 async def process_mcube_event_doc(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -130,6 +131,19 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
                 actor_user_id=assigned_user_id,
             )
             timeline_written = True
+
+        if (call.get("direction") or "").strip().lower() == "inbound":
+            refreshed = await db.leads.find_one(
+                {"id": lead["id"]},
+                {"_id": 0, "lead_status": 1, "temperature": 1},
+            )
+            await upgrade_nurturing_warm_to_hot_on_lead(
+                lead["id"],
+                refreshed or lead,
+                source="mcube_inbound",
+                actor_name=assigned_to_name,
+                actor_user_id=assigned_user_id,
+            )
 
         await _maybe_notify_missed(lead=lead, call=call, assigned_user_id=assigned_user_id, assigned_to_name=assigned_to_name)
 

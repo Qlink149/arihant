@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from fastapi import HTTPException
 
 from crm.constants.lead_status import NURTURE_LABELS, NURTURING_STATUS
+from crm.core.state import db, iso_utc_now, utc_now
 
 
 def _is_nurturing_status(status: Optional[str]) -> bool:
@@ -88,3 +89,45 @@ def apply_nurture_temperature_rules(
         patch["temperature"] = label
 
     return patch
+
+
+def nurture_warm_to_hot_context_entry(
+    source: str,
+    *,
+    actor_name: str = "System",
+    actor_user_id: str = "",
+) -> dict:
+    now_dt = utc_now()
+    return {
+        "type": "updated",
+        "timestamp": iso_utc_now(),
+        "timestamp_dt": now_dt,
+        "description": f"Nurture label upgraded: Warm → Hot ({source})",
+        "changes": [{"field": "temperature", "from": "Warm", "to": "Hot"}],
+        "agent": actor_name,
+        "actor_user_id": actor_user_id,
+        "actor_name": actor_name,
+    }
+
+
+async def upgrade_nurturing_warm_to_hot_on_lead(
+    lead_id: str,
+    lead: dict,
+    *,
+    source: str,
+    actor_name: str = "System",
+    actor_user_id: str = "",
+) -> bool:
+    """Upgrade only: Nurturing + Warm → Hot. Never downgrades."""
+    if not _is_nurturing_status(lead.get("lead_status")):
+        return False
+    if _existing_valid_label(lead) != "Warm":
+        return False
+    entry = nurture_warm_to_hot_context_entry(
+        source, actor_name=actor_name, actor_user_id=actor_user_id
+    )
+    await db.leads.update_one(
+        {"id": lead_id},
+        {"$set": {"temperature": "Hot"}, "$push": {"context_updates": entry}},
+    )
+    return True
