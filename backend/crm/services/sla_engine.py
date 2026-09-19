@@ -149,15 +149,8 @@ def is_business_hours_ist(now_dt: datetime) -> bool:
 
 
 def is_new_lead_intake_window_ist(created_at_dt: datetime) -> bool:
-    """
-    Client rule: 2h hard-cap (admin alert) only applies to leads created between
-    10:00–17:00 IST (Mon–Sat). The alert itself may fire after-hours.
-    """
-    ist = created_at_dt.astimezone(IST)
-    if ist.weekday() == 6:
-        return False
-    minutes = ist.hour * 60 + ist.minute
-    return (10 * 60) <= minutes <= (17 * 60)
+    """True when the lead was created during business hours (same window as SLA timers)."""
+    return is_business_hours_ist(created_at_dt)
 
 
 def build_task_doc(
