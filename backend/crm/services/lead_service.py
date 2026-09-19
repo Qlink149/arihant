@@ -30,6 +30,7 @@ from crm.services.lead_project_fields import (
     apply_coalesce_for_response,
     normalize_lead_projects,
 )
+from crm.services.call_stats import apply_call_attempt_counts_to_lead
 from crm.services.context_updates import dedupe_context_updates
 from crm.services.site_visit_events import record_site_visit_event
 from crm.services.lead_projections import (
@@ -116,6 +117,8 @@ def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
     else:
         lead["ai_last_generated_at"] = None
     apply_coalesce_for_response(lead)
+    if not list_view:
+        apply_call_attempt_counts_to_lead(lead)
     return lead
 
 

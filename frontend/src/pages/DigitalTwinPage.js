@@ -1162,9 +1162,17 @@ const DigitalTwinPage = () => {
         data-testid="context-timeline"
       >
         <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Clock className="text-[#C5A059]" size={16} />
-            <h2 className="text-base font-semibold text-crm-fg">Context Updates Timeline</h2>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <Clock className="text-[#C5A059]" size={16} />
+              <h2 className="text-base font-semibold text-crm-fg">Context Updates Timeline</h2>
+            </div>
+            {lead?.call_attempt_count_total != null && (
+              <p className="text-xs text-crm-fg-muted pl-6" data-testid="call-attempt-counts">
+                Call attempts: {lead.call_attempt_count_outbound ?? 0} outbound ·{' '}
+                {lead.call_attempt_count_total ?? 0} total
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <div className="flex flex-col items-end gap-1">
