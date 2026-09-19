@@ -32,6 +32,10 @@ from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now, ist_wall_to
 
 IST = ZoneInfo("Asia/Kolkata")
 _CRON_LOCK_JOB = "process_slas"
+_NO_ELIGIBLE_MIN_TICKS = 3
+_POOL_EXHAUSTED_ALERT_COPY = (
+    "New lead unactioned: not picked up by primary or fallback rep. Please review."
+)
 _CRON_LOCK_TTL_MINUTES = 4
 
 # Status matchers (case-insensitive)
@@ -556,35 +560,81 @@ class SLAEngineService:
                             now_iso,
                             "mutation:new:auto_reassign_1h",
                         )
+                        self._lead_ops.append(
+                            UpdateOne(
+                                {"id": lead["id"]},
+                                {
+                                    "$unset": {
+                                        "sla_flags.new.no_eligible_tick_count": "",
+                                        "sla_flags.new.no_eligible_since_at_dt": "",
+                                        "sla_flags.new.no_eligible_last_tick_at_dt": "",
+                                    }
+                                },
+                            )
+                        )
+                    elif result.get("reason") == "no_eligible":
+                        new_flags = (lead.get("sla_flags") or {}).get("new") or {}
+                        since = coerce_datetime(new_flags.get("no_eligible_since_at_dt"))
+                        tick_count = int(new_flags.get("no_eligible_tick_count") or 0) + 1
+                        if not since:
+                            since = now_dt
+                        if (
+                            tick_count >= _NO_ELIGIBLE_MIN_TICKS
+                            and business_seconds_elapsed(since, now_dt) >= 3600
+                        ):
+                            self._queue_lead_mutation(
+                                lead["id"],
+                                {},
+                                "sla_flags.new.pool_chain_exhausted_at_dt",
+                                now_dt,
+                                now_iso,
+                                "mutation:new:no_eligible_exhausted",
+                            )
+                        else:
+                            self._queue_lead_mutation(
+                                lead["id"],
+                                {
+                                    "sla_flags.new.no_eligible_tick_count": tick_count,
+                                    "sla_flags.new.no_eligible_since_at_dt": since,
+                                },
+                                "sla_flags.new.no_eligible_last_tick_at_dt",
+                                now_dt,
+                                now_iso,
+                                "mutation:new:no_eligible_tick",
+                            )
 
-        cutoff_2h = now_dt - timedelta(hours=2)
-        query_2h = self._rule_query(
+        query_exhausted_alert = self._rule_query(
             {
                 **base,
-                "created_at_dt": {"$lt": cutoff_2h},
-                **_flag_not_set("sla_flags.new.alert_admin_2h_at_dt"),
+                "sla_flags.new.pool_chain_exhausted_at_dt": {"$exists": True, "$ne": None},
+                **_flag_not_set("sla_flags.new.pool_exhausted_alert_at_dt"),
             }
         )
-        async for batch in _paginate_leads(db.leads, query_2h):
+        async for batch in _paginate_leads(db.leads, query_exhausted_alert):
             for lead in batch:
                 created = coerce_datetime(lead.get("created_at_dt")) or now_dt
                 if created.tzinfo is None:
                     created = created.replace(tzinfo=timezone.utc)
                 if not is_new_lead_intake_window_ist(created):
                     continue
-                dedupe = f"sla:new:2h:{lead['id']}"
+                assigned = coerce_datetime(lead.get("assigned_at_dt")) or created
+                if assigned.tzinfo is None:
+                    assigned = assigned.replace(tzinfo=timezone.utc)
+                if has_agent_activity_since(lead, assigned):
+                    continue
+                dedupe = f"sla:new:pool_exhausted_alert:{lead['id']}"
                 self._queue_task(
                     lead,
-                    "Alert Admin",
+                    _POOL_EXHAUSTED_ALERT_COPY,
                     dedupe,
-                    "sla_flags.new.alert_admin_2h_at_dt",
+                    "sla_flags.new.pool_exhausted_alert_at_dt",
                     now_dt,
                     now_iso,
                     name_to_user_id,
                     escalation_target="admin",
                     priority="high",
                     sla_rule="new",
-                    sla_threshold="2h",
+                    sla_threshold="pool_exhausted_alert",
                 )
 
     async def _process_rule_rnr(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:

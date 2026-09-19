@@ -609,6 +609,11 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                 {
                     "$unset": {
                         "sla_flags.new.alert_admin_2h_at_dt": "",
+                        "sla_flags.new.pool_exhausted_alert_at_dt": "",
+                        "sla_flags.new.pool_chain_exhausted_at_dt": "",
+                        "sla_flags.new.no_eligible_tick_count": "",
+                        "sla_flags.new.no_eligible_since_at_dt": "",
+                        "sla_flags.new.no_eligible_last_tick_at_dt": "",
                         "sla_flags.new.reassign_30m_at_dt": "",
                         "sla_flags.new.reassign_1h_at_dt": "",
                     }

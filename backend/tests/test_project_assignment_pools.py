@@ -471,7 +471,7 @@ async def _sla_new_skips_manual_and_activity_and_reassigns_pool():
 
     assert reassign.call_count == 1
     reassign.assert_awaited_once_with("pool-1")
-    flag_paths = [op._doc["$set"] for op in engine._lead_ops]
+    flag_paths = [op._doc.get("$set") or {} for op in engine._lead_ops]
     assert any("sla_flags.new.last_pool_reassign_at_dt" in doc for doc in flag_paths)
 
 
