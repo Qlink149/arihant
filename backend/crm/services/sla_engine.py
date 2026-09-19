@@ -223,7 +223,7 @@ class SLAEngineService:
         self._admin_email_ops: List[dict] = []
         self._summary: Dict[str, int] = {}
         self._skipped_no_assignee = 0
-        self._escalation_targets: Dict[str, dict] = {}
+        self._escalation_targets: Dict[str, Any] = {}
         self._terminal_exclusion = terminal_exclusion_clause()
 
     def _rule_query(self, base: dict) -> dict:
@@ -247,33 +247,38 @@ class SLAEngineService:
         now_dt: datetime,
         now_iso: str,
     ) -> None:
-        admin = self._escalation_targets.get("admin")
-        if not admin or not admin.get("id"):
+        recipients = self._escalation_notification_recipients()
+        if not recipients:
             return
-        notif = {
-            "id": str(uuid.uuid4()),
-            "type": "sla_alert",
-            "notification_type": "escalation",
-            "title": title,
-            "message": message,
-            "lead_id": lead["id"],
-            "lead_name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip(),
-            "task_id": None,
-            "stage": "sla",
-            "sla_threshold": "",
-            "severity": "high",
-            "urgency": "action_needed",
-            "assigned_to": admin.get("full_name", ""),
-            "recipient_name": admin.get("full_name", ""),
-            "recipient_user_id": admin["id"],
-            "is_read": False,
-            "fired_at_dt": now_dt,
-            "created_at": now_iso,
-            "created_at_dt": now_dt,
-            "dedupe_key": dedupe_key,
-        }
-        self._notif_ops.append(InsertOne(notif))
-        self._notif_publish.append((admin["id"], notif))
+        lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
+        for user in recipients:
+            uid = user.get("id")
+            if not uid:
+                continue
+            notif = {
+                "id": str(uuid.uuid4()),
+                "type": "sla_alert",
+                "notification_type": "escalation",
+                "title": title,
+                "message": message,
+                "lead_id": lead["id"],
+                "lead_name": lead_name,
+                "task_id": None,
+                "stage": "sla",
+                "sla_threshold": "",
+                "severity": "high",
+                "urgency": "action_needed",
+                "assigned_to": user.get("full_name", ""),
+                "recipient_name": user.get("full_name", ""),
+                "recipient_user_id": uid,
+                "is_read": False,
+                "fired_at_dt": now_dt,
+                "created_at": now_iso,
+                "created_at_dt": now_dt,
+                "dedupe_key": f"notif:{dedupe_key}:{uid}",
+            }
+            self._notif_ops.append(InsertOne(notif))
+            self._notif_publish.append((uid, notif))
 
     def _queue_task(
         self,
@@ -316,8 +321,7 @@ class SLAEngineService:
         if task.get("due_time"):
             due_str += f" at {task['due_time']}"
         notif_type = "escalation" if escalation_target else "action_required"
-        notif = {
-            "id": str(uuid.uuid4()),
+        notif_base = {
             "type": "sla_task",
             "notification_type": notif_type,
             "title": f"SLA: {description[:50]}",
@@ -329,18 +333,41 @@ class SLAEngineService:
             "sla_threshold": sla_threshold,
             "severity": "high" if priority == "high" else "medium" if priority == "medium" else "low",
             "urgency": "action_needed",
-            "assigned_to": task.get("assigned_to", ""),
-            "recipient_name": task.get("assigned_to", ""),
-            "recipient_user_id": task.get("assigned_user_id", ""),
             "is_read": False,
             "fired_at_dt": now_dt,
             "created_at": now_iso,
             "created_at_dt": now_dt,
-            "dedupe_key": f"notif:{dedupe_key}",
         }
-        self._notif_ops.append(InsertOne(notif))
-        if notif.get("recipient_user_id"):
-            self._notif_publish.append((notif["recipient_user_id"], notif))
+        if escalation_target:
+            recipients = self._escalation_notification_recipients()
+            if not recipients:
+                recipients = [escalation_user] if escalation_user and escalation_user.get("id") else []
+            for user in recipients:
+                uid = user.get("id")
+                if not uid:
+                    continue
+                notif = {
+                    "id": str(uuid.uuid4()),
+                    **notif_base,
+                    "assigned_to": user.get("full_name", ""),
+                    "recipient_name": user.get("full_name", ""),
+                    "recipient_user_id": uid,
+                    "dedupe_key": f"notif:{dedupe_key}:{uid}",
+                }
+                self._notif_ops.append(InsertOne(notif))
+                self._notif_publish.append((uid, notif))
+        else:
+            notif = {
+                "id": str(uuid.uuid4()),
+                **notif_base,
+                "assigned_to": task.get("assigned_to", ""),
+                "recipient_name": task.get("assigned_to", ""),
+                "recipient_user_id": task.get("assigned_user_id", ""),
+                "dedupe_key": f"notif:{dedupe_key}",
+            }
+            self._notif_ops.append(InsertOne(notif))
+            if notif.get("recipient_user_id"):
+                self._notif_publish.append((notif["recipient_user_id"], notif))
 
         self._event_ops.append(
             InsertOne(
@@ -451,22 +478,37 @@ class SLAEngineService:
         return {u["full_name"]: u["id"] for u in users if u.get("full_name") and u.get("id")}
 
     async def _load_escalation_targets(self) -> Dict[str, dict]:
-        admin = await db.users.find_one(
+        admins = await db.users.find(
             {"role": {"$regex": r"^\s*admin\s*$", "$options": "i"}},
             {"_id": 0, "id": 1, "full_name": 1, "role": 1},
             sort=[("id", 1)],
-        )
-        manager = await db.users.find_one(
-            {"role": {"$regex": r"^\s*manager\s*$", "$options": "i"}},
+        ).to_list(length=100)
+        general_managers = await db.users.find(
+            {"role": {"$regex": r"^\s*general_manager\s*$", "$options": "i"}},
             {"_id": 0, "id": 1, "full_name": 1, "role": 1},
             sort=[("id", 1)],
-        )
-        out: Dict[str, dict] = {}
-        if admin and admin.get("id"):
-            out["admin"] = admin
-        if manager and manager.get("id"):
-            out["manager"] = manager
+        ).to_list(length=100)
+        out: Dict[str, object] = {}
+        if admins:
+            out["admins"] = admins
+            out["admin"] = admins[0]
+        if general_managers:
+            out["general_managers"] = general_managers
         return out
+
+    def _escalation_notification_recipients(self) -> List[dict]:
+        seen: set[str] = set()
+        recipients: List[dict] = []
+        for key in ("admins", "general_managers"):
+            for user in self._escalation_targets.get(key) or []:
+                uid = (user.get("id") or "").strip()
+                if uid and uid not in seen:
+                    seen.add(uid)
+                    recipients.append(user)
+        admin = self._escalation_targets.get("admin")
+        if admin and admin.get("id") and admin["id"] not in seen:
+            recipients.append(admin)
+        return recipients
 
     async def _process_rule_new(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         base = _new_lead_filter()

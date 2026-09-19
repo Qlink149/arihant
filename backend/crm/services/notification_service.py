@@ -35,6 +35,7 @@ SLA_PAUSED_ALLOWED_TYPES = frozenset({
     "lead_note_mention",
     "mcube_missed_call",
     "mcube_unmatched_call",
+    "escalation",
 })
 
 
