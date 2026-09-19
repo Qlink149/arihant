@@ -633,12 +633,20 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
         if is_terminal_lead_status(next_status):
             patch["is_rnr"] = False
         if next_status.lower() == "visit completed":
-            # #53/#54: reference field stays first-stamp-only (SLA semantics), but the
-            # count and the append-only site_visit_events log increment on *every*
-            # transition into Visit Completed (multi-visit history survives later moves).
-            if is_sla_activation or not existing.get("visit_completed_at_dt"):
+            # #53/#54: visit_completed_at_dt resets every entry; visit_sla_reference_dt stays first-stamp-only.
+            if status_changed:
                 patch["visit_completed_at_dt"] = now_dt
-                patch["visit_sla_reference_dt"] = now_dt
+                if not existing.get("visit_sla_reference_dt"):
+                    patch["visit_sla_reference_dt"] = now_dt
+                await db.leads.update_one(
+                    {"id": lead_id},
+                    {
+                        "$unset": {
+                            "sla_flags.visit_completed.feedback_2h_at_dt": "",
+                            "sla_flags.visit_completed.escalate_72h_at_dt": "",
+                        }
+                    },
+                )
             if "site_visit_count" not in patch:
                 current_count = existing.get("site_visit_count")
                 if current_count is None:

@@ -27,6 +27,8 @@ SLA_REASON_BY_KEY: Dict[tuple, str] = {
     ("visit_scheduled", "missing_date"): "Site visit scheduled but visit date is missing.",
     ("visit_scheduled", "pre_24h"): "Site visit is within 24 hours — send client reminder.",
     ("visit_completed", "3d"): "Site visit completed 3+ days ago — follow up today.",
+    ("visit_completed", "feedback_2h"): "Site visit completed 2+ hours ago — log feedback.",
+    ("visit_completed", "escalate_72h"): "Visit completed — no follow-up logged in 72 hours.",
     ("sv_followup_1", "7d"): "SV Follow-up 1 — 7-day follow-up due.",
     ("sv_followup_2", "20d"): "SV Follow-up 2 — 20-day follow-up due; admin notified.",
     ("sv_followup", "72h"): "SV Follow Up — confirm booking intent (72h overdue).",

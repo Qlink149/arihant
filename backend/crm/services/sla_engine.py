@@ -881,8 +881,54 @@ class SLAEngineService:
     async def _process_rule_visit_completed(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
-        """3-day follow-up: surface lead in Today's Follow-ups via next_action_date (legacy backup)."""
+        """2h/72h feedback escalations + 3-day NAD follow-up backup."""
         status_q = {"lead_status": _RE_VISIT_COMPLETED}
+
+        for delta, threshold, desc, priority, target in (
+            (timedelta(hours=2), "feedback_2h", "Log site visit feedback", "medium", None),
+            (
+                timedelta(hours=72),
+                "escalate_72h",
+                "Visit completed — no follow-up logged in 72 hours",
+                "high",
+                "admin",
+            ),
+        ):
+            cutoff = now_dt - delta
+            flag = f"sla_flags.visit_completed.{threshold}_at_dt"
+            query = self._rule_query(
+                {
+                    **status_q,
+                    "visit_completed_at_dt": {"$exists": True, "$ne": None, "$lt": cutoff},
+                    **_flag_not_set(flag),
+                }
+            )
+            async for batch in _paginate_leads(db.leads, query):
+                for lead in batch:
+                    ref = coerce_datetime(lead.get("visit_completed_at_dt"))
+                    if not ref:
+                        continue
+                    if ref.tzinfo is None:
+                        ref = ref.replace(tzinfo=timezone.utc)
+                    if now_dt < ref + delta:
+                        continue
+                    if has_agent_activity_since(lead, ref):
+                        continue
+                    dedupe = f"sla:visit_completed:{threshold}:{lead['id']}"
+                    self._queue_task(
+                        lead,
+                        desc,
+                        dedupe,
+                        flag,
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target=target,
+                        priority=priority,
+                        sla_rule="visit_completed",
+                        sla_threshold=threshold,
+                    )
+
         flag_3d = "sla_flags.visit_completed.3d_at_dt"
         cutoff_3d = now_dt - timedelta(days=3)
         today_ist = now_dt.astimezone(IST).date().isoformat()
