@@ -24,6 +24,9 @@ from crm.utils.business_time import is_business_hours_ist
 
 ROUTING_SETTINGS_KEY = "routing"
 
+# OPEN O5 — Phase 3 may expand blocking set (e.g. on_break, site_visit).
+ROUTING_BLOCKING_STATUSES = {"unavailable", "away"}
+
 
 async def get_routing_settings() -> dict:
     doc = await db.app_settings.find_one({"key": ROUTING_SETTINGS_KEY}, {"_id": 0}) or {}
@@ -76,6 +79,9 @@ async def is_active_for_routing(user: dict, now_dt: Optional[datetime] = None) -
         return False
 
     activity = await db.user_activity.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    manual_status = (activity.get("manual_status") or "available").strip().lower()
+    if manual_status in ROUTING_BLOCKING_STATUSES:
+        return False
     return is_on_duty_today(activity, now_dt)
 
 
