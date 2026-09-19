@@ -620,8 +620,17 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                     }
                 },
             )
-        if is_interested_status(next_status) and (is_sla_activation or not existing.get("interested_entered_at_dt")):
+        if status_changed and is_interested_status(next_status):
             patch["interested_entered_at_dt"] = now_dt
+            await db.leads.update_one(
+                {"id": lead_id},
+                {
+                    "$unset": {
+                        "sla_flags.interested.7d_at_dt": "",
+                        "sla_flags.interested.escalate_14d_at_dt": "",
+                    }
+                },
+            )
         if next_status.lower() == "gone cold":
             patch["gone_cold_entered_at_dt"] = now_dt
             await db.leads.update_one(

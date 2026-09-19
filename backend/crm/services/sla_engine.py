@@ -841,12 +841,12 @@ class SLAEngineService:
                 )
 
     async def _process_rule_interested(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
-        """7-day reminder: surface Interested leads in Today's Follow-ups via next_action_date."""
+        """7-day NAD reminder + 14-day admin escalation for Interested leads."""
         status_q = {"lead_status": _RE_INTERESTED}
-        flag_7d = "sla_flags.interested.7d_at_dt"
-        cutoff_7d = now_dt - timedelta(days=7)
         today_ist = now_dt.astimezone(IST).date().isoformat()
 
+        flag_7d = "sla_flags.interested.7d_at_dt"
+        cutoff_7d = now_dt - timedelta(days=7)
         query_7d = self._rule_query(
             {
                 **status_q,
@@ -856,7 +856,9 @@ class SLAEngineService:
         )
         async for batch in _paginate_leads(db.leads, query_7d):
             for lead in batch:
-                ref = coerce_datetime(lead.get("interested_entered_at_dt")) or coerce_datetime(lead.get("updated_at_dt"))
+                ref = coerce_datetime(lead.get("interested_entered_at_dt")) or coerce_datetime(
+                    lead.get("updated_at_dt")
+                )
                 if not ref:
                     continue
                 if ref.tzinfo is None:
@@ -873,6 +875,41 @@ class SLAEngineService:
                     now_dt,
                     now_iso,
                     "mutation:interested:7d_followup",
+                )
+
+        cutoff_14d = now_dt - timedelta(days=14)
+        flag_14d = "sla_flags.interested.escalate_14d_at_dt"
+        query_14d = self._rule_query(
+            {
+                **status_q,
+                **_entered_at_or_updated_fallback("interested_entered_at_dt", cutoff_14d),
+                **_flag_not_set(flag_14d),
+            }
+        )
+        async for batch in _paginate_leads(db.leads, query_14d):
+            for lead in batch:
+                ref = coerce_datetime(lead.get("interested_entered_at_dt")) or coerce_datetime(
+                    lead.get("updated_at_dt")
+                )
+                if not ref:
+                    continue
+                if ref.tzinfo is None:
+                    ref = ref.replace(tzinfo=timezone.utc)
+                if now_dt < ref + timedelta(days=14):
+                    continue
+                dedupe = f"sla:interested:escalate_14d:{lead['id']}"
+                self._queue_task(
+                    lead,
+                    "Interested lead — no status change in 2 weeks",
+                    dedupe,
+                    flag_14d,
+                    now_dt,
+                    now_iso,
+                    name_to_user_id,
+                    escalation_target="admin",
+                    priority="high",
+                    sla_rule="interested",
+                    sla_threshold="escalate_14d",
                 )
 
     async def _process_rule_visit_scheduled(

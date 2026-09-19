@@ -38,6 +38,7 @@ SLA_REASON_BY_KEY: Dict[tuple, str] = {
     ("sv_followup_2", "escalate_72h"): "SV Follow-up task pending 72 hours.",
     ("sv_followup", "72h"): "SV Follow Up — confirm booking intent (72h overdue).",
     ("sv_followup", "7d"): "SV Follow Up — 7-day follow-up cap reached.",
+    ("interested", "escalate_14d"): "Interested lead with no status change in 2 weeks.",
     ("negotiation", "48h"): "Negotiation stage with no update for 48+ hours.",
     ("negotiation", "stalled_7d"): "Negotiation stalled — no activity for 7 days.",
     ("negotiation", "admin_15d"): "Negotiation overdue — Admin review required (15 days).",
