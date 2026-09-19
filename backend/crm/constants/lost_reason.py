@@ -14,11 +14,15 @@ LOST_REASON_OPTIONS: tuple[str, ...] = (
     "Possession Date mismatch",
     "Unit size",
     "Rental",
+    "Wrong / invalid number",
+    "Spam or bot submission",
+    "Test entry",
+    "Non-buyer enquiry",
 )
 
 LOST_REASON_STATUSES = frozenset({"unqualified", "closed lost"})
 
-_FREE_TEXT_LOST_STATUSES = frozenset({"junk", "dropped"})
+_FREE_TEXT_LOST_STATUSES = frozenset({"dropped"})
 
 _LOST_REASON_LOOKUP = {opt.casefold(): opt for opt in LOST_REASON_OPTIONS}
 

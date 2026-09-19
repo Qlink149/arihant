@@ -130,16 +130,33 @@ def test_unqualified_invalid_lost_reason_raises():
     asyncio.run(_run())
 
 
-def test_junk_accepts_free_text_lost_reason():
+def test_junk_rejects_free_text_lost_reason():
     async def _run():
-        _, updated = await _update(
-            "lead-j1",
-            {"lead_status": "Junk", "lost_reason": "Any custom junk note"},
-        )
-        assert updated["lead_status"] == "Junk"
-        assert updated["lost_reason"] == "Any custom junk note"
+        with pytest.raises(HTTPException) as exc:
+            await _update(
+                "lead-j1",
+                {"lead_status": "Junk", "lost_reason": "Any custom junk note"},
+            )
+        assert exc.value.status_code == 400
+        assert "invalid lost_reason" in str(exc.value.detail).lower()
 
     asyncio.run(_run())
+
+
+def test_junk_accepts_valid_picklist_value():
+    async def _run():
+        _, updated = await _update(
+            "lead-j2",
+            {"lead_status": "Junk", "lost_reason": "Test entry"},
+        )
+        assert updated["lead_status"] == "Junk"
+        assert updated["lost_reason"] == "Test entry"
+
+    asyncio.run(_run())
+
+
+def test_normalize_new_junk_reason_option():
+    assert normalize_lost_reason("spam or bot submission") == "Spam or bot submission"
 
 
 def test_patch_lost_reason_on_unqualified_invalid_raises():

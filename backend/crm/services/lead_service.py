@@ -551,11 +551,11 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     # Lost reason (client confirmed): mandatory when marking certain terminal/lost statuses.
     if "lead_status" in patch:
         next_lower = next_status.strip().lower()
-        if is_lost_reason_status(next_status) or is_free_text_lost_status(next_status):
+        if is_lost_reason_status(next_status) or is_free_text_lost_status(next_status) or next_lower == "junk":
             reason = (patch.get("lost_reason") or existing.get("lost_reason") or "").strip()
             if not reason:
                 raise HTTPException(status_code=400, detail="lost_reason is required when marking lead as lost/junk")
-            if is_lost_reason_status(next_status):
+            if is_lost_reason_status(next_status) or next_lower == "junk":
                 normalized = normalize_lost_reason(reason)
                 if not normalized:
                     raise HTTPException(
@@ -566,7 +566,8 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
 
     if "lost_reason" in patch and "lead_status" not in patch:
         effective_status = (existing.get("lead_status") or "").strip()
-        if is_lost_reason_status(effective_status):
+        effective_lower = effective_status.strip().lower()
+        if is_lost_reason_status(effective_status) or effective_lower == "junk":
             reason = (patch.get("lost_reason") or "").strip()
             if not reason:
                 raise HTTPException(status_code=400, detail="lost_reason is required for this lead status")
