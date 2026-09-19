@@ -24,7 +24,6 @@ SLA_REASON_BY_KEY: Dict[tuple, str] = {
     ("nurturing", "warm_4d"): "Warm nurturing lead with no activity for 4+ days.",
     ("visit_scheduled", "missing_date"): "Site visit scheduled but visit date is missing.",
     ("visit_scheduled", "pre_24h"): "Site visit is within 24 hours — send client reminder.",
-    ("visit_scheduled", "post_24h"): "Site visit was 24+ hours ago — post-visit follow-up needed.",
     ("visit_completed", "3d"): "Site visit completed 3+ days ago — follow up today.",
     ("sv_followup_1", "7d"): "SV Follow-up 1 — 7-day follow-up due.",
     ("sv_followup_2", "20d"): "SV Follow-up 2 — 20-day follow-up due; admin notified.",

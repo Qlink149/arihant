@@ -793,48 +793,6 @@ class SLAEngineService:
                     sla_threshold="pre_24h",
                 )
 
-        query_post = self._rule_query(
-            {
-                **status_q,
-                "visit_date_dt": {"$exists": True, "$ne": None},
-                **_flag_not_set("sla_flags.visit_scheduled.post_24h_at_dt"),
-            }
-        )
-        async for batch in _paginate_leads(db.leads, query_post):
-            for lead in batch:
-                visit_dt = coerce_datetime(lead.get("visit_date_dt"))
-                if not visit_dt:
-                    continue
-                if visit_dt.tzinfo is None:
-                    visit_dt = visit_dt.replace(tzinfo=timezone.utc)
-                if now_dt < visit_dt + timedelta(hours=24):
-                    continue
-                ls = lead.get("lead_status") or ""
-                if _RE_VISIT_COMPLETED_PY.search(ls):
-                    continue
-                existing_t0 = await db.tasks.find_one(
-                    {
-                        "lead_id": lead["id"],
-                        "sla_rule": "visit_completed",
-                        "status": {"$in": ["pending", "in_progress"]},
-                    },
-                    {"_id": 0, "id": 1},
-                )
-                if existing_t0:
-                    continue
-                dedupe = f"sla:visit_scheduled:post_24h:{lead['id']}"
-                self._queue_task(
-                    lead,
-                    "Post-Visit Follow-up",
-                    dedupe,
-                    "sla_flags.visit_scheduled.post_24h_at_dt",
-                    now_dt,
-                    now_iso,
-                    name_to_user_id,
-                    sla_rule="visit_scheduled",
-                    sla_threshold="post_24h",
-                )
-
     async def _process_rule_visit_completed(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
