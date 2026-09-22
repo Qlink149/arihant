@@ -386,6 +386,13 @@ async def ensure_db_indexes():
             name="whatsapp_thread_reads_user_peer_uq",
         )
 
+        # Team-wide WhatsApp read cursor (one agent read/respond clears unread for all)
+        await db.whatsapp_peer_reads.create_index(
+            [("peer_phone", 1)],
+            unique=True,
+            name="whatsapp_peer_reads_peer_uq",
+        )
+
         # lead_transfers
         await db.lead_transfers.create_index([("id", 1)], unique=True, name="lead_transfers_id_uq")
         await db.lead_transfers.create_index([("to_rep", 1), ("acknowledged", 1), ("transferred_at", -1)], name="lead_transfers_to_ack_transferredAt")

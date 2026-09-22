@@ -123,6 +123,11 @@ export function ChatMessageBubble({ msg }) {
             : 'wa-bubble-in bg-[#262626] text-white rounded-bl-md'
         }`}
       >
+        {outbound && (msg.agent_display_name || msg.sender_name) ? (
+          <p className="text-xs opacity-80 mb-1 text-right">
+            {msg.agent_display_name || msg.sender_name}
+          </p>
+        ) : null}
         {body}
         <div
           className={`wa-bubble-meta flex items-center gap-2 mt-1 text-xs ${

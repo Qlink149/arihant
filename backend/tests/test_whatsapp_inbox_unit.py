@@ -127,7 +127,7 @@ async def test_get_whatsapp_inbox_peer_first_excludes_silent_includes_unmatched(
     async def fake_in_scope(ids, _scope):
         return set(ids)  # L1 in scope
 
-    async def fake_unread(_uid, peers):
+    async def fake_unread(peers):
         return {p: 0 for p in peers}
 
     async def fake_session(_phone):
@@ -279,9 +279,11 @@ async def test_get_whatsapp_inbox_admin_mine_and_unread_filters(monkeypatch):
 @pytest.mark.asyncio
 async def test_mark_whatsapp_inbox_read(monkeypatch):
     monkeypatch.setattr(wa, "WHATSAPP_PROVIDER", "wati")
-    update = AsyncMock()
+    user_update = AsyncMock()
+    peer_update = AsyncMock()
     mock_db = MagicMock()
-    mock_db.whatsapp_thread_reads.update_one = update
+    mock_db.whatsapp_thread_reads.update_one = user_update
+    mock_db.whatsapp_peer_reads.update_one = peer_update
     monkeypatch.setattr(wa, "db", mock_db)
 
     result = await wa.mark_whatsapp_inbox_read(
@@ -289,4 +291,69 @@ async def test_mark_whatsapp_inbox_read(monkeypatch):
     )
     assert result["success"] is True
     assert result["peer_phone"] == "919894474820"
-    update.assert_awaited_once()
+    user_update.assert_awaited_once()
+    peer_update.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_inbox_unread_counts_team_wide(monkeypatch):
+    """Agent A's team read clears unread for all users on that peer."""
+    peer = "919111111111"
+    read_at = datetime(2026, 7, 21, 10, 0, tzinfo=timezone.utc)
+    msg_at = datetime(2026, 7, 21, 11, 0, tzinfo=timezone.utc)
+
+    class FakePeerReads:
+        async def _aiter(self):
+            yield {"peer_phone": peer, "last_read_at": read_at}
+
+        def __aiter__(self):
+            return self._aiter()
+
+    class FakeMessages:
+        async def _aiter(self):
+            yield {
+                "source": peer,
+                "created_at_dt": msg_at,
+                "created_at": msg_at.isoformat(),
+            }
+            yield {
+                "source": peer,
+                "created_at_dt": datetime(2026, 7, 21, 9, 0, tzinfo=timezone.utc),
+                "created_at": "2026-07-21T09:00:00+00:00",
+            }
+
+        def __aiter__(self):
+            return self._aiter()
+
+    mock_db = MagicMock()
+    mock_db.whatsapp_peer_reads.find = MagicMock(return_value=FakePeerReads())
+    mock_db.whatsapp_messages.find = MagicMock(return_value=FakeMessages())
+    monkeypatch.setattr(wa, "db", mock_db)
+
+    counts = await wa._inbox_unread_counts([peer])
+    assert counts[peer] == 1
+
+
+@pytest.mark.asyncio
+async def test_enrich_history_agent_names_resolves_crm_user(monkeypatch):
+    class FakeUsers:
+        async def _aiter(self):
+            yield {"id": "u1", "full_name": "Roshni Madhav"}
+
+        def __aiter__(self):
+            return self._aiter()
+
+    mock_db = MagicMock()
+    mock_db.users.find = MagicMock(return_value=FakeUsers())
+    monkeypatch.setattr(wa, "db", mock_db)
+
+    rows = await wa._enrich_history_agent_names(
+        [
+            {"direction": "outbound", "sent_by": "u1", "content": "Hi"},
+            {"direction": "inbound", "content": "Hello"},
+            {"direction": "outbound", "sender_name": "WATI Op", "content": "Ok"},
+        ]
+    )
+    assert rows[0]["agent_display_name"] == "Roshni Madhav"
+    assert "agent_display_name" not in rows[1]
+    assert rows[2]["agent_display_name"] == "WATI Op"

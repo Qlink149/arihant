@@ -740,6 +740,7 @@ async def _upsert_whatsapp_message(doc: dict) -> None:
             {"id": keep_id} if existing.get("id") else {"_id": existing["_id"]},
             {"$set": set_fields},
         )
+        await _maybe_mark_peer_read_from_message(doc)
         return
 
     if primary:
@@ -757,6 +758,7 @@ async def _upsert_whatsapp_message(doc: dict) -> None:
         if "id" not in doc:
             doc["id"] = str(uuid.uuid4())
         await db.whatsapp_messages.insert_one(doc)
+    await _maybe_mark_peer_read_from_message(doc)
 
 
 async def _collapse_near_duplicate_messages(phone: str) -> int:
@@ -916,6 +918,41 @@ def _decorate_history_messages(messages: list) -> list:
             # Don't downgrade real PDFs; do upgrade image/audio paths mislabeled as document
             if inferred in ("image", "audio", "video"):
                 row["message_type"] = inferred
+        out.append(row)
+    return out
+
+
+async def _enrich_history_agent_names(messages: list) -> list:
+    """Resolve agent_display_name for outbound chat bubbles."""
+    user_ids: set[str] = set()
+    for m in messages:
+        if not isinstance(m, dict) or m.get("direction") != "outbound":
+            continue
+        if (m.get("sender_name") or "").strip():
+            continue
+        uid = m.get("sent_by") or m.get("sent_by_user_id")
+        if uid:
+            user_ids.add(str(uid))
+
+    users: dict[str, str] = {}
+    if user_ids:
+        async for row in db.users.find(
+            {"id": {"$in": list(user_ids)}},
+            {"_id": 0, "id": 1, "full_name": 1},
+        ):
+            users[str(row.get("id") or "")] = (row.get("full_name") or "").strip()
+
+    out: list[dict] = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        row = dict(m)
+        if row.get("direction") == "outbound":
+            name = (row.get("sender_name") or "").strip()
+            if not name:
+                uid = row.get("sent_by") or row.get("sent_by_user_id")
+                name = users.get(str(uid or ""), "") if uid else ""
+            row["agent_display_name"] = name or "Team"
         out.append(row)
     return out
 
@@ -1331,6 +1368,7 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
                     "status": "submitted",
                     "sent_by": current_user["id"],
                     "sent_by_user_id": current_user["id"],
+                    "sender_name": current_user.get("full_name") or "",
                     "created_at": now_iso,
                     "created_at_dt": now_dt,
                 }
@@ -1403,6 +1441,7 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
                 "status": status_val,
                 "sent_by": current_user["id"],
                 "sent_by_user_id": current_user["id"],
+                "sender_name": current_user.get("full_name") or "",
                 "created_at": now_iso,
                 "created_at_dt": now_dt,
             }
@@ -1815,6 +1854,7 @@ async def get_chat_history(phone: str, limit: int = 50) -> dict:
 
     db_messages.sort(key=_message_sort_ts, reverse=True)
     sliced = _decorate_history_messages(db_messages[:limit])
+    sliced = await _enrich_history_agent_names(sliced)
     session_open = await _is_session_open(normalized)
     return {
         "phone": normalized,
@@ -2083,16 +2123,25 @@ async def _inbox_in_scope_lead_ids(lead_ids: list[str], scope: dict) -> set[str]
     return found
 
 
-async def _inbox_unread_counts(
-    user_id: str, peers: list[str]
-) -> dict[str, int]:
-    """Count inbound messages per peer newer than the user's last_read_at."""
-    if not peers or not user_id:
-        return {p: 0 for p in peers}
+def _peer_from_message_doc(doc: dict) -> str:
+    """Customer peer phone from an inbound/outbound whatsapp_messages row."""
+    if not isinstance(doc, dict):
+        return ""
+    direction = str(doc.get("direction") or "").lower()
+    if direction == "inbound":
+        return _inbox_peer_phone(doc.get("source") or "")
+    if direction == "outbound":
+        return _inbox_peer_phone(doc.get("destination") or "")
+    return ""
 
+
+async def _inbox_team_last_read_map(peers: list[str]) -> dict[str, datetime]:
+    """Team-wide last_read_at per peer (any agent opening/responding clears unread for all)."""
+    if not peers:
+        return {}
     reads: dict[str, datetime] = {}
-    cursor = db.whatsapp_thread_reads.find(
-        {"user_id": user_id, "peer_phone": {"$in": peers}},
+    cursor = db.whatsapp_peer_reads.find(
+        {"peer_phone": {"$in": peers}},
         {"_id": 0, "peer_phone": 1, "last_read_at": 1},
     )
     async for row in cursor:
@@ -2100,6 +2149,51 @@ async def _inbox_unread_counts(
         ts = coerce_datetime(row.get("last_read_at"))
         if peer and ts:
             reads[str(peer)] = ts
+    return reads
+
+
+async def _mark_peer_team_read(
+    peer: str,
+    *,
+    user_id: str | None = None,
+    at: datetime | None = None,
+) -> None:
+    """Advance team read cursor for a peer (monotonic — never moves backward)."""
+    peer = _inbox_peer_phone(peer)
+    if not peer:
+        return
+    now = at or utc_now()
+    set_fields: dict = {
+        "peer_phone": peer,
+        "updated_at": now,
+    }
+    if user_id:
+        set_fields["updated_by_user_id"] = user_id
+    await db.whatsapp_peer_reads.update_one(
+        {"peer_phone": peer},
+        {"$set": set_fields, "$max": {"last_read_at": now}},
+        upsert=True,
+    )
+
+
+async def _maybe_mark_peer_read_from_message(doc: dict) -> None:
+    """Outbound CRM/WATI messages imply the thread was handled — clear team unread."""
+    if str(doc.get("direction") or "").lower() != "outbound":
+        return
+    peer = _peer_from_message_doc(doc)
+    if not peer:
+        return
+    msg_dt = coerce_datetime(doc.get("created_at_dt") or doc.get("created_at")) or utc_now()
+    user_id = doc.get("sent_by") or doc.get("sent_by_user_id")
+    await _mark_peer_team_read(peer, user_id=str(user_id) if user_id else None, at=msg_dt)
+
+
+async def _inbox_unread_counts(peers: list[str]) -> dict[str, int]:
+    """Count inbound messages per peer newer than the team last_read_at."""
+    if not peers:
+        return {}
+
+    reads = await _inbox_team_last_read_map(peers)
 
     counts: dict[str, int] = {p: 0 for p in peers}
     async for msg in db.whatsapp_messages.find(
@@ -2122,7 +2216,7 @@ async def mark_whatsapp_inbox_read(
     peer_phone: str | None = None,
     lead_id: str | None = None,
 ) -> dict:
-    """Upsert last_read_at for the current user on a WA peer thread."""
+    """Mark a WA peer thread read for the whole team (and record per-user receipt)."""
     peer = _inbox_peer_phone(peer_phone or "")
     if not peer and lead_id:
         lead = await db.leads.find_one({"id": lead_id}, {"_id": 0, "phone": 1, "normalized_phone": 1})
@@ -2137,6 +2231,7 @@ async def mark_whatsapp_inbox_read(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     now = utc_now()
+    await _mark_peer_team_read(peer, user_id=uid, at=now)
     await db.whatsapp_thread_reads.update_one(
         {"user_id": uid, "peer_phone": peer},
         {
@@ -2201,8 +2296,7 @@ async def get_whatsapp_inbox(
     scope = await _inbox_lead_scope_filter(current_user)
     matched_ids = [lead["id"] for lead in phone_to_lead.values() if lead.get("id")]
     in_scope_ids = await _inbox_in_scope_lead_ids(matched_ids, scope)
-    uid = current_user.get("id") or ""
-    unread_map = await _inbox_unread_counts(uid, peers)
+    unread_map = await _inbox_unread_counts(peers)
 
     rows: list[dict] = []
     for peer, last in peer_rows:
@@ -2381,7 +2475,7 @@ async def get_my_dashboard_whatsapp(
     scope = {} if org_wide else rep_lead_filter(subject_id, subject_name)
     matched_ids = [lead["id"] for lead in phone_to_lead.values() if lead.get("id")]
     in_scope_ids = await _inbox_in_scope_lead_ids(matched_ids, scope)
-    unread_map = await _inbox_unread_counts(subject_id, peers)
+    unread_map = await _inbox_unread_counts(peers)
 
     scoped: list[tuple[str, dict, dict]] = []
     for peer, last in peer_rows:
@@ -2588,6 +2682,7 @@ async def send_attachment_to_lead(
         "status": "sent",
         "sent_by": current_user["id"],
         "sent_by_user_id": current_user["id"],
+        "sender_name": current_user.get("full_name") or "",
         "created_at": now_iso,
         "created_at_dt": now_dt,
     }
@@ -2766,6 +2861,7 @@ async def send_brochure(lead_id: str, current_user: dict, project: Optional[str]
                     "status": "sent",
                     "sent_by": current_user["id"],
                     "sent_by_user_id": current_user["id"],
+                    "sender_name": current_user.get("full_name") or "",
                     "created_at": now_iso,
                     "created_at_dt": now_dt,
                 })

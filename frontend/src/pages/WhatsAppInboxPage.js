@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Building2,
   ExternalLink,
@@ -42,6 +42,8 @@ import {
 import { MultiSelectWithOther } from '../components/ui/MultiSelectWithOther';
 
 const PAGE_SIZE = 40;
+const WA_INBOX_RESTORE_KEY = 'wa_inbox_restore';
+const RESTORE_TTL_MS = 30 * 60 * 1000;
 const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
@@ -102,14 +104,18 @@ function Field({ label, value }) {
 
 const WhatsAppInboxPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [conversations, setConversations] = useState([]);
   const [listLoading, setListLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [listError, setListError] = useState(null);
-  const [listFilter, setListFilter] = useState('all');
-  const [query, setQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [listFilter, setListFilter] = useState(() => {
+    const f = searchParams.get('filter');
+    return f && FILTERS.some((x) => x.id === f) ? f : 'all';
+  });
+  const [query, setQuery] = useState(() => searchParams.get('q') || '');
+  const [debouncedQuery, setDebouncedQuery] = useState(() => searchParams.get('q') || '');
   const [selectedKey, setSelectedKey] = useState(null);
   const [leadDetail, setLeadDetail] = useState(null);
   const [leadLoading, setLeadLoading] = useState(false);
@@ -139,6 +145,9 @@ const WhatsAppInboxPage = () => {
   const listRef = useRef(null);
   const searchWrapRef = useRef(null);
   const preserveScrollRef = useRef(null);
+  const waRestorePending = useRef(null);
+  const stickyUnreadRef = useRef(new Map());
+  const urlHydratedRef = useRef(false);
 
   const selected = useMemo(
     () => conversations.find((c) => conversationKeyOf(c) === selectedKey) || null,
@@ -161,6 +170,20 @@ const WhatsAppInboxPage = () => {
   });
 
   const attachInputRef = useRef(null);
+
+  const mergeStickyUnreadRows = useCallback((rows, prev) => {
+    if (listFilter !== 'unread' || !stickyUnreadRef.current.size) {
+      return rows;
+    }
+    const serverKeys = new Set(rows.map(conversationKeyOf).filter(Boolean));
+    const stickyRows = [];
+    for (const [key, snap] of stickyUnreadRef.current.entries()) {
+      if (serverKeys.has(key)) continue;
+      const fromPrev = prev.find((c) => conversationKeyOf(c) === key);
+      stickyRows.push(fromPrev || snap);
+    }
+    return stickyRows.length ? [...stickyRows, ...rows] : rows;
+  }, [listFilter]);
 
   const fetchInbox = useCallback(
     async ({ silent = false, append = false, skip = 0, preserveScroll = false } = {}) => {
@@ -191,7 +214,8 @@ const WhatsAppInboxPage = () => {
                 Boolean(c.lead_id)
               );
             });
-            return [...ephemeral, ...rows];
+            const merged = mergeStickyUnreadRows([...ephemeral, ...rows], prev);
+            return merged;
           }
           const seen = new Set(prev.map(conversationKeyOf));
           const merged = [...prev];
@@ -206,6 +230,9 @@ const WhatsAppInboxPage = () => {
         });
         setSelectedKey((prev) => {
           if (prev) return prev;
+          if (waRestorePending.current?.selectedKey) {
+            return waRestorePending.current.selectedKey;
+          }
           return conversationKeyOf(rows[0]) || null;
         });
       } catch (err) {
@@ -218,7 +245,7 @@ const WhatsAppInboxPage = () => {
         if (append) setLoadingMore(false);
       }
     },
-    [listFilter, debouncedQuery]
+    [listFilter, debouncedQuery, mergeStickyUnreadRows]
   );
 
   useLayoutEffect(() => {
@@ -232,8 +259,36 @@ const WhatsAppInboxPage = () => {
     return () => clearTimeout(t);
   }, [query]);
 
+  // Hydrate inbox restore payload once after remount (e.g. back from lead profile)
   useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(WA_INBOX_RESTORE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (!data?.at || Date.now() - data.at > RESTORE_TTL_MS) {
+        sessionStorage.removeItem(WA_INBOX_RESTORE_KEY);
+        return;
+      }
+      waRestorePending.current = data;
+      if (data.listFilter && FILTERS.some((f) => f.id === data.listFilter)) {
+        setListFilter(data.listFilter);
+      }
+      if (data.query != null) {
+        setQuery(String(data.query));
+        setDebouncedQuery(String(data.query).trim());
+      }
+      if (data.selectedKey) setSelectedKey(data.selectedKey);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (waRestorePending.current) return;
     setSelectedKey(null);
+    if (listFilter !== 'unread') {
+      stickyUnreadRef.current.clear();
+    }
   }, [listFilter]);
 
   useEffect(() => {
@@ -241,15 +296,36 @@ const WhatsAppInboxPage = () => {
   }, [listFilter, debouncedQuery, fetchInbox]);
 
   useEffect(() => {
+    if (urlHydratedRef.current) {
+      if (waRestorePending.current) return;
+      const next = new URLSearchParams();
+      if (listFilter && listFilter !== 'all') next.set('filter', listFilter);
+      if (debouncedQuery) next.set('q', debouncedQuery);
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    urlHydratedRef.current = true;
+    const next = new URLSearchParams();
+    if (listFilter && listFilter !== 'all') next.set('filter', listFilter);
+    if (debouncedQuery) next.set('q', debouncedQuery);
+    setSearchParams(next, { replace: true });
+  }, [listFilter, debouncedQuery, setSearchParams]);
+
+  useEffect(() => {
     const tick = () => {
       const ms = document.visibilityState === 'visible' ? 8000 : 30000;
-      return setInterval(() => fetchInbox({ silent: true, skip: 0 }), ms);
+      return setInterval(
+        () => fetchInbox({ silent: true, skip: 0, preserveScroll: true }),
+        ms
+      );
     };
     let id = tick();
     const onVis = () => {
       clearInterval(id);
       id = tick();
-      if (document.visibilityState === 'visible') fetchInbox({ silent: true, skip: 0 });
+      if (document.visibilityState === 'visible') {
+        fetchInbox({ silent: true, skip: 0, preserveScroll: true });
+      }
     };
     document.addEventListener('visibilitychange', onVis);
     return () => {
@@ -257,6 +333,52 @@ const WhatsAppInboxPage = () => {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [fetchInbox]);
+
+  // Restore scroll depth + selected thread after returning from lead profile
+  useEffect(() => {
+    const data = waRestorePending.current;
+    if (!data || listLoading) return undefined;
+
+    const needKey = data.selectedKey;
+    const targetCount = Math.max(0, Number(data.loadedCount) || 0);
+    const found = !needKey || conversations.some((c) => conversationKeyOf(c) === needKey);
+
+    if (!found && targetCount > conversations.length && hasMore && !loadingMore) {
+      fetchInbox({ append: true, skip: conversations.length, silent: true });
+      return undefined;
+    }
+    if (loadingMore) return undefined;
+
+    const clearRestore = () => {
+      waRestorePending.current = null;
+      try {
+        sessionStorage.removeItem(WA_INBOX_RESTORE_KEY);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const t = window.setTimeout(() => {
+      if (data.listScrollTop != null && listRef.current) {
+        listRef.current.scrollTop = Number(data.listScrollTop) || 0;
+      }
+      if (needKey) {
+        setSelectedKey(needKey);
+        const leadId = needKey.startsWith('lead:') ? needKey.slice(5) : null;
+        const peer = needKey.startsWith('peer:') ? needKey.slice(5) : null;
+        const selector = leadId
+          ? `[data-testid="wa-thread-${leadId}"]`
+          : peer
+            ? `[data-testid="wa-thread-phone-${peer}"]`
+            : null;
+        if (selector) {
+          document.querySelector(selector)?.scrollIntoView({ block: 'center' });
+        }
+      }
+      clearRestore();
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [listLoading, conversations, hasMore, loadingMore, fetchInbox]);
 
   // CRM lead search for "Start chat with…"
   useEffect(() => {
@@ -374,6 +496,15 @@ const WhatsAppInboxPage = () => {
   }, [waTemplatesLoaded]);
 
   const selectConversation = (key) => {
+    if (listFilter === 'unread') {
+      const conv = conversations.find((c) => conversationKeyOf(c) === key);
+      if (conv) {
+        stickyUnreadRef.current.set(key, {
+          ...conv,
+          unread_count: Math.max(Number(conv.unread_count) || 0, 1),
+        });
+      }
+    }
     setSelectedKey(key);
     setDraft('');
     setSelectedTemplate(null);
@@ -381,6 +512,29 @@ const WhatsAppInboxPage = () => {
     setMobilePane('chat');
     setShowLeadDropdown(false);
   };
+
+  const openLeadFromInbox = useCallback(
+    (leadId, hash = '') => {
+      if (!leadId) return;
+      try {
+        sessionStorage.setItem(
+          WA_INBOX_RESTORE_KEY,
+          JSON.stringify({
+            selectedKey,
+            listFilter,
+            query: debouncedQuery,
+            listScrollTop: listRef.current?.scrollTop || 0,
+            loadedCount: conversations.length,
+            at: Date.now(),
+          })
+        );
+      } catch {
+        /* ignore */
+      }
+      navigate(hash ? `/lead/${leadId}${hash}` : `/lead/${leadId}`);
+    },
+    [navigate, selectedKey, listFilter, debouncedQuery, conversations.length]
+  );
 
   const openLeadChat = async (lead) => {
     if (!lead?.id) return;
@@ -636,7 +790,10 @@ const WhatsAppInboxPage = () => {
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => fetchInbox({ skip: 0 })}
+          onClick={() => {
+            stickyUnreadRef.current.clear();
+            fetchInbox({ skip: 0 });
+          }}
           disabled={listLoading}
           className="border-crm-border text-crm-fg-secondary hover:text-crm-fg hover:bg-white/5"
         >
@@ -1201,7 +1358,7 @@ const WhatsAppInboxPage = () => {
                     <Button
                       type="button"
                       className="w-full bg-[#C5A059] hover:bg-[#B8914A] text-white text-on-brand border-0"
-                      onClick={() => navigate(`/lead/${selected.lead_id}#lead-overview`)}
+                      onClick={() => openLeadFromInbox(selected.lead_id, '#lead-overview')}
                     >
                       <ExternalLink size={14} className="mr-2" />
                       Open Lead Overview
@@ -1210,7 +1367,7 @@ const WhatsAppInboxPage = () => {
                       type="button"
                       variant="outline"
                       className="w-full border-crm-border text-crm-fg-secondary hover:text-crm-fg hover:bg-crm-muted"
-                      onClick={() => navigate(`/lead/${selected.lead_id}`)}
+                      onClick={() => openLeadFromInbox(selected.lead_id)}
                     >
                       <ExternalLink size={14} className="mr-2" />
                       Open Digital Twin

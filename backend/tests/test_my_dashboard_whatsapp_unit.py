@@ -65,7 +65,7 @@ async def test_dashboard_whatsapp_rep_scope_excludes_unmatched_and_out_of_scope(
         assert scope  # rep-scoped
         return {"L1"} if "L1" in ids else set()
 
-    async def fake_unread(_uid, peers):
+    async def fake_unread(peers):
         return {p: (2 if p == "911111111111" else 0) for p in peers}
 
     monkeypatch.setattr(wa, "_inbox_aggregate_peers", fake_aggregate)
@@ -122,8 +122,8 @@ async def test_dashboard_whatsapp_org_wide_includes_all_matched(monkeypatch):
         assert scope == {}
         return set(ids)
 
-    async def fake_unread(uid, peers):
-        assert uid == "admin1"  # personal unread even in org-wide
+    async def fake_unread(peers):
+        assert peers == ["9111", "9222"]
         return {"9111": 1, "9222": 0}
 
     monkeypatch.setattr(wa, "_inbox_aggregate_peers", fake_aggregate)
