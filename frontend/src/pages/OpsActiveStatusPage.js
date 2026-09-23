@@ -14,6 +14,11 @@ const PRESENCE_VARIANT = {
   offline: 'neutral',
 };
 
+const PRESENCE_LABEL = {
+  online: 'Online',
+  offline: 'Offline',
+};
+
 const MANUAL_STATUS_LABEL = {
   available: 'Available',
   unavailable: 'Unavailable',
@@ -128,7 +133,7 @@ const OpsActiveStatusPage = () => {
               <tbody>
                 {reps.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                       No active reps or admins found
                     </td>
                   </tr>
