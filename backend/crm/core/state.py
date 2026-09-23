@@ -291,6 +291,10 @@ async def ensure_db_indexes():
             sparse=True,
             name="leads_nudgePending_lastNudged_sparse",
         )
+        await db.leads.create_index(
+            [("escalation.active", 1), ("updated_at_dt", -1)],
+            name="leads_escalationActive_updatedAtDt",
+        )
         await db.leads.create_index([("assigned_user_id", 1), ("updated_at_dt", -1)], name="leads_assignedUser_updatedAtDt")
         await db.leads.create_index(
             [("normalized_phone", 1)],
@@ -750,6 +754,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         user = await db.users.find_one({"id": user_id}, {"_id": 0})
         if user is None:
             raise credentials_exception
+        from crm.constants.roles import user_may_authenticate
+
+        if not user_may_authenticate(user):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account is inactive",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         token_sid = payload.get("sid")
         db_sid = user.get("current_session_id")
         if db_sid and token_sid != db_sid:

@@ -156,5 +156,13 @@ class LeadResponse(LeadBase):
     submission_count: Optional[int] = None
     intake_spam: Optional[bool] = None
     context_updates: List[dict] = []
+    escalation: Optional[Dict[str, Any]] = None
+    call_attempt_count_total: Optional[int] = None
+    call_attempt_count_outbound: Optional[int] = None
+    rnr_attempts_by_agent: Optional[Dict[str, int]] = None
+    rnr_telephony_by_agent: Optional[Dict[str, int]] = None
+    rnr_telephony_unattributed: Optional[int] = None
+    rnr_attempts_total: Optional[int] = None
+    rnr_telephony_total: Optional[int] = None
     created_at: datetime
     updated_at: datetime

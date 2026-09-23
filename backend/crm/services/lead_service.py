@@ -8,6 +8,13 @@ import asyncio
 
 from fastapi import HTTPException, UploadFile
 
+from crm.constants.call_outcomes import (
+    ALLOWED_LOGGED_OUTCOMES,
+    ALLOWED_OUTCOME_STATUSES,
+    OUTCOME_OTHERS,
+    normalize_logged_outcome,
+    outcome_values_in_order,
+)
 from crm.constants.lead_kpi import fw_status_indicates_rnr
 from crm.constants.lead_status import (
     is_interested_status,
@@ -51,7 +58,10 @@ from crm.services.meta_qualified_trigger import (
 )
 from crm.services.nurture_temperature import (
     apply_nurture_temperature_rules,
-    nurture_warm_to_hot_context_entry,
+    apply_outcome_temperature,
+)
+from crm.services.escalation_queue import (
+    build_clear_state,
 )
 from crm.services.sla_helpers import create_sla_task_for_lead
 from crm.utils.helpers import (
@@ -328,6 +338,7 @@ async def list_leads(
     meta_qualified: Optional[bool] = None,
     site_visit_min: Optional[int] = None,
     site_visit_max: Optional[int] = None,
+    escalated: Optional[bool] = None,
     skip: int = 0,
     limit: int = 100,
     query_base: Optional[Dict[str, Any]] = None,
@@ -362,6 +373,7 @@ async def list_leads(
         meta_qualified=meta_qualified,
         site_visit_min=site_visit_min,
         site_visit_max=site_visit_max,
+        escalated=escalated,
     )
 
     total = await db.leads.count_documents(query) if include_total else 0
@@ -526,33 +538,53 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     ):
         patch["meta_qualified"] = True
 
-    # Contacted outcome logging (client confirmed): structured enum, not free text.
+    # Contacted / Nurturing outcome logging (SOP 5.3): structured enum + history.
+    outcome_entries: List[dict] = []
+    logged_outcome_value: Optional[str] = None
     if "logged_outcome" in patch or "logged_outcome_reason" in patch:
         effective_status = next_status or prev_status
-        if effective_status.strip().lower() != "contacted":
-            raise HTTPException(status_code=400, detail="logged_outcome is only allowed when lead_status is Contacted")
-        allowed = {
-            "Interested",
-            "Not Interested",
-            "Follow-up Scheduled",
-            "Others",
-        }
-        outcome = (patch.get("logged_outcome") or "").strip()
-        if outcome not in allowed:
+        if effective_status.strip().lower() not in ALLOWED_OUTCOME_STATUSES:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid logged_outcome. Allowed values: Interested, Not Interested, Follow-up Scheduled, Others",
+                detail="logged_outcome is only allowed when lead_status is Contacted or Nurturing",
             )
-        if outcome == "Others" and not (patch.get("logged_outcome_reason") or "").strip():
+        outcome = normalize_logged_outcome(patch.get("logged_outcome"))
+        if outcome not in ALLOWED_LOGGED_OUTCOMES:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid logged_outcome. Allowed values: " + ", ".join(outcome_values_in_order()),
+            )
+        if outcome == OUTCOME_OTHERS and not (patch.get("logged_outcome_reason") or "").strip():
             raise HTTPException(status_code=400, detail="logged_outcome_reason is required when logged_outcome is Others")
+        patch["logged_outcome"] = outcome
+        logged_outcome_value = outcome
+        outcome_entries.append(
+            {
+                "type": "logged_outcome",
+                "timestamp": now_iso,
+                "timestamp_dt": now_dt,
+                "description": f"Outcome: {outcome}"
+                + (
+                    f" — {(patch.get('logged_outcome_reason') or '').strip()}"
+                    if outcome == OUTCOME_OTHERS
+                    else ""
+                ),
+                "outcome": outcome,
+                "logged_outcome": outcome,
+                "logged_outcome_reason": (patch.get("logged_outcome_reason") or "").strip() or None,
+                "agent": current_user["full_name"],
+                "actor_user_id": current_user.get("id"),
+                "actor_name": current_user.get("full_name"),
+            }
+        )
 
-        # If a valid outcome is logged, cancel pending Contacted SLA tasks immediately.
-        tasks_coll = getattr(db, "tasks", None)
-        if tasks_coll is not None:
-            await tasks_coll.update_many(
-                {"lead_id": lead_id, "source": "sla", "status": "pending", "sla_rule": "contacted"},
-                {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
-            )
+        if effective_status.strip().lower() == "contacted":
+            tasks_coll = getattr(db, "tasks", None)
+            if tasks_coll is not None:
+                await tasks_coll.update_many(
+                    {"lead_id": lead_id, "source": "sla", "status": "pending", "sla_rule": "contacted"},
+                    {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
+                )
 
     # Lost reason (client confirmed): mandatory when marking certain terminal/lost statuses.
     if "lead_status" in patch:
@@ -606,7 +638,7 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
             patch["rnr_entered_at_dt"] = now_dt
             await db.leads.update_one(
                 {"id": lead_id},
-                {"$unset": {"sla_flags.rnr": ""}},
+                {"$unset": {"sla_flags.rnr": "", "rnr_window_b_started_at_dt": ""}},
             )
         if status_changed and next_status.lower() == "contacted":
             patch["contacted_at_dt"] = now_dt
@@ -645,8 +677,12 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                 {"id": lead_id},
                 {"$unset": {"sla_flags.gone_cold.reevaluate_30d_at_dt": ""}},
             )
-        if "negotiat" in next_status.lower() and (is_sla_activation or not existing.get("negotiation_entered_at_dt")):
+        if "negotiat" in next_status.lower():
             patch["negotiation_entered_at_dt"] = now_dt
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.negotiation": ""}},
+            )
         if is_terminal_lead_status(next_status):
             patch["is_rnr"] = False
         if next_status.lower() == "visit completed":
@@ -687,8 +723,12 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                 {"id": lead_id},
                 {"$unset": {"sla_flags.sv_followup_2.escalate_72h_at_dt": ""}},
             )
-        if next_status.lower() == "future prospect" and (is_sla_activation or not existing.get("future_prospect_entered_at_dt")):
+        if next_status.lower() == "future prospect":
             patch["future_prospect_entered_at_dt"] = now_dt
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$unset": {"sla_flags.future_prospect": ""}},
+            )
         if "re-engaged" in next_status.lower() or next_status.lower() == "reengaged":
             patch["reengaged_at_dt"] = now_dt
             await db.leads.update_one(
@@ -720,6 +760,7 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
             )
 
     extra_ctx = []
+    extra_ctx.extend(outcome_entries)
     if assignee_changed:
         old_assignee = existing.get("assigned_to") or existing.get("presales_agent") or "—"
         new_assignee = patch.get("assigned_to") or patch.get("presales_agent") or old_assignee
@@ -750,20 +791,6 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                     "actor_name": current_user.get("full_name"),
                 }
             )
-
-    if (
-        status_changed
-        and prev_status.lower() == "nurturing"
-        and is_interested_status(next_status)
-        and (existing.get("temperature") or "").strip().lower() == "warm"
-    ):
-        extra_ctx.append(
-            nurture_warm_to_hot_context_entry(
-                "interested_transition",
-                actor_name=current_user.get("full_name") or "System",
-                actor_user_id=current_user.get("id") or "",
-            )
-        )
 
     # We'll generate a robust field-diff timeline entry after applying validation/rules,
     # so that diffs reflect the final stored values (especially temperature for Nurturing).
@@ -811,6 +838,30 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
     patch["updated_at_dt"] = now_dt
 
     apply_nurture_temperature_rules(existing, patch)
+    if logged_outcome_value:
+        apply_outcome_temperature(
+            existing,
+            patch,
+            extra_ctx,
+            outcome=logged_outcome_value,
+            current_user=current_user,
+        )
+    esc = existing.get("escalation") if isinstance(existing.get("escalation"), dict) else {}
+    if esc.get("active") and (status_changed or assignee_changed):
+        if status_changed and is_terminal_lead_status(next_status):
+            action = "terminal"
+        elif status_changed:
+            action = "status_change"
+        else:
+            action = "reassign"
+        set_fields, entry = build_clear_state(
+            action=action,
+            actor_user_id=current_user.get("id") or "",
+            actor_name=current_user.get("full_name") or "",
+            now_dt=now_dt,
+        )
+        extra_ctx.append(entry)
+        patch.update(set_fields)
     merged = {**existing, **patch}
     patch["intent"] = determine_lead_intent(merged)
 

@@ -21,7 +21,7 @@ import { formatLeadProjects } from '../../utils/leadProjects';
 import { useAuth } from '../../context/AuthContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
-import { getNurtureTemperatureTintClass } from '../../utils/leadTable';
+import { LOGGED_OUTCOMES, isOutcomeStatus } from '../../constants/callOutcomes';
 
 const VISIT_DATE_STATUSES = ['Site Visit Scheduled'];
 
@@ -58,8 +58,13 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
   const [transferNotes, setTransferNotes] = useState('');
   const [transferring, setTransferring] = useState(false);
 
-  // Contacted outcome (client confirmed)
-  const OUTCOMES = ['Interested', 'Not Interested', 'Follow-up Scheduled', 'Others'];
+  const OUTCOMES = useMemo(() => {
+    const current = (lead?.logged_outcome || '').trim();
+    if (current && !LOGGED_OUTCOMES.includes(current)) {
+      return [...LOGGED_OUTCOMES, current];
+    }
+    return LOGGED_OUTCOMES;
+  }, [lead?.logged_outcome]);
   const [savingOutcome, setSavingOutcome] = useState(false);
   const [pendingOutcome, setPendingOutcome] = useState(lead?.logged_outcome || '');
   const [pendingOutcomeReason, setPendingOutcomeReason] = useState(lead?.logged_outcome_reason || '');
@@ -176,6 +181,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
     showVisitDateField ||
     showLostReasonField ||
     String(lead?.lead_status || '').toLowerCase() === 'contacted' ||
+    isOutcomeStatus(lead?.lead_status) ||
     showNurturePicker ||
     (lead?.visit_date_dt && !showVisitDateField);
 
@@ -716,7 +722,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
         </div>
       )}
 
-      {(!compact || extraFieldsOpen) && String(lead?.lead_status || '').toLowerCase() === 'contacted' && (
+      {(!compact || extraFieldsOpen) && isOutcomeStatus(lead?.lead_status) && (
         <div className={`flex flex-wrap items-center ${rowGap}`}>
           <label className={labelClass}>Outcome</label>
           <select

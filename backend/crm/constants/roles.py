@@ -26,5 +26,31 @@ def can_access_escalations(role: Optional[str]) -> bool:
     return normalize_role(role) in ESCALATION_ROLES
 
 
+def can_filter_escalated_leads(role: Optional[str]) -> bool:
+    """Virtual Customer ?escalated=true — SOP Manager is general_manager."""
+    return normalize_role(role) in {ROLE_ADMIN, ROLE_GENERAL_MANAGER}
+
+
+def can_see_rnr_call_panel(role: Optional[str]) -> bool:
+    return normalize_role(role) in {ROLE_ADMIN, ROLE_GENERAL_MANAGER}
+
+
+def can_access_sales_dashboard(role: Optional[str]) -> bool:
+    return normalize_role(role) in {ROLE_ADMIN, ROLE_GENERAL_MANAGER}
+
+
 def is_org_editor(role: Optional[str]) -> bool:
     return normalize_role(role) in ORG_EDIT_ROLES
+
+
+def is_admin_role(role: Optional[str]) -> bool:
+    return normalize_role(role) == ROLE_ADMIN
+
+
+def user_may_authenticate(user: Optional[dict]) -> bool:
+    """Inactive non-admin accounts cannot log in or keep a session."""
+    if not user:
+        return False
+    if user.get("is_active") is False and not is_admin_role(user.get("role")):
+        return False
+    return True

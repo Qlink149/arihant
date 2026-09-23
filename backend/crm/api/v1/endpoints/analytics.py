@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from crm.core.state import db, get_current_user, get_time_greeting, utc_now
-from crm.services.dashboard_scope import role_scope_filter
+from crm.services.dashboard_scope import role_scope_filter, sales_dashboard_scope_filter
 from crm.services.lead_search import merge_query
 from crm.constants.lead_kpi import RNR_STATUS_REGEX, SITE_VISIT_STATUS_REGEX
 from crm.constants.lead_status import CLOSED_LEAD_STATUS_REGEX
@@ -473,7 +473,7 @@ async def get_sales_dashboard_analytics(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    scope = role_scope_filter(current_user)
+    scope = sales_dashboard_scope_filter(current_user)
     query_base = merge_query(scope, period_filter) if period_filter else scope
     managers, totals, by_status, by_project = await _cached_sales_managers_from_aggregation(query_base or None)
     return {
@@ -504,7 +504,7 @@ async def get_sales_dashboard_ranking(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    scope = role_scope_filter(current_user) or {}
+    scope = sales_dashboard_scope_filter(current_user) or {}
     query_base = merge_query(scope, period_filter) if period_filter else scope
 
     managers, _, _, _ = await _cached_sales_managers_from_aggregation(query_base or None)
@@ -533,7 +533,7 @@ async def get_sales_rep_leads(
     current_user: dict = Depends(get_current_user),
 ):
     """Paginated leads for a sales rep; same assignment and period logic as sales dashboard."""
-    if current_user.get("role") not in ("admin", "manager"):
+    if current_user.get("role") not in ("admin", "manager", "general_manager"):
         own = (current_user.get("full_name") or "").strip()
         if name.strip() != own:
             raise HTTPException(status_code=403, detail="Access denied")
@@ -550,7 +550,7 @@ async def get_sales_rep_leads(
         metric_filter = build_sales_metric_filter(metric)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    scope = role_scope_filter(current_user)
+    scope = sales_dashboard_scope_filter(current_user)
     rep_expr = _rep_name_expression()
     match_expr = merge_query(
         scope,

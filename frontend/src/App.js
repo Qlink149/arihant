@@ -22,7 +22,6 @@ const MyDashboardPage = lazy(() => import('./pages/MyDashboardPage'));
 const MarketingDashboardPage = lazy(() => import('./pages/MarketingDashboardPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const WhatsAppInboxPage = lazy(() => import('./pages/WhatsAppInboxPage'));
-const EscalationQueuePage = lazy(() => import('./pages/EscalationQueuePage'));
 const SiteVisitsPage = lazy(() => import('./pages/SiteVisitsPage'));
 const PlatformOpsPage = lazy(() => import('./pages/PlatformOpsPage'));
 const OpsActiveStatusPage = lazy(() => import('./pages/OpsActiveStatusPage'));
@@ -120,6 +119,29 @@ const EscalationAccessRoute = ({ children }) => {
   return children;
 };
 
+const SalesDashboardRoute = ({ children }) => {
+  const { isAuthenticated, loading, user } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-crm flex items-center justify-center">
+        <div className="text-[#C5A059] animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const role = (user?.role || '').toLowerCase();
+  if (role !== 'admin' && role !== 'general_manager') {
+    return <Navigate to="/my-dashboard" replace />;
+  }
+
+  return children;
+};
+
 // Public Route Component (redirects to dashboard if logged in)
 const PublicRoute = ({ children }) => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -171,7 +193,7 @@ function AppRoutes() {
         <Route path="virtual-dashboard" element={<Navigate to="/virtual-customer" replace />} />
         <Route path="lead/:leadId" element={<LazyPage><DigitalTwinPage /></LazyPage>} />
         <Route path="settings" element={<AdminRoute><LazyPage><SettingsPage /></LazyPage></AdminRoute>} />
-        <Route path="sales-dashboard" element={<AdminRoute><LazyPage><SalesDashboardPage /></LazyPage></AdminRoute>} />
+        <Route path="sales-dashboard" element={<SalesDashboardRoute><LazyPage><SalesDashboardPage /></LazyPage></SalesDashboardRoute>} />
         <Route path="my-dashboard" element={<LazyPage><MyDashboardPage /></LazyPage>} />
         <Route path="marketing-dashboard" element={<AdminRoute><LazyPage><MarketingDashboardPage /></LazyPage></AdminRoute>} />
         <Route path="notifications" element={<LazyPage><NotificationsPage /></LazyPage>} />
@@ -181,7 +203,7 @@ function AppRoutes() {
           element={
             <EscalationAccessRoute>
               <LazyPage>
-                <EscalationQueuePage />
+                <VirtualCustomerPage escalationLocked />
               </LazyPage>
             </EscalationAccessRoute>
           }

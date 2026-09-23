@@ -41,15 +41,15 @@ PROJECT_ASSIGNMENT_POOLS: Dict[str, dict] = {
     "krsna": {
         "primary": [HARISH_EMAIL, MALATHY_EMAIL],
         "primary_mode": "rr",
-        "fallback_chain": [],
-        "fallback_mode": "other_primary",
+        "fallback_chain": [ROSHNI_EMAIL],
+        "fallback_mode": "alternate_primary_then_chain",
         "escalate": True,
     },
     "mira": {
         "primary": [SHARIFF_EMAIL, HARISH_EMAIL],
         "primary_mode": "rr",
-        "fallback_chain": [],
-        "fallback_mode": "other_primary",
+        "fallback_chain": [ROSHNI_EMAIL],
+        "fallback_mode": "alternate_primary_then_chain",
         "escalate": True,
     },
     "vivriti": {
@@ -76,8 +76,13 @@ PROJECT_ASSIGNMENT_POOLS: Dict[str, dict] = {
     DEFAULT_POOL_KEY: {
         "primary": [ANUSHA_EMAIL],
         "primary_mode": "rr",
-        "fallback_chain": [],
-        "fallback_mode": "other_primary",
+        "fallback_chain": [
+            NARENDRAN_EMAIL,
+            MALATHY_EMAIL,
+            JIGAR_EMAIL,
+            ANANTHRAMAN_EMAIL,
+        ],
+        "fallback_mode": "alternate_primary_then_chain",
         "escalate": True,
     },
 }

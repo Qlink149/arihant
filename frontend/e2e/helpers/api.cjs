@@ -193,6 +193,19 @@ function insertNotification({
   return JSON.parse(out.split('\n').filter(Boolean).pop());
 }
 
+function patchE2ELead(leadId, patch) {
+  const runId = getRunId();
+  runPython('scripts/e2e_fixtures.py', [
+    'patch-lead',
+    '--run-id',
+    runId,
+    '--lead-id',
+    leadId,
+    '--json',
+    JSON.stringify(patch),
+  ]);
+}
+
 function cleanupRun(phones = []) {
   const runId = getRunId();
   const args = ['--run-id', runId];
@@ -210,6 +223,7 @@ module.exports = {
   loginApi,
   apiJson,
   createE2ELead,
+  patchE2ELead,
   insertNotification,
   cleanupRun,
   fetchMe,

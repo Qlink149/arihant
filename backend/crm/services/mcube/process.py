@@ -131,6 +131,16 @@ async def _process_inbound_payload(payload: Dict[str, Any], *, event_id: str = "
                 actor_user_id=assigned_user_id,
             )
             timeline_written = True
+            if (call.get("direction") or "").strip().lower() == "outbound":
+                from crm.services.escalation_queue import clear_escalation_if_active
+
+                await clear_escalation_if_active(
+                    lead["id"],
+                    action="call",
+                    actor_user_id=assigned_user_id or "",
+                    actor_name=assigned_to_name or "",
+                    lead=lead,
+                )
 
         if (call.get("direction") or "").strip().lower() == "inbound":
             refreshed = await db.leads.find_one(

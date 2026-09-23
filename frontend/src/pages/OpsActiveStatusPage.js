@@ -14,9 +14,12 @@ const PRESENCE_VARIANT = {
   offline: 'neutral',
 };
 
-const PRESENCE_LABEL = {
-  online: 'Online',
-  offline: 'Offline',
+const MANUAL_STATUS_LABEL = {
+  available: 'Available',
+  unavailable: 'Unavailable',
+  on_break: 'On Break',
+  site_visit: 'Site Visit',
+  away: 'Away',
 };
 
 const OpsActiveStatusPage = () => {
@@ -115,6 +118,7 @@ const OpsActiveStatusPage = () => {
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Role</th>
                   <th className="px-4 py-3 font-medium">Presence</th>
+                  <th className="px-4 py-3 font-medium">Availability</th>
                   <th className="px-4 py-3 font-medium">Last login</th>
                   <th className="px-4 py-3 font-medium">Beat</th>
                   <th className="px-4 py-3 font-medium">SLA pause</th>
@@ -144,6 +148,11 @@ const OpsActiveStatusPage = () => {
                         <CrmBadge variant={PRESENCE_VARIANT[rep.presence] || 'neutral'}>
                           {PRESENCE_LABEL[rep.presence] || rep.presence}
                         </CrmBadge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-foreground text-sm">
+                          {MANUAL_STATUS_LABEL[rep.manual_status] || (rep.manual_status ? rep.manual_status : 'Available')}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                         {formatRelativeMinutes(

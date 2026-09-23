@@ -63,6 +63,7 @@ LIST_LEAD_PROJECTION: Dict[str, int] = {
     "re_enquired_at": 1,
     "nudge_pending": 1,
     "last_nudged_at_dt": 1,
+    "escalation": 1,
     "lead_source": 1,
     "original_source": 1,
     "most_recent_source": 1,

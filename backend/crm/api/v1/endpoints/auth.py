@@ -138,6 +138,11 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     user = await db.users.find_one({"email": form_data.username}, {"_id": 0})
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    from crm.constants.roles import user_may_authenticate
+
+    if not user_may_authenticate(user):
+        await db.users.update_one({"id": user["id"]}, {"$unset": {"current_session_id": ""}})
+        raise HTTPException(status_code=403, detail="Account is inactive")
 
     sid = str(uuid.uuid4())
     now_dt = utc_now()
@@ -189,6 +194,10 @@ async def refresh_token(req: RefreshTokenRequest):
         user = await db.users.find_one({"id": user_id}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        from crm.constants.roles import user_may_authenticate
+
+        if not user_may_authenticate(user):
+            raise HTTPException(status_code=401, detail="Account is inactive")
         db_sid = user.get("current_session_id")
         if db_sid and token_sid != db_sid:
             raise HTTPException(status_code=401, detail="Session invalidated. Please log in again.")

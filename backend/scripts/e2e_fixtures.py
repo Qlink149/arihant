@@ -51,11 +51,26 @@ def cmd_insert_notification(db, args: argparse.Namespace) -> None:
     print(json.dumps({"ok": True, "id": doc["id"]}))
 
 
-def _coerce_patch_dates(patch: dict) -> dict:
+def _parse_dt(text: str):
     from datetime import datetime
 
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _coerce_patch_dates(patch: dict) -> dict:
     out = dict(patch)
     for key, val in list(out.items()):
+        if isinstance(val, dict):
+            out[key] = _coerce_patch_dates(val)
+            continue
+        if isinstance(val, list):
+            out[key] = [
+                _coerce_patch_dates(item) if isinstance(item, dict) else item for item in val
+            ]
+            continue
         if not isinstance(val, str):
             continue
         if not (key.endswith("_at") or key.endswith("_dt")):
@@ -63,11 +78,9 @@ def _coerce_patch_dates(patch: dict) -> dict:
         text = val.strip()
         if not text:
             continue
-        try:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        out[key] = parsed
+        parsed = _parse_dt(text)
+        if parsed is not None:
+            out[key] = parsed
     return out
 
 

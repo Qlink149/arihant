@@ -294,8 +294,12 @@ const DigitalTwinPage = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const canNudge = (user?.role || '').toLowerCase() === 'admin'
-    || (user?.role || '').toLowerCase() === 'manager';
+    || (user?.role || '').toLowerCase() === 'manager'
+    || (user?.role || '').toLowerCase() === 'general_manager';
+  const canSeeRnrPanel = (user?.role || '').toLowerCase() === 'admin'
+    || (user?.role || '').toLowerCase() === 'general_manager';
   const [nudging, setNudging] = useState(false);
+  const [loggingAttempt, setLoggingAttempt] = useState(false);
   const [lead, setLead] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -941,12 +945,32 @@ const DigitalTwinPage = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
-            {/* Quick Search — search any lead without leaving this page */}
             <LeadQuickSearch currentLeadId={leadId} />
-
-            {/* Divider */}
             <div className="hidden lg:block w-px h-6 bg-white/10 mx-1" />
-
+            {String(lead.lead_status || '').toLowerCase() === 'rnr' && (
+              <Button
+                size="secondary"
+                variant="outline"
+                disabled={loggingAttempt}
+                onClick={async () => {
+                  setLoggingAttempt(true);
+                  try {
+                    await leadsAPI.logRnrAttempt(leadId);
+                    toast.success('Attempt logged');
+                    fetchLead();
+                  } catch (err) {
+                    toast.error(String(err?.response?.data?.detail || 'Failed to log attempt'));
+                  } finally {
+                    setLoggingAttempt(false);
+                  }
+                }}
+                className="border-[#C5A059]/50 text-[#C5A059] hover:bg-[#C5A059]/10"
+                data-testid="log-attempt-btn"
+              >
+                {loggingAttempt ? <Loader2 size={16} className="mr-1.5 animate-spin" /> : <Phone size={16} className="mr-1.5" />}
+                Log Attempt
+              </Button>
+            )}
             {canNudge && (
               <Button
                 size="secondary"
@@ -1020,6 +1044,20 @@ const DigitalTwinPage = () => {
         </div>
       </motion.div>
       <div ref={heroSentinelRef} className="h-px" aria-hidden="true" />
+      {canSeeRnrPanel && String(lead.lead_status || '').toLowerCase() === 'rnr' && (
+        <div className="rounded-lg border border-crm-border bg-crm-elevated p-3 text-xs text-crm-fg-secondary" data-testid="rnr-call-panel">
+          <div className="font-semibold text-crm-fg mb-1">RNR stay — logged attempts vs telephony</div>
+          <div>Logged attempts: {lead.rnr_attempts_total ?? 0}</div>
+          <div>Telephony (identified): {lead.rnr_telephony_total ?? 0}{lead.rnr_telephony_unattributed ? ` (+${lead.rnr_telephony_unattributed} unattributed)` : ''}</div>
+          {lead.rnr_attempts_by_agent && Object.keys(lead.rnr_attempts_by_agent).length > 0 && (
+            <div className="mt-1">
+              {Object.entries(lead.rnr_attempts_by_agent).map(([name, n]) => (
+                <div key={name}>{name}: {n} logged</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Lead Overview — sticky property grid */}
       <div id="lead-overview" className="scroll-mt-24">

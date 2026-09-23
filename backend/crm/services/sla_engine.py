@@ -28,6 +28,8 @@ from crm.services.notification_service import create_notification
 from crm.services.lead_sla_utils import has_agent_activity_since, is_booking_progress_status
 from crm.services.project_assignment_pools import pool_escalates
 from crm.services.notifications_stream import notifications_stream
+from crm.services.sla_feature_flags import phase2_rules_enabled, phase3_rules_enabled
+from crm.services.escalation_queue import pair_is_queue_rule, build_raise_state
 from crm.utils.business_time import business_seconds_elapsed, is_business_hours_ist as _bh_ist
 from crm.utils.helpers import coerce_datetime, iso_utc_now, utc_now, ist_wall_to_utc_dt
 
@@ -422,19 +424,22 @@ class SLAEngineService:
             )
         )
 
-        self._lead_ops.append(
-            UpdateOne(
-                {"id": lead["id"]},
-                {
-                    "$set": {
-                        flag_path: now_dt,
-                        "updated_at": now_iso,
-                        "updated_at_dt": now_dt,
-                        **(extra_lead_set or {}),
-                    }
-                },
-            )
-        )
+        set_fields = {
+            flag_path: now_dt,
+            "updated_at": now_iso,
+            "updated_at_dt": now_dt,
+            **(extra_lead_set or {}),
+        }
+        update_doc: Dict[str, Any] = {"$set": set_fields}
+        if (
+            phase3_rules_enabled()
+            and escalation_target
+            and pair_is_queue_rule(sla_rule, sla_threshold)
+        ):
+            raise_set, raise_entry = build_raise_state(lead, sla_rule, sla_threshold, now_dt)
+            set_fields.update(raise_set)
+            update_doc["$push"] = {"context_updates": raise_entry}
+        self._lead_ops.append(UpdateOne({"id": lead["id"]}, update_doc))
         self._bump(f"task:{sla_rule}:{sla_threshold}")
 
     def _queue_lead_mutation(
@@ -664,10 +669,23 @@ class SLAEngineService:
                     sla_threshold="pool_exhausted_alert",
                 )
 
+    async def _cancel_open_rnr_reminders(self, lead_id: str, now_dt: datetime, now_iso: str) -> None:
+        await db.tasks.update_many(
+            _rnr_open_reminder_query(lead_id),
+            {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
+        )
+
     async def _process_rule_rnr(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         if not is_business_hours_ist(now_dt):
             return
+        if phase3_rules_enabled():
+            await self._process_rule_rnr_phase3(now_dt, now_iso, name_to_user_id)
+            return
+        await self._process_rule_rnr_legacy(now_dt, now_iso, name_to_user_id)
 
+    async def _process_rule_rnr_legacy(
+        self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
+    ) -> None:
         status_base = _rnr_status_filter()
         today_ist = now_dt.astimezone(IST).date().isoformat()
         query_reminder = self._rule_query(status_base)
@@ -682,7 +700,6 @@ class SLAEngineService:
                 periods = elapsed_biz // (4 * 3600)
                 if periods < 1:
                     continue
-                # Lifetime cap: at most 3 reminders per RNR stay
                 if periods > _RNR_REMINDER_MAX_BUCKETS:
                     periods = _RNR_REMINDER_MAX_BUCKETS
                 bucket = str(periods)
@@ -690,7 +707,6 @@ class SLAEngineService:
                 rnr_flags = (lead.get("sla_flags") or {}).get("rnr") or {}
                 if rnr_flags.get(f"reminder_{bucket}_at_dt"):
                     continue
-                # Max one open RNR reminder at a time
                 existing_open = await db.tasks.find_one(
                     _rnr_open_reminder_query(lead["id"]),
                     {"_id": 0, "id": 1},
@@ -740,9 +756,157 @@ class SLAEngineService:
                         sla_threshold=threshold,
                     )
 
+    async def _process_rule_rnr_phase3(
+        self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
+    ) -> None:
+        """SOP 5.2 calendar ladder: daily reminders, D4 transfer, D7, 15d."""
+        status_base = _rnr_status_filter()
+        today_ist = now_dt.astimezone(IST).date().isoformat()
+        d7 = timedelta(hours=144)
+        d4 = timedelta(hours=72)
+
+        query = self._rule_query(status_base)
+        async for batch in _paginate_leads(db.leads, query):
+            for lead in batch:
+                if not _lead_is_current_rnr(lead):
+                    continue
+                entered = coerce_datetime(lead.get("rnr_entered_at_dt")) or coerce_datetime(
+                    lead.get("updated_at_dt")
+                )
+                if not entered:
+                    continue
+                if entered.tzinfo is None:
+                    entered = entered.replace(tzinfo=timezone.utc)
+                escalates = pool_escalates(lead.get("pool_key"))
+                past_d7 = now_dt >= entered + d7
+                rnr_flags = (lead.get("sla_flags") or {}).get("rnr") or {}
+
+                # D4 transfer — retry until 144h if no eligible agent; skip non-escalating pools.
+                if (
+                    escalates
+                    and now_dt >= entered + d4
+                    and not past_d7
+                    and not rnr_flags.get("transfer_d4_at_dt")
+                ):
+                    result = await reassign_lead_in_pool(lead["id"], reason="sla_rnr_d4_transfer")
+                    if result.get("ok"):
+                        self._queue_lead_mutation(
+                            lead["id"],
+                            {"rnr_window_b_started_at_dt": now_dt},
+                            "sla_flags.rnr.transfer_d4_at_dt",
+                            now_dt,
+                            now_iso,
+                            "mutation:rnr:transfer_d4",
+                        )
+                        await self._cancel_open_rnr_reminders(lead["id"], now_dt, now_iso)
+                        lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
+                        prev_id = result.get("previous_assigned_user_id") or ""
+                        prev_name = result.get("previous_assigned_to") or ""
+                        new_id = result.get("assigned_user_id") or ""
+                        new_name = result.get("assigned_to") or ""
+                        if new_id:
+                            await create_notification(
+                                recipient_user_id=new_id,
+                                recipient_name=new_name,
+                                title="RNR lead transferred to you",
+                                message="RNR lead transferred to you — day 4 of 6",
+                                notification_type="lead_transferred",
+                                lead_id=lead["id"],
+                                lead_name=lead_name,
+                                dedupe_key=f"rnr_d4:new:{lead['id']}",
+                            )
+                        if prev_id:
+                            await create_notification(
+                                recipient_user_id=prev_id,
+                                recipient_name=prev_name,
+                                title="RNR lead transferred",
+                                message=f"RNR lead transferred to {new_name or 'the next agent'} after 3 days",
+                                notification_type="lead_transferred",
+                                lead_id=lead["id"],
+                                lead_name=lead_name,
+                                dedupe_key=f"rnr_d4:prev:{lead['id']}",
+                            )
+                        lead["assigned_user_id"] = new_id or lead.get("assigned_user_id")
+                        lead["assigned_to"] = new_name or lead.get("assigned_to")
+                        lead["rnr_window_b_started_at_dt"] = now_dt
+                        rnr_flags = {**rnr_flags, "transfer_d4_at_dt": now_dt}
+
+                if not past_d7:
+                    slots: List[tuple] = [
+                        ("a1", entered, 1),
+                        ("a2", entered + timedelta(hours=24), 2),
+                        ("a3", entered + timedelta(hours=48), 3),
+                    ]
+                    window_b = coerce_datetime(lead.get("rnr_window_b_started_at_dt"))
+                    if window_b and window_b.tzinfo is None:
+                        window_b = window_b.replace(tzinfo=timezone.utc)
+                    if window_b and escalates:
+                        slots.extend(
+                            [
+                                ("b1", window_b, 1),
+                                ("b2", window_b + timedelta(hours=24), 2),
+                                ("b3", window_b + timedelta(hours=48), 3),
+                            ]
+                        )
+                    due_slots = [
+                        (key, start, day_n) for key, start, day_n in slots if now_dt >= start
+                    ]
+                    if due_slots:
+                        key, _start, day_n = due_slots[-1]
+                        flag_name = f"reminder_{key}_at_dt"
+                        if not rnr_flags.get(flag_name):
+                            await self._cancel_open_rnr_reminders(lead["id"], now_dt, now_iso)
+                            self._queue_task(
+                                lead,
+                                f"RNR — retry call (day {day_n} of 3)",
+                                f"sla:rnr:reminder_{key}:{lead['id']}",
+                                f"sla_flags.rnr.{flag_name}",
+                                now_dt,
+                                now_iso,
+                                name_to_user_id,
+                                due_date=today_ist,
+                                sla_rule="rnr",
+                                sla_threshold=f"reminder_{key}",
+                            )
+                            rnr_flags[flag_name] = now_dt
+
+                if escalates and past_d7 and not rnr_flags.get("escalate_d7_at_dt"):
+                    self._queue_task(
+                        lead,
+                        "RNR lead unreachable for 6 days across two agents. Reassign or decide next action.",
+                        f"sla:rnr:escalate:d7:{lead['id']}",
+                        "sla_flags.rnr.escalate_d7_at_dt",
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target="admin",
+                        priority="high",
+                        due_date=today_ist,
+                        sla_rule="rnr",
+                        sla_threshold="escalate_d7",
+                    )
+
+                if escalates and now_dt >= entered + timedelta(days=15) and not rnr_flags.get("escalate_15d_at_dt"):
+                    self._queue_task(
+                        lead,
+                        "RNR Lead — 15 Days Uncontacted — High Priority Admin Review",
+                        f"sla:rnr:escalate:15d:{lead['id']}",
+                        "sla_flags.rnr.escalate_15d_at_dt",
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        escalation_target="admin",
+                        priority="high",
+                        due_date=today_ist,
+                        sla_rule="rnr",
+                        sla_threshold="15d",
+                    )
+
     async def _process_contacted_reassign(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
+        if not phase2_rules_enabled():
+            return
         interval = timedelta(days=CONTACTED_REASSIGN_INTERVAL_DAYS)
         cutoff = now_dt - interval
         flag = "sla_flags.contacted.reassigned_7d_at_dt"
@@ -834,6 +998,8 @@ class SLAEngineService:
             )
             async for batch in _paginate_leads(db.leads, query):
                 for lead in batch:
+                    if threshold == "72h" and (lead.get("logged_outcome") or "").strip():
+                        continue
                     dedupe = f"sla:contacted:{threshold}:{lead['id']}"
                     self._queue_task(
                         lead,
@@ -853,6 +1019,8 @@ class SLAEngineService:
     async def _process_nurturing_hot_14d_escalation(
         self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]
     ) -> None:
+        if not phase2_rules_enabled():
+            return
         cutoff = now_dt - timedelta(days=14)
         flag = "sla_flags.nurturing.hot_escalate_14d_at_dt"
         query = self._rule_query(
@@ -969,6 +1137,41 @@ class SLAEngineService:
                     "mutation:interested:7d_followup",
                 )
 
+        if phase3_rules_enabled():
+            flag_task_7d = "sla_flags.interested.followup_task_7d_at_dt"
+            query_task_7d = self._rule_query(
+                {
+                    **status_q,
+                    **_entered_at_or_updated_fallback("interested_entered_at_dt", cutoff_7d),
+                    **_flag_not_set(flag_task_7d),
+                }
+            )
+            async for batch in _paginate_leads(db.leads, query_task_7d):
+                for lead in batch:
+                    ref = coerce_datetime(lead.get("interested_entered_at_dt")) or coerce_datetime(
+                        lead.get("updated_at_dt")
+                    )
+                    if not ref:
+                        continue
+                    if ref.tzinfo is None:
+                        ref = ref.replace(tzinfo=timezone.utc)
+                    if now_dt < ref + timedelta(days=7):
+                        continue
+                    self._queue_task(
+                        lead,
+                        "Follow up — confirm visit date or reassess lead",
+                        f"sla:interested:followup_7d:{lead['id']}",
+                        flag_task_7d,
+                        now_dt,
+                        now_iso,
+                        name_to_user_id,
+                        sla_rule="interested",
+                        sla_threshold="followup_7d",
+                    )
+
+        if not phase2_rules_enabled():
+            return
+
         cutoff_14d = now_dt - timedelta(days=14)
         flag_14d = "sla_flags.interested.escalate_14d_at_dt"
         query_14d = self._rule_query(
@@ -1077,6 +1280,8 @@ class SLAEngineService:
                 "admin",
             ),
         ):
+            if not phase2_rules_enabled():
+                continue
             cutoff = now_dt - delta
             flag = f"sla_flags.visit_completed.{threshold}_at_dt"
             query = self._rule_query(
@@ -1161,6 +1366,8 @@ class SLAEngineService:
         entered_field: str,
         status_q: dict,
     ) -> None:
+        if not phase2_rules_enabled():
+            return
         cutoff = now_dt - timedelta(hours=72)
         flag = f"sla_flags.{sla_rule}.escalate_72h_at_dt"
         query = self._rule_query(
@@ -1278,7 +1485,6 @@ class SLAEngineService:
                     ref = ref.replace(tzinfo=timezone.utc)
                 if now_dt < ref + timedelta(days=7):
                     continue
-                lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
                 self._queue_lead_mutation(
                     lead["id"],
                     {"next_action_date": today_ist},
@@ -1286,27 +1492,6 @@ class SLAEngineService:
                     now_dt,
                     now_iso,
                     "mutation:sv_followup_2:7d_followup",
-                )
-                self._queue_admin_notification(
-                    lead,
-                    "SV Follow-up 2 — 7-day follow-up due",
-                    f"{lead_name} requires admin attention — 7 days in SV Follow-up 2",
-                    f"sla:sv_followup_2:7d:admin:{lead['id']}",
-                    now_dt,
-                    now_iso,
-                )
-                admin = self._escalation_targets.get("admin") or {}
-                self._admin_email_ops.append(
-                    {
-                        "subject": f"SV Follow-up 2 alert — {lead_name or 'Lead'}",
-                        "body_html": (
-                            f"<p>Lead <strong>{lead_name or lead['id']}</strong> has been in "
-                            f"<strong>SV Follow-up 2</strong> for 7+ days.</p>"
-                            f"<p>Please review and ensure the assigned agent has followed up.</p>"
-                        ),
-                        "admin_user_id": admin.get("id", ""),
-                        "dedupe_key": f"brevo:sv_followup_2:7d:{lead['id']}",
-                    }
                 )
 
     async def _process_rule_sv_followup(
@@ -1478,7 +1663,7 @@ class SLAEngineService:
                     dedupe2 = f"sla:future_prospect:manager_review:{lead['id']}:{cycle}"
                     self._queue_task(
                         lead,
-                        "Manager review (3 cycles reached)",
+                        "Admin review — 3 review cycles reached",
                         dedupe2,
                         f"sla_flags.future_prospect.manager_review_{cycle}_at_dt",
                         now_dt,

@@ -37,6 +37,16 @@ def role_scope_filter(current_user: dict) -> dict:
     return rep_lead_filter(current_user["id"], current_user.get("full_name") or "")
 
 
+def sales_dashboard_scope_filter(current_user: dict) -> dict:
+    """Org-wide for admin/manager/GM; reps still see only their pipeline."""
+    from crm.constants.roles import can_access_sales_dashboard, is_org_editor
+
+    role = current_user.get("role")
+    if is_org_editor(role) or can_access_sales_dashboard(role):
+        return {}
+    return rep_lead_filter(current_user["id"], current_user.get("full_name") or "")
+
+
 def user_owns_lead(lead: dict, current_user: dict) -> bool:
     uid = current_user["id"]
     name = current_user.get("full_name") or ""

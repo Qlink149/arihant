@@ -62,11 +62,11 @@ async def _upgrade_skips_neutral():
     assert not ok
 
 
-def test_interested_transition_adds_hot_context_entry():
-    asyncio.run(_interested_transition_adds_hot_context_entry())
+def test_interested_status_does_not_force_hot():
+    asyncio.run(_interested_status_does_not_force_hot())
 
 
-async def _interested_transition_adds_hot_context_entry():
+async def _interested_status_does_not_force_hot():
     from crm.models.schemas.lead_schemas import LeadUpdatePatch
     from crm.services.lead_service import update_lead
 
@@ -95,6 +95,6 @@ async def _interested_transition_adds_hot_context_entry():
 
     set_doc = mock_db.leads.update_one.call_args[0][1]["$set"]
     ctx = set_doc.get("context_updates") or []
-    assert any(
+    assert not any(
         "Warm → Hot" in (e.get("description") or "") for e in ctx if isinstance(e, dict)
     )

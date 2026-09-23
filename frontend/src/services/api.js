@@ -128,6 +128,7 @@ export const leadsAPI = {
   addTask: (id, data) => api.post(`/leads/${id}/tasks`, data),
   getSuggestions: (id) => api.get(`/leads/${id}/suggestions`),
   grantSearchAccess: (id) => api.post(`/leads/${id}/grant`, {}, { skipGlobalErrorToast: true }),
+  logRnrAttempt: (id) => api.post(`/leads/${id}/rnr-attempts`),
   nudge: (id) => api.post(`/leads/${id}/nudge`),
   bulkUpdate: (data) => api.post('/leads/bulk-update', data),
   // autoAssign deprecated — new leads use assignment_router on create; SLA uses reassign_new_lead
@@ -240,7 +241,8 @@ export const whatsappAPI = {
 // My Dashboard / Activity API
 export const activityAPI = {
   heartbeat: () => api.post('/activity/heartbeat'),
-  setStatus: (status, userId) => api.put('/activity/status', null, { params: { status, user_id: userId } }),
+  getStatus: () => api.get('/activity/status'),
+  setStatus: (status) => api.put('/activity/status', null, { params: { status } }),
   getTeamStatus: () => api.get('/activity/team-status'),
 };
 

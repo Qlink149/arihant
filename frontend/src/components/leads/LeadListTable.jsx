@@ -20,6 +20,7 @@ export const LeadListTable = memo(function LeadListTable({
   bulkSelectEnabled = false,
   assigneeOptions = [],
   onBulkComplete,
+  showEscalationColumns = false,
 }) {
   const toggleDensity = useCallback(() => {
     onTableDensityChange((prev) => {
@@ -62,6 +63,7 @@ export const LeadListTable = memo(function LeadListTable({
         bulkSelectEnabled={bulkSelectEnabled}
         assigneeOptions={assigneeOptions}
         onBulkComplete={onBulkComplete}
+        showEscalationColumns={showEscalationColumns}
       />
       {!loading && leads.length > 0 && (
         <>

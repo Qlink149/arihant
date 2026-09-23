@@ -59,12 +59,16 @@ const CHECKBOX_COL_WIDTH = 44;
 // Name, Phone, Status, Follow-up, Tasks, Project, Source, Recent note, Sales owner, Created, Updated, Actions
 const LEAD_TABLE_COLUMNS = [200, 130, 160, 148, 100, 160, 120, 280, 140, 148, 148, 88];
 
-function LeadTableColGroup({ showCheckbox }) {
+function LeadTableColGroup({ showCheckbox, showEscalationColumns = false }) {
+  const extra = showEscalationColumns ? [200, 120] : [];
   return (
     <colgroup>
       {showCheckbox && <col style={{ width: CHECKBOX_COL_WIDTH }} />}
       {LEAD_TABLE_COLUMNS.map((width, index) => (
         <col key={index} style={{ width }} />
+      ))}
+      {extra.map((width, index) => (
+        <col key={`esc-${index}`} style={{ width }} />
       ))}
     </colgroup>
   );
@@ -155,6 +159,7 @@ const LeadTableRow = memo(function LeadTableRow({
   showCheckbox = false,
   selected = false,
   onToggleSelect,
+  showEscalationColumns = false,
   'data-index': dataIndex,
 }) {
   const rowRef = useRef(null);
@@ -257,6 +262,25 @@ const LeadTableRow = memo(function LeadTableRow({
           <LeadStatusBadge status={lead.lead_status} temperature={lead.temperature} />
         </div>
       </TableCell>
+      {showEscalationColumns && (
+        <>
+          <TableCell className={`${cellPy} max-w-[200px]`}>
+            <span
+              className={`text-crm-fg ${textSize} truncate block`}
+              title={(lead.escalation?.reasons || []).map((r) => r.label || `${r.sla_rule}/${r.sla_threshold}`).join('\n')}
+            >
+              {(lead.escalation?.reasons || []).slice(-1)[0]?.label
+                || (lead.escalation?.reasons || []).slice(-1)[0]?.sla_rule
+                || '—'}
+            </span>
+          </TableCell>
+          <TableCell className={cellPy}>
+            <span className={`text-crm-fg-secondary ${textSize}`}>
+              {lead.escalation?.raised_at_dt ? formatDateTimeIST(lead.escalation.raised_at_dt) : '—'}
+            </span>
+          </TableCell>
+        </>
+      )}
       <TableCell className={`${cellPy} w-[148px] max-w-[148px] min-w-0 overflow-hidden`}>
         {followUp ? (
           <button
@@ -361,6 +385,7 @@ function LeadTableHeader({
   allSelected = false,
   someSelected = false,
   onToggleSelectAll,
+  showEscalationColumns = false,
 }) {
   return (
     <TableHeader>
@@ -386,6 +411,16 @@ function LeadTableHeader({
         <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[160px]">
           Status
         </TableHead>
+        {showEscalationColumns && (
+          <>
+            <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[200px]">
+              Escalation reason
+            </TableHead>
+            <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[120px]">
+              Escalated
+            </TableHead>
+          </>
+        )}
         <TableHead className="sticky top-0 z-10 bg-crm backdrop-blur text-crm-fg-muted text-xs uppercase tracking-wider min-w-[148px]">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -449,6 +484,7 @@ function renderLeadRows(rows, handlers, density) {
       showCheckbox={handlers.showCheckbox}
       selected={handlers.selectedIds?.has(row.lead.id)}
       onToggleSelect={handlers.onToggleSelect}
+      showEscalationColumns={handlers.showEscalationColumns}
     />
   ));
 }
@@ -474,6 +510,7 @@ export const LeadDataTable = memo(function LeadDataTable({
   bulkSelectEnabled = false,
   assigneeOptions = [],
   onBulkComplete,
+  showEscalationColumns = false,
 }) {
   const tableAnchorRef = useRef(null);
   const [scrollMargin, setScrollMargin] = useState(0);
@@ -504,7 +541,7 @@ export const LeadDataTable = memo(function LeadDataTable({
   }, [leads, pendingTaskMap, earliestTaskMap]);
 
   const loadedIds = useMemo(() => leads.map((l) => l.id), [leads]);
-  const columnCount = bulkSelectEnabled ? BASE_COLUMN_COUNT + 1 : BASE_COLUMN_COUNT;
+  const columnCount = (bulkSelectEnabled ? BASE_COLUMN_COUNT + 1 : BASE_COLUMN_COUNT) + (showEscalationColumns ? 2 : 0);
 
   useEffect(() => {
     if (!bulkSelectEnabled) {
@@ -594,8 +631,9 @@ export const LeadDataTable = memo(function LeadDataTable({
       showCheckbox: bulkSelectEnabled,
       selectedIds,
       onToggleSelect: toggleSelect,
+      showEscalationColumns,
     }),
-    [onRowClick, onNote, onNudge, canNudge, onOpenLeadTasks, bulkSelectEnabled, selectedIds, toggleSelect],
+    [onRowClick, onNote, onNudge, canNudge, onOpenLeadTasks, bulkSelectEnabled, selectedIds, toggleSelect, showEscalationColumns],
   );
 
   const reportBulkResult = useCallback((data) => {
@@ -711,12 +749,13 @@ export const LeadDataTable = memo(function LeadDataTable({
       >
         {useVirtualTable ? (
           <table className={TABLE_LAYOUT_CLASS}>
-            <LeadTableColGroup showCheckbox={bulkSelectEnabled} />
+            <LeadTableColGroup showCheckbox={bulkSelectEnabled} showEscalationColumns={showEscalationColumns} />
             <LeadTableHeader
               showCheckbox={bulkSelectEnabled}
               allSelected={allSelected}
               someSelected={someSelected}
               onToggleSelectAll={toggleSelectAll}
+              showEscalationColumns={showEscalationColumns}
             />
             <TableBody>
               {paddingTop > 0 && (
@@ -746,6 +785,7 @@ export const LeadDataTable = memo(function LeadDataTable({
                     showCheckbox={bulkSelectEnabled}
                     selected={selectedIds.has(row.lead.id)}
                     onToggleSelect={toggleSelect}
+                    showEscalationColumns={showEscalationColumns}
                   />
                 );
               })}
@@ -758,12 +798,13 @@ export const LeadDataTable = memo(function LeadDataTable({
           </table>
         ) : (
           <Table className={TABLE_LAYOUT_CLASS}>
-            <LeadTableColGroup showCheckbox={bulkSelectEnabled} />
+            <LeadTableColGroup showCheckbox={bulkSelectEnabled} showEscalationColumns={showEscalationColumns} />
             <LeadTableHeader
               showCheckbox={bulkSelectEnabled}
               allSelected={allSelected}
               someSelected={someSelected}
               onToggleSelectAll={toggleSelectAll}
+              showEscalationColumns={showEscalationColumns}
             />
             <TableBody>
               {renderLeadRows(rows, rowHandlers, density)}

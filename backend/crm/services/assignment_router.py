@@ -26,6 +26,7 @@ ROUTING_SETTINGS_KEY = "routing"
 
 # OPEN O5 — Phase 3 may expand blocking set (e.g. on_break, site_visit).
 ROUTING_BLOCKING_STATUSES = {"unavailable", "away"}
+ROUTING_DEPRIORITISED_STATUSES = {"on_break", "site_visit"}
 
 
 async def get_routing_settings() -> dict:
@@ -169,6 +170,32 @@ async def _eligible_users_in_order(
     return out
 
 
+async def _manual_status_by_user_id(user_ids: Sequence[str]) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    ids = [uid for uid in user_ids if uid]
+    if not ids:
+        return out
+    find = getattr(db.user_activity, "find", None)
+    if find is None:
+        return out
+    cursor = find({"user_id": {"$in": ids}}, {"_id": 0, "user_id": 1, "manual_status": 1})
+    to_list = getattr(cursor, "to_list", None)
+    if to_list is None:
+        return out
+    rows = await to_list(len(ids) + 5)
+    for row in rows or []:
+        uid = row.get("user_id")
+        if uid:
+            out[uid] = (row.get("manual_status") or "available").strip().lower() or "available"
+    return out
+
+
+def _tier_key(manual_status: str) -> int:
+    if (manual_status or "available").strip().lower() in ROUTING_DEPRIORITISED_STATUSES:
+        return 1
+    return 0
+
+
 async def _pick_from_candidates(
     emails: Sequence[str],
     users_by_email: Dict[str, dict],
@@ -179,10 +206,13 @@ async def _pick_from_candidates(
     eligible = await _eligible_users_in_order(emails, users_by_email, now_dt)
     if not eligible:
         return None
+    statuses = await _manual_status_by_user_id([u.get("id") for u in eligible])
+    available = [u for u in eligible if _tier_key(statuses.get(u.get("id") or "", "available")) == 0]
+    pool = available or eligible
     if not use_rr:
-        return eligible[0]
+        return pool[0]
     scored = []
-    for u in eligible:
+    for u in pool:
         open_new = await count_open_new_leads(u["id"], u.get("full_name") or "")
         scored.append((open_new, u))
     scored.sort(key=lambda item: item[0])

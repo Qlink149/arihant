@@ -69,6 +69,14 @@ const DashboardLayout = () => {
   const notifBellRef = useRef(null);
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  const [manualStatus, setManualStatus] = useState('available');
+  const AVAILABILITY_OPTIONS = [
+    { value: 'available', label: 'Available' },
+    { value: 'unavailable', label: 'Unavailable' },
+    { value: 'on_break', label: 'On Break' },
+    { value: 'site_visit', label: 'Site Visit' },
+    { value: 'away', label: 'Away' },
+  ];
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved !== null ? JSON.parse(saved) : true;
@@ -81,8 +89,9 @@ const DashboardLayout = () => {
   const isOrgEditor = isAdmin || isManager;
 
   const navItems = useMemo(() => {
-    const adminOnlyPaths = ['/sales-dashboard', '/marketing-dashboard', '/settings'];
+    const adminOnlyPaths = ['/marketing-dashboard', '/settings'];
     const orgEditorPaths = ['/site-visits'];
+    const salesDashboardPaths = ['/sales-dashboard'];
     const all = [
       { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { path: '/my-dashboard', icon: UserCircle, label: 'My Dashboard' },
@@ -100,6 +109,7 @@ const DashboardLayout = () => {
       : all.filter((item) => {
           if (adminOnlyPaths.includes(item.path)) return false;
           if (orgEditorPaths.includes(item.path)) return isOrgEditor;
+          if (salesDashboardPaths.includes(item.path)) return isAdmin || isGeneralManager;
           if (item.path === '/escalation-queue') return canSeeEscalations;
           return true;
         });
@@ -111,7 +121,7 @@ const DashboardLayout = () => {
       ];
     }
     return items;
-  }, [isAdmin, isOrgEditor, canSeeEscalations, user?.is_platform_operator, isImpersonating]);
+  }, [isAdmin, isOrgEditor, isGeneralManager, canSeeEscalations, user?.is_platform_operator, isImpersonating]);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -182,7 +192,10 @@ const DashboardLayout = () => {
   // Send heartbeat every 1 minute (Active Status "Beat" column)
   useEffect(() => {
     const sendHeartbeat = () => {
-      activityAPI.heartbeat().catch(() => {});
+      activityAPI.heartbeat().then((res) => {
+        const s = res?.data?.manual_status;
+        if (s) setManualStatus(s);
+      }).catch(() => {});
     };
     sendHeartbeat();
     const hbInterval = setInterval(sendHeartbeat, 60_000);
@@ -345,6 +358,28 @@ const DashboardLayout = () => {
                   <p className={`text-[10px] truncate ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>{user?.email}</p>
                 </div>
               </div>
+              <label className={`block px-2 pt-1 text-[10px] uppercase tracking-wider ${darkMode ? 'text-crm-fg-muted' : 'text-gray-500'}`}>
+                Availability
+              </label>
+              <select
+                value={manualStatus}
+                onChange={async (e) => {
+                  const next = e.target.value;
+                  const prev = manualStatus;
+                  setManualStatus(next);
+                  try {
+                    await activityAPI.setStatus(next);
+                  } catch {
+                    setManualStatus(prev);
+                  }
+                }}
+                className={`w-full mb-1 mx-0 px-2 py-1.5 text-xs rounded-md border ${darkMode ? 'bg-crm-muted border-crm-border text-crm-fg' : 'bg-white border-gray-200 text-gray-800'}`}
+                data-testid="availability-select"
+              >
+                {AVAILABILITY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
               <button
                 onClick={handleLogout}
                 className={`w-full flex items-center gap-2 px-2 py-2 text-sm ${darkMode ? 'text-crm-fg-secondary' : 'text-gray-600'} hover:text-red-500 transition-colors`}

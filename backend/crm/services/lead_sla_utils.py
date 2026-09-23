@@ -88,6 +88,10 @@ def has_agent_activity_since(lead: dict, since_dt) -> bool:
 
         etype = (entry.get("type") or "").strip().lower()
         update_type = (entry.get("update_type") or "").strip().lower()
+        if etype == "rnr_attempt":
+            return True
+        if etype == "logged_outcome":
+            return True
         if etype == "call" or update_type == "call_note":
             return True
         if etype == "note" or update_type == "general_note":

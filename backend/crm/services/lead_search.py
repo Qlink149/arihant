@@ -276,6 +276,7 @@ def build_leads_list_query(
     meta_qualified: Optional[bool] = None,
     site_visit_min: Optional[int] = None,
     site_visit_max: Optional[int] = None,
+    escalated: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Compose a full leads query for list endpoints."""
     extra: list[Dict[str, Any]] = []
@@ -342,6 +343,10 @@ def build_leads_list_query(
         if site_visit_max is not None:
             sv_clause["$lte"] = site_visit_max
         extra.append({"site_visit_count": sv_clause})
+    if escalated is True:
+        extra.append({"escalation.active": True})
+    elif escalated is False:
+        extra.append({"escalation.active": {"$ne": True}})
 
     search_clause = build_text_search_clause(search)
     if search_clause:

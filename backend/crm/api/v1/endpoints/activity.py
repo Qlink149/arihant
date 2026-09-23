@@ -40,12 +40,22 @@ async def record_heartbeat(current_user: dict = Depends(get_current_user)):
         "routing_eligible": routing_eligible,
         "within_business_hours": is_business_hours_ist(now_dt),
         "waiting_queue_assigned": assigned,
+        "manual_status": manual,
     }
+
+
+@router.get("/activity/status")
+async def get_manual_status(current_user: dict = Depends(get_current_user)):
+    doc = await db.user_activity.find_one({"user_id": current_user["id"]}, {"_id": 0}) or {}
+    manual = doc.get("manual_status") or "available"
+    return {"manual_status": manual}
 
 
 @router.put("/activity/status")
 async def set_manual_status(status: str, user_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
-    target_id = user_id or current_user["id"]
+    target_id = current_user["id"]
+    if user_id and user_id != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only set your own availability")
     allowed = {"available", "unavailable", "on_break", "site_visit", "away"}
     if status not in allowed:
         raise HTTPException(400, f"Status must be one of: {', '.join(sorted(allowed))}")
@@ -53,10 +63,18 @@ async def set_manual_status(status: str, user_id: Optional[str] = None, current_
     now_iso = iso_utc_now()
     await db.user_activity.update_one(
         {"user_id": target_id},
-        {"$set": {"manual_status": status, "updated_at": now_iso, "updated_at_dt": now_dt}},
+        {
+            "$set": {
+                "user_id": target_id,
+                "full_name": current_user.get("full_name") or "",
+                "manual_status": status,
+                "updated_at": now_iso,
+                "updated_at_dt": now_dt,
+            }
+        },
         upsert=True,
     )
-    return {"message": f"Status set to {status}"}
+    return {"message": f"Status set to {status}", "manual_status": status}
 
 
 @router.get("/activity/team-status")

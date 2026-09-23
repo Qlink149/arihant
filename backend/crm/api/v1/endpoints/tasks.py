@@ -176,6 +176,18 @@ async def add_context_update(
 
     await clear_nudge_pending_if_assignee(lead_id, current_user, lead=lead)
 
+    stored_type = (context_entry.get("type") or "").strip().lower()
+    if stored_type in {"note", "call"}:
+        from crm.services.escalation_queue import clear_escalation_if_active
+
+        await clear_escalation_if_active(
+            lead_id,
+            action="call" if stored_type == "call" else "note",
+            actor_user_id=current_user.get("id") or "",
+            actor_name=current_user.get("full_name") or "",
+            lead=lead,
+        )
+
     from crm.services.ai_lead_regen import schedule_lead_ai_refresh
 
     schedule_lead_ai_refresh(lead_id, background_tasks)

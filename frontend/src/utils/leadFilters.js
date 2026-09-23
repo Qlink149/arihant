@@ -38,6 +38,7 @@ export const emptyLeadFilters = () => ({
   vip: null,
   re_enquiry: null,
   nudge_pending: null,
+  escalated: null,
   temperature: '',
   days: '',
   created_from: '',
@@ -79,6 +80,11 @@ export const filtersFromSearchParams = (searchParams) => {
   if (nudgeRaw === '1' || nudgeRaw === 'true') nudge_pending = true;
   if (nudgeRaw === '0' || nudgeRaw === 'false') nudge_pending = false;
 
+  const escalatedRaw = searchParams.get('escalated');
+  let escalated = null;
+  if (escalatedRaw === '1' || escalatedRaw === 'true') escalated = true;
+  if (escalatedRaw === '0' || escalatedRaw === 'false') escalated = false;
+
   const updated_from = searchParams.get('updated_from') || '';
   const updated_to = searchParams.get('updated_to') || '';
   const dateFieldRaw = searchParams.get('date_field');
@@ -99,6 +105,7 @@ export const filtersFromSearchParams = (searchParams) => {
     vip,
     re_enquiry,
     nudge_pending,
+    escalated,
     temperature: searchParams.get('temperature') || '',
     days: searchParams.get('days') || '',
     created_from: searchParams.get('created_from') || '',
@@ -138,6 +145,8 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   if (filters.re_enquiry === false) params.set('re_enquiry', '0');
   if (filters.nudge_pending === true) params.set('nudge', '1');
   if (filters.nudge_pending === false) params.set('nudge', '0');
+  if (filters.escalated === true) params.set('escalated', '1');
+  if (filters.escalated === false) params.set('escalated', '0');
   if (filters.temperature) params.set('temperature', filters.temperature);
   if (filters.days) params.set('days', String(filters.days));
 
@@ -184,6 +193,9 @@ export const buildLeadListParams = (filters, search = '') => {
   if (filters.nudge_pending !== null && filters.nudge_pending !== undefined) {
     params.nudge_pending = filters.nudge_pending;
   }
+  if (filters.escalated !== null && filters.escalated !== undefined) {
+    params.escalated = filters.escalated;
+  }
   if (filters.temperature) params.temperature = filters.temperature;
   // dormant filter removed (#43)
 
@@ -227,6 +239,7 @@ export const countActiveFilters = (filters, { includeDuplicates = false } = {}) 
   if (filters.vip !== null && filters.vip !== undefined) count += 1;
   if (filters.re_enquiry !== null && filters.re_enquiry !== undefined) count += 1;
   if (filters.nudge_pending !== null && filters.nudge_pending !== undefined) count += 1;
+  if (filters.escalated !== null && filters.escalated !== undefined) count += 1;
   if (filters.temperature) count += 1;
   if (
     filters.days
@@ -255,6 +268,7 @@ const normalizeFilterSnapshot = (filters = {}) => ({
   vip: filters.vip ?? null,
   re_enquiry: filters.re_enquiry ?? null,
   nudge_pending: filters.nudge_pending ?? null,
+  escalated: filters.escalated ?? null,
   temperature: filters.temperature || '',
   days: filters.days || '',
   created_from: filters.created_from || '',

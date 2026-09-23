@@ -36,6 +36,15 @@ async def add_call_summary(lead_id: str, summary: CallSummary, current_user: dic
         {"id": lead_id},
         {"$push": {"context_updates": context_update}, "$set": update_set},
     )
+    from crm.services.escalation_queue import clear_escalation_if_active
+
+    await clear_escalation_if_active(
+        lead_id,
+        action="call",
+        actor_user_id=current_user.get("id") or "",
+        actor_name=current_user.get("full_name") or "",
+        lead=lead,
+    )
 
     return {"message": "Call summary added", "intent_level": summary.intent_level}
 

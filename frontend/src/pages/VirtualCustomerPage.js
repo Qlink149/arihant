@@ -195,7 +195,7 @@ const parseTotalFromResponse = (response) => {
   return Number.isFinite(n) ? n : null;
 };
 
-const VirtualCustomerPage = () => {
+const VirtualCustomerPage = ({ escalationLocked = false }) => {
   const { user, isImpersonating } = useAuth();
   const isAdmin = (user?.role || '').toLowerCase() === 'admin';
   const navigate = useNavigate();
@@ -247,7 +247,11 @@ const VirtualCustomerPage = () => {
 
   const [newCustomer, setNewCustomer] = useState({ ...EMPTY_NEW_CUSTOMER });
   
-  const [filters, setFilters] = useState(() => filtersFromSearchParams(searchParams));
+  const [filters, setFilters] = useState(() => {
+    const fromUrl = filtersFromSearchParams(searchParams);
+    if (escalationLocked) fromUrl.escalated = true;
+    return fromUrl;
+  });
   const [customDateRange, setCustomDateRange] = useState(null);
   const [dateMenuMode, setDateMenuMode] = useState('presets');
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
@@ -337,6 +341,7 @@ const VirtualCustomerPage = () => {
 
   useEffect(() => {
     const fromUrl = filtersFromSearchParams(searchParams);
+    if (escalationLocked) fromUrl.escalated = true;
     setFilters((prev) => {
       const prevKey = JSON.stringify(prev);
       const nextKey = JSON.stringify(fromUrl);
@@ -885,7 +890,7 @@ const VirtualCustomerPage = () => {
 
   const canNudge = useMemo(() => {
     const role = (user?.role || '').toLowerCase();
-    return role === 'admin' || role === 'manager';
+    return role === 'admin' || role === 'manager' || role === 'general_manager';
   }, [user?.role]);
 
   const handleNudge = useCallback(async (id) => {
@@ -1087,7 +1092,7 @@ const VirtualCustomerPage = () => {
       >
         <div>
           <h1 className="text-xl font-semibold text-crm-fg" data-testid="virtual-customer-title">
-            Virtual Customer Explorer
+            {escalationLocked ? 'Escalation Queue' : 'Virtual Customer Explorer'}
           </h1>
           <motion.div className="mt-1" data-testid="virtual-customer-lead-count" role="status">
             {showDuplicates ? (
@@ -1612,6 +1617,7 @@ const VirtualCustomerPage = () => {
           onNote={handleOpenNote}
           onNudge={handleNudge}
           canNudge={canNudge}
+          showEscalationColumns={Boolean(escalationLocked || filters.escalated)}
           onOpenLeadTasks={openLeadTasksDrawer}
           loadMoreSentinelRef={loadMoreSentinelRef}
           bulkSelectEnabled={canNudge}

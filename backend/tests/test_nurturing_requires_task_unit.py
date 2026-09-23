@@ -85,6 +85,7 @@ def test_nurturing_transition_blocks_general_note_until_new_task(monkeypatch):
             return lead
 
         monkeypatch.setattr(tasks_endpoints, "resolve_lead_or_403", _resolve_lead_or_403)
+        monkeypatch.setattr(tasks_endpoints, "resolve_lead_view_or_403", _resolve_lead_or_403)
 
         # Patch lead_service db + dependencies used inside update_lead
         import crm.services.lead_service as lead_service
@@ -96,6 +97,14 @@ def test_nurturing_transition_blocks_general_note_until_new_task(monkeypatch):
         monkeypatch.setattr(lead_service, "is_vip_lead", lambda *_args, **_kwargs: False)
         monkeypatch.setattr(lead_service, "normalize_lead_for_response", lambda l: l)
         monkeypatch.setattr(lead_service, "log_lead_event", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            "crm.services.lead_follow_up.recompute_lead_next_action_date",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            "crm.services.lead_follow_up.clear_missed_follow_up_after_activity",
+            AsyncMock(return_value=None),
+        )
 
         current_user = {"id": "u1", "full_name": "Tester"}
 

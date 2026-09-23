@@ -4,6 +4,7 @@ const {
   loginApi,
   fetchMe,
   createE2ELead,
+  patchE2ELead,
   cleanupRun,
   apiJson,
   runPython,
@@ -213,9 +214,30 @@ test.describe('Change Tracker 02–25 (disposable e2e DB)', () => {
   });
 
   test('#8 Escalation queue reachable for admin', async ({ page }) => {
+    await ensureAdminApi();
+    const lead = await createE2ELead(adminToken, {});
+    phones.push(lead.phone);
+    const raisedAt = new Date().toISOString();
+    patchE2ELead(lead.id, {
+      escalation: {
+        active: true,
+        raised_at_dt: raisedAt,
+        reasons: [
+          {
+            sla_rule: 'interested',
+            sla_threshold: 'escalate_14d',
+            label: 'Interested lead — no status change in 2 weeks',
+            raised_at_dt: raisedAt,
+          },
+        ],
+      },
+    });
+
     await authenticatePage(page);
-    await page.goto('/escalation-queue');
-    await expect(page.getByTestId('escalation-queue-page')).toBeVisible();
+    await page.goto(`/escalation-queue?search=${encodeURIComponent(lead.phone)}`);
+    await expect(page.getByTestId('virtual-customer-title')).toHaveText('Escalation Queue');
+    await expect(page.getByTestId(`lead-phone-${lead.id}`)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('columnheader', { name: 'Escalation reason' })).toBeVisible();
   });
 
   test('#9 #10 #18 #19 #40 #41 #42 VC columns: phone, timestamps, project, owner', async ({ page }) => {

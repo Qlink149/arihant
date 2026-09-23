@@ -18,6 +18,9 @@ from crm.services.lead_events import log_lead_event
 from crm.services.lead_transfer_service import assign_lead_ownership
 from crm.services.lead_view_grants import DEFAULT_GRANT_MINUTES, upsert_view_grant
 from crm.services.notification_service import create_notification
+from crm.services.escalation_queue import assert_escalated_filter_allowed
+from crm.constants.roles import can_see_rnr_call_panel
+from crm.constants.lead_kpi import fw_status_indicates_rnr
 from crm.services.lead_export_service import (
     assert_admin,
     create_export_job,
@@ -246,6 +249,7 @@ async def get_leads(
     metric: Optional[str] = None,
     dormant: Optional[bool] = None,
     mine: Optional[bool] = Query(None, description="Scope to the user's assigned pipeline (My Dashboard drill-down)"),
+    escalated: Optional[bool] = Query(None),
     skip: int = 0,
     limit: int = 100,
     include_total: bool = Query(True),
@@ -280,6 +284,8 @@ async def get_leads(
         snapshot_filter=snapshot_filter,
         use_rep_pipeline=use_rep_pipeline,
     )
+    if escalated:
+        assert_escalated_filter_allowed(current_user)
 
     leads, total = await lead_service.list_leads(
         project=project,
@@ -313,6 +319,7 @@ async def get_leads(
         limit=min(limit, 100),
         query_base=query_base,
         include_total=include_total if skip == 0 else False,
+        escalated=escalated,
     )
     if total > 0 or skip == 0:
         response.headers["X-Total-Count"] = str(total)
@@ -547,7 +554,68 @@ async def get_lead(
     lead["ai_generation_pending"] = bool(cfg and (stale or ai_refresh_in_progress(lead_id)))
     if cfg and stale:
         schedule_lead_ai_refresh(lead_id, background_tasks)
+    if can_see_rnr_call_panel(current_user.get("role")):
+        from crm.services.call_stats import compute_rnr_stay_call_panel
+
+        lead.update(compute_rnr_stay_call_panel(lead))
     return LeadResponse(**lead)
+
+
+@router.post("/leads/{lead_id}/rnr-attempts")
+async def log_rnr_attempt(lead_id: str, current_user: dict = Depends(get_current_user)):
+    """Record a Log Attempt on an RNR lead (SOP 5.2). Server timestamp only."""
+    lead = await resolve_lead_or_403(lead_id, current_user)
+    status = (lead.get("lead_status") or "").strip()
+    if not fw_status_indicates_rnr(status) and status.lower() != "rnr":
+        raise HTTPException(status_code=400, detail="Log Attempt is only allowed when the lead is in RNR")
+    now_dt = utc_now()
+    actor_id = current_user.get("id") or ""
+    for entry in reversed(lead.get("context_updates") or []):
+        if not isinstance(entry, dict):
+            continue
+        if (entry.get("type") or "").strip().lower() != "rnr_attempt":
+            continue
+        if (entry.get("actor_user_id") or "") != actor_id:
+            break
+        ts = coerce_datetime(entry.get("timestamp_dt")) or coerce_datetime(entry.get("timestamp"))
+        if ts:
+            if ts.tzinfo is None:
+                from datetime import timezone
+
+                ts = ts.replace(tzinfo=timezone.utc)
+            if (now_dt - ts).total_seconds() < 5:
+                raise HTTPException(status_code=409, detail="Attempt already logged")
+        break
+    now_iso = iso_utc_now()
+    actor_name = current_user.get("full_name") or "User"
+    entry = {
+        "type": "rnr_attempt",
+        "timestamp": now_iso,
+        "timestamp_dt": now_dt,
+        "description": "Call attempt logged",
+        "agent": actor_name,
+        "actor_user_id": actor_id,
+        "actor_name": actor_name,
+    }
+    await db.leads.update_one(
+        {"id": lead_id},
+        {
+            "$push": {"context_updates": entry},
+            "$set": {"updated_at": now_iso, "updated_at_dt": now_dt},
+        },
+    )
+    from crm.services.escalation_queue import clear_escalation_if_active
+    from crm.services.nudge_pending import clear_nudge_pending_if_assignee
+
+    await clear_escalation_if_active(
+        lead_id,
+        action="rnr_attempt",
+        actor_user_id=actor_id,
+        actor_name=actor_name,
+        lead=lead,
+    )
+    await clear_nudge_pending_if_assignee(lead_id, current_user, lead=lead)
+    return {"ok": True}
 
 
 @router.post("/leads/{lead_id}/grant", status_code=200)
@@ -669,9 +737,9 @@ async def bulk_update_leads(
 @router.post("/leads/{lead_id}/nudge")
 async def nudge_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
     """Admin/manager reminder notification to the lead's assignee."""
-    role = (current_user.get("role") or "").lower()
-    if role not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Only admin or manager can nudge")
+    role = (current_user.get("role") or "").strip().lower()
+    if role not in ("admin", "manager", "general_manager"):
+        raise HTTPException(status_code=403, detail="Only admin, manager, or general_manager can nudge")
 
     lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
     if not lead:
@@ -741,6 +809,15 @@ async def nudge_lead(lead_id: str, current_user: dict = Depends(get_current_user
                 "last_nudged_by_user_id": current_user.get("id"),
             },
         },
+    )
+    from crm.services.escalation_queue import clear_escalation_if_active
+
+    await clear_escalation_if_active(
+        lead_id,
+        action="nudge",
+        actor_user_id=current_user.get("id") or "",
+        actor_name=admin_name,
+        lead=lead,
     )
     return {"ok": True, "deduped": False}
 

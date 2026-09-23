@@ -4,6 +4,7 @@ const {
   loginApi,
   fetchMe,
   createE2ELead,
+  patchE2ELead,
   insertNotification,
   cleanupRun,
   apiJson,
@@ -81,30 +82,46 @@ test.describe('Change Tracker 37–45 (disposable e2e DB)', () => {
     await ensureAdminApi();
     const lead = await createE2ELead(adminToken, {});
     phones.push(lead.phone);
-    insertNotification({
-      leadId: lead.id,
-      recipientId: adminMe.id,
-      title: 'E2E escalation',
-      message: 'Needs review',
-      notificationType: 'escalation',
+    const raisedAt = new Date().toISOString();
+    patchE2ELead(lead.id, {
+      lead_status: 'RNR',
+      escalation: {
+        active: true,
+        raised_at_dt: raisedAt,
+        reasons: [
+          {
+            sla_rule: 'rnr',
+            sla_threshold: 'escalate_d7',
+            label:
+              'RNR lead unreachable for 6 days across two agents. Reassign or decide next action.',
+            raised_at_dt: raisedAt,
+          },
+        ],
+      },
     });
+    const refreshed = await apiJson('GET', `/leads/${lead.id}`, { token: adminToken });
+    expect(refreshed.escalation?.active).toBe(true);
+    expect((refreshed.escalation?.reasons || []).length).toBeGreaterThan(0);
 
     await authenticatePage(page);
-    await page.goto('/escalation-queue');
-    await expect(page.getByTestId('escalation-queue-page')).toBeVisible();
-    await expect(page.getByText('E2E escalation')).toBeVisible();
+    await page.goto(`/escalation-queue?search=${encodeURIComponent(lead.phone)}`);
+    await expect(page.getByTestId('virtual-customer-title')).toHaveText('Escalation Queue');
+    await expect(page.getByRole('columnheader', { name: 'Escalation reason' })).toBeVisible();
+    await expect(page.getByTestId(`lead-phone-${lead.id}`)).toBeVisible({ timeout: 20000 });
+    const row = page.locator('tr', { has: page.getByTestId(`lead-phone-${lead.id}`) });
+    await expect(row.getByText('RNR lead unreachable')).toBeVisible();
 
     const managerEmail = process.env.E2E_MANAGER_EMAIL || 'e2e-manager@arihant.local';
     const managerPassword = process.env.E2E_MANAGER_PASSWORD || 'E2eManager!Pass123';
     await authenticatePage(page, { email: managerEmail, password: managerPassword });
     await page.goto('/escalation-queue');
-    await expect(page.getByTestId('escalation-queue-page')).toBeVisible();
+    await expect(page.getByTestId('virtual-customer-title')).toHaveText('Escalation Queue');
 
     const gmEmail = process.env.E2E_GM_EMAIL || 'shariff@arihants.co.in';
     const gmPassword = process.env.E2E_GM_PASSWORD || 'E2eGm!Pass123';
     await authenticatePage(page, { email: gmEmail, password: gmPassword });
     await page.goto('/escalation-queue');
-    await expect(page.getByTestId('escalation-queue-page')).toBeVisible();
+    await expect(page.getByTestId('virtual-customer-title')).toHaveText('Escalation Queue');
 
     const repEmail = process.env.E2E_REP_EMAIL || 'e2e-rep@arihant.local';
     const repPassword = process.env.E2E_REP_PASSWORD || 'E2eRep!Pass123';

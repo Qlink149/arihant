@@ -127,4 +127,14 @@ async def assign_lead_ownership(
         payload={"transfer_id": transfer_id, "to_rep": to_rep, "from_rep": from_rep},
     )
 
+    from crm.services.escalation_queue import clear_escalation_if_active
+
+    await clear_escalation_if_active(
+        lead_id,
+        action="reassign",
+        actor_user_id=current_user.get("id") or "",
+        actor_name=current_user.get("full_name") or "",
+        lead=lead,
+    )
+
     return transfer_id

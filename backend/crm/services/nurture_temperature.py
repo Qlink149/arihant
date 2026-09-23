@@ -1,6 +1,6 @@
 """Nurture label (temperature) rules — only valid when lead_status is Nurturing."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from fastapi import HTTPException
 
@@ -108,6 +108,75 @@ def nurture_warm_to_hot_context_entry(
         "actor_user_id": actor_user_id,
         "actor_name": actor_name,
     }
+
+
+def nurture_hot_to_warm_context_entry(
+    source: str,
+    *,
+    actor_name: str = "System",
+    actor_user_id: str = "",
+) -> dict:
+    now_dt = utc_now()
+    return {
+        "type": "updated",
+        "timestamp": iso_utc_now(),
+        "timestamp_dt": now_dt,
+        "description": f"Nurture label changed: Hot → Warm ({source})",
+        "changes": [{"field": "temperature", "from": "Hot", "to": "Warm"}],
+        "agent": actor_name,
+        "actor_user_id": actor_user_id,
+        "actor_name": actor_name,
+    }
+
+
+def apply_outcome_temperature(
+    existing: dict,
+    patch: Dict[str, Any],
+    extra_ctx: list,
+    *,
+    outcome: str,
+    current_user: Optional[dict] = None,
+) -> None:
+    """Event-driven Hot/Warm from a logged outcome (SOP 5.4). Never downgrades except T6."""
+    from crm.constants.call_outcomes import (
+        OUTCOME_INTERESTED,
+        last_nurture_outcomes,
+        last_three_are_neutral,
+    )
+
+    effective_status = patch.get("lead_status", existing.get("lead_status"))
+    if not _is_nurturing_status(effective_status):
+        return
+    actor_name = (current_user or {}).get("full_name") or "User"
+    actor_user_id = (current_user or {}).get("id") or ""
+    current_temp = _normalize_nurture_label(patch.get("temperature", existing.get("temperature")))
+    if outcome == OUTCOME_INTERESTED and current_temp == "Warm":
+        patch["temperature"] = "Hot"
+        extra_ctx.append(
+            nurture_warm_to_hot_context_entry(
+                "interested_outcome",
+                actor_name=actor_name,
+                actor_user_id=actor_user_id,
+            )
+        )
+        return
+    if current_temp != "Hot":
+        return
+    since = patch.get("nurture_entered_at_dt") or existing.get("nurture_entered_at_dt")
+    history = last_nurture_outcomes(
+        existing.get("context_updates") or [],
+        since=since,
+        extra_outcome=outcome,
+    )
+    if last_three_are_neutral(history):
+        patch["temperature"] = "Warm"
+        extra_ctx.append(
+            nurture_hot_to_warm_context_entry(
+                "three_neutral_outcomes",
+                actor_name=actor_name,
+                actor_user_id=actor_user_id,
+            )
+        )
 
 
 async def upgrade_nurturing_warm_to_hot_on_lead(

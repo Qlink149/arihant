@@ -63,14 +63,16 @@ def test_reserve_16_primary_is_anusha_only():
     assert next_hop_emails(pool, [], initial=True) == [ANUSHA_EMAIL]
 
 
-def test_krsna_mira_other_primary_then_stop():
+def test_krsna_mira_other_primary_then_roshi():
     krsna = get_pool("krsna")
-    assert next_hop_emails(krsna, [HARISH_EMAIL], initial=False) == [MALATHY_EMAIL]
-    assert next_hop_emails(krsna, [HARISH_EMAIL, MALATHY_EMAIL], initial=False) == []
+    assert next_hop_emails(krsna, [HARISH_EMAIL], initial=False) == [MALATHY_EMAIL, ROSHNI_EMAIL]
+    assert next_hop_emails(krsna, [HARISH_EMAIL, MALATHY_EMAIL], initial=False) == [ROSHNI_EMAIL]
+    assert next_hop_emails(krsna, [HARISH_EMAIL, MALATHY_EMAIL, ROSHNI_EMAIL], initial=False) == []
 
     mira = get_pool("mira")
-    assert next_hop_emails(mira, [SHARIFF_EMAIL], initial=False) == [HARISH_EMAIL]
-    assert next_hop_emails(mira, [SHARIFF_EMAIL, HARISH_EMAIL], initial=False) == []
+    assert next_hop_emails(mira, [SHARIFF_EMAIL], initial=False) == [HARISH_EMAIL, ROSHNI_EMAIL]
+    assert next_hop_emails(mira, [SHARIFF_EMAIL, HARISH_EMAIL], initial=False) == [ROSHNI_EMAIL]
+    assert next_hop_emails(mira, [SHARIFF_EMAIL, HARISH_EMAIL, ROSHNI_EMAIL], initial=False) == []
 
 
 def test_vivriti_fallback_is_narendran_malathy():
@@ -79,10 +81,15 @@ def test_vivriti_fallback_is_narendran_malathy():
     assert next_hop_emails(pool, [ANUSHA_EMAIL], initial=False) == [NARENDRAN_EMAIL, MALATHY_EMAIL]
 
 
-def test_default_pool_anusha_only_exhausts_after_primary():
+def test_default_pool_anusha_then_sop_fallback_chain():
     pool = get_pool(DEFAULT_POOL_KEY)
     assert next_hop_emails(pool, [], initial=True) == [ANUSHA_EMAIL]
-    assert next_hop_emails(pool, [ANUSHA_EMAIL], initial=False) == []
+    assert next_hop_emails(pool, [ANUSHA_EMAIL], initial=False) == [
+        NARENDRAN_EMAIL,
+        MALATHY_EMAIL,
+        JIGAR_EMAIL,
+        ANANTHRAMAN_EMAIL,
+    ]
 
 
 def _lead_with_updates(*entries, assigned_user_id="u-anusha", assigned_to="Anusha Omprakash"):
@@ -218,6 +225,13 @@ def _mock_router_db(lead):
     mock_db.leads.find_one = AsyncMock(return_value=dict(lead))
     mock_db.leads.update_one = AsyncMock()
     mock_db.tasks.update_many = AsyncMock()
+
+    class _Find:
+        async def to_list(self, n):
+            return []
+
+    mock_db.user_activity.find = MagicMock(return_value=_Find())
+    mock_db.user_activity.find_one = AsyncMock(return_value=None)
     return mock_db
 
 

@@ -161,6 +161,7 @@ def compose_leads_list_query(
     meta_qualified: Optional[bool] = None,
     site_visit_min: Optional[int] = None,
     site_visit_max: Optional[int] = None,
+    escalated: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Build the full MongoDB query for lead list/export endpoints."""
     query = build_leads_list_query(
@@ -187,6 +188,7 @@ def compose_leads_list_query(
         meta_qualified=meta_qualified,
         site_visit_min=site_visit_min,
         site_visit_max=site_visit_max,
+        escalated=escalated,
     )
 
     created_cohort = build_created_cohort_filter(

@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from crm.constants.lead_status import (
     is_sv_followup_1_status,
@@ -54,17 +54,23 @@ async def _visit_completed_3d_sets_next_action_date_backup():
     with patch("crm.services.sla_engine._paginate_leads", fake_paginate):
         await engine._process_rule_visit_completed(now, now.isoformat(), {"Agent": "u1"})
 
-    assert len(engine._lead_ops) == 1
-    doc = engine._lead_ops[0]._doc["$set"]
+    nad_ops = [
+        op
+        for op in engine._lead_ops
+        if (op._doc.get("$set") or {}).get("next_action_date")
+        and "sla_flags.visit_completed.3d_at_dt" in (op._doc.get("$set") or {})
+    ]
+    assert len(nad_ops) == 1
+    doc = nad_ops[0]._doc["$set"]
     assert doc.get("next_action_date")
-    assert "sla_flags.visit_completed.3d_at_dt" in doc
 
 
-def test_sv_followup_2_7d_queues_admin_notification_and_email():
-    asyncio.run(_sv_followup_2_7d_queues_admin_notification_and_email())
+def test_sv_followup_2_7d_sets_next_action_date_only():
+    asyncio.run(_sv_followup_2_7d_sets_next_action_date_only())
 
 
-async def _sv_followup_2_7d_queues_admin_notification_and_email():
+async def _sv_followup_2_7d_sets_next_action_date_only():
+    """Phase 3 T13: 7d SV Follow-up 2 sets NAD only — no admin notification/email."""
     now = utc_now()
     entered = now - timedelta(days=8)
     lead = {
@@ -81,15 +87,22 @@ async def _sv_followup_2_7d_queues_admin_notification_and_email():
     async def fake_paginate(collection, query, projection=None, batch_size=200):
         yield [lead]
 
-    admin = {"id": "admin-1", "full_name": "Admin"}
     engine = SLAEngineService()
-    engine._escalation_targets = {"admin": admin}
 
     with patch("crm.services.sla_engine._paginate_leads", fake_paginate):
-        await engine._process_rule_sv_followup_2(now, now.isoformat(), {"Agent": "u1"})
+        with patch(
+            "crm.services.sla_engine._has_pending_sv_entry_task",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            await engine._process_rule_sv_followup_2(now, now.isoformat(), {"Agent": "u1"})
 
-    assert len(engine._lead_ops) == 1
-    assert len(engine._notif_ops) == 1
-    assert len(engine._admin_email_ops) == 1
-    assert engine._admin_email_ops[0]["admin_user_id"] == "admin-1"
-    assert "SV Follow-up 2" in engine._admin_email_ops[0]["subject"]
+    nad_ops = [
+        op
+        for op in engine._lead_ops
+        if (op._doc.get("$set") or {}).get("next_action_date")
+        and "sla_flags.sv_followup_2.admin_7d_at_dt" in (op._doc.get("$set") or {})
+    ]
+    assert len(nad_ops) == 1
+    assert len(engine._notif_ops) == 0
+    assert len(engine._admin_email_ops) == 0
