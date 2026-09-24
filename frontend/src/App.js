@@ -6,6 +6,7 @@ import { Toaster } from './components/ui/sonner';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './components/layout/DashboardLayout';
 import RouteProgress from './components/layout/RouteProgress';
+import { RouteErrorBoundary, LeadPageErrorFallback } from './components/layout/RouteErrorBoundary';
 
 const PageLoading = () => (
   <div className="min-h-[40vh] flex items-center justify-center">
@@ -191,7 +192,13 @@ function AppRoutes() {
         <Route path="dashboard" element={<LazyPage><DashboardPage /></LazyPage>} />
         <Route path="virtual-customer" element={<LazyPage><VirtualCustomerPage /></LazyPage>} />
         <Route path="virtual-dashboard" element={<Navigate to="/virtual-customer" replace />} />
-        <Route path="lead/:leadId" element={<LazyPage><DigitalTwinPage /></LazyPage>} />
+        <Route path="lead/:leadId" element={
+          <LazyPage>
+            <RouteErrorBoundary fallback={LeadPageErrorFallback}>
+              <DigitalTwinPage />
+            </RouteErrorBoundary>
+          </LazyPage>
+        } />
         <Route path="settings" element={<AdminRoute><LazyPage><SettingsPage /></LazyPage></AdminRoute>} />
         <Route path="sales-dashboard" element={<SalesDashboardRoute><LazyPage><SalesDashboardPage /></LazyPage></SalesDashboardRoute>} />
         <Route path="my-dashboard" element={<LazyPage><MyDashboardPage /></LazyPage>} />

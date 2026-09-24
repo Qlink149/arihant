@@ -58,4 +58,14 @@ describe('splitMentionSegments / legacy', () => {
     ]);
     expect(missingMentionNames('Ping @Anusha Omprakash', ['Anusha Omprakash'])).toEqual([]);
   });
+
+  it('coerces non-array mentioned_names without throwing', () => {
+    expect(missingMentionNames('Hi', 'Raj')).toEqual([]);
+    expect(missingMentionNames('Hi', null)).toEqual([]);
+  });
+
+  it('coerces non-string description without throwing', () => {
+    expect(splitMentionSegments(12345)).toEqual([{ type: 'text', value: '12345' }]);
+    expect(missingMentionNames(12345, [])).toEqual([]);
+  });
 });

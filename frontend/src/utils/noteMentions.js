@@ -95,7 +95,7 @@ export function syncMentionIdsFromText(agents, previousIds, text, forceAddIds = 
  * @returns {Array<{ type: 'text' | 'mention', value: string }>}
  */
 export function splitMentionSegments(text) {
-  const value = text || '';
+  const value = text == null ? '' : String(text);
   if (!value) return [];
   const segments = [];
   const re = new RegExp(MENTION_TOKEN_RE.source, 'g');
@@ -118,8 +118,9 @@ export function splitMentionSegments(text) {
  * Names stored on the entry but not present as @tokens in description (legacy picker-only).
  */
 export function missingMentionNames(description, mentionedNames = []) {
-  const text = (description || '').toLowerCase();
-  return (mentionedNames || [])
+  const text = String(description ?? '').toLowerCase();
+  const names = Array.isArray(mentionedNames) ? mentionedNames : [];
+  return names
     .map((n) => (n || '').trim())
     .filter(Boolean)
     .filter((name) => {

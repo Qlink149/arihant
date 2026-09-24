@@ -14,6 +14,7 @@ import {
   NURTURE_LABELS,
   NURTURING_STATUS,
 } from '../../utils/nurtureLabel';
+import { getNurtureTemperatureTintClass } from '../../utils/leadTable';
 import { TemperatureBadge } from './TemperatureBadge';
 import { CrmBadge } from '../ui/CrmBadge';
 import { Button } from '../ui/button';

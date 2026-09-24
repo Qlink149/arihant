@@ -83,10 +83,20 @@ def _ist_follow_up_date(days_ahead: int, from_dt: Optional[datetime] = None) -> 
     return (base + timedelta(days=days_ahead)).isoformat()
 
 
+def _sanitize_context_update_entry(item: dict) -> dict:
+    desc = item.get("description")
+    if desc is not None and not isinstance(desc, str):
+        item["description"] = str(desc)
+    names = item.get("mentioned_names")
+    if names is not None and not isinstance(names, list):
+        item["mentioned_names"] = [str(names)] if names else []
+    return item
+
+
 def _normalize_context_updates_for_response(updates: List[dict]) -> List[dict]:
     normalized: List[dict] = []
     for entry in updates:
-        item = dict(entry)
+        item = _sanitize_context_update_entry(dict(entry))
         ts_dt = coerce_datetime(item.get("timestamp_dt")) or coerce_datetime(item.get("timestamp"))
         if ts_dt is not None:
             item["timestamp_dt"] = ts_dt
@@ -100,7 +110,7 @@ def _attach_mongo_indices(updates: List[dict]) -> List[dict]:
     out: List[dict] = []
     for i, entry in enumerate(updates or []):
         if isinstance(entry, dict):
-            item = dict(entry)
+            item = _sanitize_context_update_entry(dict(entry))
             item["_mongo_index"] = i
             out.append(item)
         else:

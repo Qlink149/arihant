@@ -10,12 +10,14 @@ export default function NoteTimelineDescription({
   className = 'text-crm-fg',
   'data-testid': testId = 'timeline-note-description',
 }) {
-  const segments = splitMentionSegments(description);
-  const legacy = missingMentionNames(description, mentionedNames);
+  const safeDescription = description == null ? '' : String(description);
+  const safeMentionedNames = Array.isArray(mentionedNames) ? mentionedNames : [];
+  const segments = splitMentionSegments(safeDescription);
+  const legacy = missingMentionNames(safeDescription, safeMentionedNames);
 
   return (
     <div data-testid={testId}>
-      {description ? (
+      {safeDescription ? (
         <p className={`${className} whitespace-pre-wrap break-words`}>
           {segments.map((seg, i) =>
             seg.type === 'mention' ? (
