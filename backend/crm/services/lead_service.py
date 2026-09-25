@@ -121,6 +121,11 @@ def _attach_mongo_indices(updates: List[dict]) -> List[dict]:
 def normalize_lead_for_response(lead: dict, *, list_view: bool = False) -> dict:
     if lead.get("strategic_next_moves") is None:
         lead["strategic_next_moves"] = []
+    # Mongo returns naive datetimes (UTC values, no tzinfo). Without an explicit
+    # UTC offset, JSON serialization omits it and the frontend misinterprets the
+    # value as local time instead of UTC when parsing it back.
+    if isinstance(lead.get("visit_date_dt"), datetime):
+        lead["visit_date_dt"] = coerce_datetime(lead["visit_date_dt"])
     if list_view:
         apply_list_recent_note(lead)
     else:
