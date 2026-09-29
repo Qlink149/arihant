@@ -200,6 +200,51 @@ CANONICAL_SOURCES: List[str] = [
     "youtube",
 ]
 
+# Channel Partner submission-form dropdown (cp-leads-r16 / cp-leads-melange / cp-leads-mira).
+# Keep in sync with frontend/src/constants/leadPicklists.js.
+CANONICAL_CHANNEL_PARTNERS: List[str] = [
+    "Home Konnect",
+    "Propmart",
+    "PropLeaf",
+    "Kaaviya Homes",
+    "Nobroker",
+    "Chennai Gated Community",
+    "Southzone Realty",
+    "Medsea Properties",
+    "Proptiger",
+    "Thara Properties",
+    "JLL",
+    "Prop Smile",
+    "Reliable Consultancy",
+    "C4 Realty",
+    "Proffiz",
+    "Estates61",
+    "Ground7Realty",
+    "Options Realtors & Tenancy Management",
+    "SRS Properties",
+    "Elite Realtors",
+    "Property Book",
+    "Rare Property",
+    "Meadows Realty",
+    "Zubair Realty",
+    "Tora",
+    "Propjoy",
+    "Housepecker",
+    "Hanu Reddy",
+    "Gopal Realty",
+    "Right Choice",
+    "Avishtra",
+    "24K",
+    "3pin Realty",
+    "F&P Homes",
+    "Connection Point",
+    "Property Pistol",
+    "5star Realestate",
+    "Prop Crest",
+    "Individual",
+    "Others",
+]
+
 
 def _norm_key(value: str) -> str:
     return " ".join(str(value or "").strip().lower().split())

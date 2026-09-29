@@ -1058,3 +1058,240 @@ async def test_ingest_wp_shaped_payload_dedupes_unqualified_phone(monkeypatch):
     create.assert_not_awaited()
     # phone_only 30d merge used normalized phone
     assert find.await_args_list[1].kwargs["phone_only"] is True
+
+
+# duplicate_policy="reject" (Channel Partner intake). Default remains "merge"
+# (Webflow/Zapier/API-key unchanged); these cover the additive reject branch.
+
+
+@pytest.mark.asyncio
+async def test_ingest_reject_policy_blocks_old_duplicate(monkeypatch):
+    """A duplicate phone >30 days old (which merge would silently accept) must
+    be rejected outright under duplicate_policy=reject, never merged."""
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "channel-partner:melange",
+        "project_name": "Saligramam Melange",
+        "project_id": "melange",
+        "channel_partner": "Home Konnect",
+        "rate_limit_per_min": 120,
+    }
+    existing = {"id": "OLD-LEAD-1", "normalized_phone": "9876543210"}
+
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(return_value=existing)
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr(intake, "_find_recent_lead", AsyncMock(return_value=None))
+    update = AsyncMock()
+    create = AsyncMock()
+    monkeypatch.setattr(intake, "_update_existing_submission", update)
+    monkeypatch.setattr(intake, "_create_new_lead", create)
+
+    result, status = await intake.ingest_lead(
+        body={"first_name": "New", "phone": "+91 98765 43210", "consent": True},
+        api_key=api_key,
+        duplicate_policy="reject",
+    )
+    assert status == 409
+    assert result == {"success": False, "duplicate": True, "lead_id": "OLD-LEAD-1"}
+    update.assert_not_awaited()
+    create.assert_not_awaited()
+    mock_db.leads.find_one.assert_awaited_once_with({"normalized_phone": "9876543210"}, {"_id": 0})
+
+
+@pytest.mark.asyncio
+async def test_ingest_reject_policy_creates_when_no_duplicate(monkeypatch):
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "channel-partner:mira",
+        "project_name": "Mira",
+        "project_id": "mira",
+        "channel_partner": "Propmart",
+        "rate_limit_per_min": 120,
+    }
+
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(return_value=None)
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr(intake, "_find_recent_lead", AsyncMock(return_value=None))
+    monkeypatch.setattr(intake, "_create_new_lead", AsyncMock(return_value="NEW-LEAD-1"))
+
+    result, status = await intake.ingest_lead(
+        body={"first_name": "Fresh", "phone": "9000000001", "consent": True},
+        api_key=api_key,
+        duplicate_policy="reject",
+    )
+    assert status == 201
+    assert result == {"success": True, "lead_id": "NEW-LEAD-1", "deduped": False}
+
+
+@pytest.mark.asyncio
+async def test_ingest_reject_policy_double_click_10s_still_deduped(monkeypatch):
+    """The 10s idempotency guard still applies under reject: a genuine double
+    submit is a success/dedupe, not a duplicate-lead error."""
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "channel-partner:reserve-16",
+        "project_name": "Reserve 16",
+        "project_id": "reserve-16",
+        "channel_partner": None,
+        "rate_limit_per_min": 120,
+    }
+    recent = {"id": "JUST-CREATED"}
+
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr(intake, "_find_recent_lead", AsyncMock(return_value=recent))
+    create = AsyncMock()
+    monkeypatch.setattr(intake, "_create_new_lead", create)
+
+    result, status = await intake.ingest_lead(
+        body={"first_name": "Double", "phone": "9111111111", "consent": True},
+        api_key=api_key,
+        duplicate_policy="reject",
+    )
+    assert status == 200
+    assert result == {"success": True, "lead_id": "JUST-CREATED", "deduped": True}
+    create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ingest_reject_policy_race_duplicate_key_returns_409(monkeypatch):
+    """Two simultaneous submissions with the same brand-new phone: the sparse
+    unique index raises DuplicateKeyError on insert. Under reject this must
+    still return 409, never fall through to a merge."""
+    from pymongo.errors import DuplicateKeyError
+
+    intake.reset_rate_limits_for_tests()
+    api_key = {
+        "id": "channel-partner:melange",
+        "project_name": "Saligramam Melange",
+        "project_id": "melange",
+        "channel_partner": "Home Konnect",
+        "rate_limit_per_min": 120,
+    }
+    race_winner = {"id": "RACE-WINNER"}
+
+    mock_db = MagicMock()
+    mock_db.lead_intake_logs.insert_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(side_effect=[None, race_winner])
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr(intake, "_find_recent_lead", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        intake, "_create_new_lead", AsyncMock(side_effect=DuplicateKeyError("dup"))
+    )
+    update = AsyncMock()
+    monkeypatch.setattr(intake, "_update_existing_submission", update)
+
+    result, status = await intake.ingest_lead(
+        body={"first_name": "Racer", "phone": "9222222222", "consent": True},
+        api_key=api_key,
+        duplicate_policy="reject",
+    )
+    assert status == 409
+    assert result == {"success": False, "duplicate": True, "lead_id": "RACE-WINNER"}
+    update.assert_not_awaited()
+
+
+def test_intake_actor_channel_partner():
+    actor_id, actor_name, created_desc, resub_desc = intake._intake_actor(
+        {"id": "channel-partner:melange", "channel_partner": "Home Konnect"}
+    )
+    assert actor_id == intake.CHANNEL_PARTNER_ACTOR_ID
+    assert actor_name == "Channel Partner Intake"
+    assert created_desc == intake.CHANNEL_PARTNER_CREATED
+
+
+@pytest.mark.asyncio
+async def test_create_new_lead_channel_partner_sets_field_and_comment_note(monkeypatch):
+    api_key = {
+        "id": "channel-partner:mira",
+        "project_name": "Mira",
+        "project_id": "mira",
+        "channel_partner": "Propmart",
+        "comments": "Wants a 2BHK, prefers evening calls",
+        "rate_limit_per_min": 120,
+    }
+    mock_db = MagicMock()
+    inserted = {}
+
+    async def _capture_insert(doc):
+        inserted.update(doc)
+
+    mock_db.leads.insert_one = AsyncMock(side_effect=_capture_insert)
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr("crm.services.assignment_router.route_new_lead", AsyncMock())
+    monkeypatch.setattr(
+        "crm.services.whatsapp_service.send_lead_ack",
+        AsyncMock(return_value={"success": True}),
+    )
+
+    data = {
+        "first_name": "Ravi",
+        "last_name": "",
+        "email": None,
+        "phone": "9333333333",
+        "budget": None,
+        "schedule_visit": None,
+        "consent": True,
+        "meta": None,
+        "intake_spam": False,
+    }
+    lead_id = await intake._create_new_lead(data, api_key=api_key, source="channel partner")
+
+    assert inserted["id"] == lead_id
+    assert inserted["channel_partner"] == "Propmart"
+    assert inserted["lead_source"] == "channel partner"
+    assert inserted["recent_note"] == "Wants a 2BHK, prefers evening calls"
+    note_entries = [c for c in inserted["context_updates"] if c["type"] == "note"]
+    assert len(note_entries) == 1
+    assert note_entries[0]["description"] == "Wants a 2BHK, prefers evening calls"
+    assert note_entries[0]["agent"] == "Channel Partner Intake"
+    created_entry = inserted["context_updates"][0]
+    assert created_entry["channel_partner"] == "Propmart"
+    assert created_entry["project_name"] == "Mira"
+
+
+@pytest.mark.asyncio
+async def test_create_new_lead_channel_partner_no_comment_no_note(monkeypatch):
+    api_key = {
+        "id": "channel-partner:reserve-16",
+        "project_name": "Reserve 16",
+        "project_id": "reserve-16",
+        "channel_partner": None,
+        "comments": None,
+        "rate_limit_per_min": 120,
+    }
+    mock_db = MagicMock()
+    inserted = {}
+
+    async def _capture_insert(doc):
+        inserted.update(doc)
+
+    mock_db.leads.insert_one = AsyncMock(side_effect=_capture_insert)
+    monkeypatch.setattr(intake, "db", mock_db)
+    monkeypatch.setattr("crm.services.assignment_router.route_new_lead", AsyncMock())
+    monkeypatch.setattr(
+        "crm.services.whatsapp_service.send_lead_ack",
+        AsyncMock(return_value={"success": True}),
+    )
+
+    data = {
+        "first_name": "Kavya",
+        "last_name": "",
+        "email": "kavya@example.com",
+        "phone": None,
+        "budget": None,
+        "schedule_visit": None,
+        "consent": True,
+        "meta": None,
+        "intake_spam": False,
+    }
+    await intake._create_new_lead(data, api_key=api_key, source="channel partner")
+
+    assert "channel_partner" not in inserted
+    assert "recent_note" not in inserted
+    assert len(inserted["context_updates"]) == 1

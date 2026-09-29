@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from crm.constants.lead_picklists import (
+    CANONICAL_CHANNEL_PARTNERS,
     CANONICAL_LOCATIONS,
     CANONICAL_PROJECTS,
     CANONICAL_SOURCES,
@@ -427,6 +428,25 @@ async def fetch_lead_filter_options(
     ]
     source_rows = await db.leads.aggregate(source_pipeline).to_list(source_limit)
 
+    channel_partner_match: Dict[str, Any] = {
+        "channel_partner": {"$exists": True, "$nin": [None, ""]},
+    }
+    if base:
+        channel_partner_match = merge_query(base, channel_partner_match)
+    channel_partner_pipeline = [
+        {"$match": channel_partner_match},
+        {
+            "$group": {
+                "_id": {"$trim": {"input": {"$ifNull": ["$channel_partner", ""]}}},
+                "count": {"$sum": 1},
+            }
+        },
+        {"$match": {"_id": {"$ne": ""}}},
+        {"$sort": {"count": -1}},
+        {"$limit": source_limit},
+    ]
+    channel_partner_rows = await db.leads.aggregate(channel_partner_pipeline).to_list(source_limit)
+
     sales_owner_match: Dict[str, Any] = {
         "presales_agent": {"$exists": True, "$nin": [None, ""]},
     }
@@ -449,12 +469,14 @@ async def fetch_lead_filter_options(
     db_projects = [{"name": r["_id"], "count": r["count"]} for r in project_rows if r.get("_id")]
     db_locations = [{"name": r["_id"], "count": r["count"]} for r in location_rows if r.get("_id")]
     db_sources = [{"name": r["_id"], "count": r["count"]} for r in source_rows if r.get("_id")]
+    db_channel_partners = [{"name": r["_id"], "count": r["count"]} for r in channel_partner_rows if r.get("_id")]
     db_sales_owners = [r["_id"] for r in sales_owner_rows if r.get("_id")]
 
     return {
         "projects": merge_picklist_with_db(CANONICAL_PROJECTS, db_projects),
         "locations": merge_picklist_with_db(CANONICAL_LOCATIONS, db_locations),
         "sources": merge_picklist_with_db(CANONICAL_SOURCES, db_sources),
+        "channel_partners": merge_picklist_with_db(CANONICAL_CHANNEL_PARTNERS, db_channel_partners),
         "sales_owners": db_sales_owners,
     }
 

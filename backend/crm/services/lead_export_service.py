@@ -67,6 +67,7 @@ EXPORT_FIELD_CATALOG: List[ExportFieldDef] = [
 ]
 
 _EXPORT_KEYS = {f["key"] for f in EXPORT_FIELD_CATALOG}
+_NOTE_FIELDS = {"presales_description", "note_count", "all_notes"}
 _LABEL_BY_KEY = {f["key"]: f["label"] for f in EXPORT_FIELD_CATALOG}
 
 
@@ -158,6 +159,17 @@ def _field_value(lead: dict, key: str) -> Any:
     if raw is None:
         return ""
     return raw
+
+
+def _sort_key(value: Any) -> tuple:
+    # Mirrors Mongo's cross-type order (null < number < string < date) so mixed legacy data sorts consistently.
+    if value is None:
+        return (0, 0)
+    if isinstance(value, datetime):
+        return (3, value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value)
+    if isinstance(value, (int, float)):
+        return (1, value)
+    return (2, str(value))
 
 
 def _validate_fields(fields: List[str]) -> List[str]:
@@ -323,30 +335,38 @@ async def run_export_job(job_id: str) -> None:
         fields: List[str] = job["fields"]
         headers = [_LABEL_BY_KEY[k] for k in fields]
         query = job["query"]
-        total = job["total_count"]
 
         buffer = io.StringIO()
         buffer.write("\ufeff")
         writer = csv.writer(buffer)
         writer.writerow(headers)
 
+        projection = dict(EXPORT_LEAD_PROJECTION)
+        if not _NOTE_FIELDS.intersection(fields):
+            projection.pop("context_updates", None)
+
+        # Sort in Python, then fetch full docs by id. A server-side sort buffers whole
+        # lead docs and exceeds Mongo's 32MB in-memory limit on full exports; this
+        # cluster tier does not honour allowDiskUse.
+        sort_fields = [f for f, _ in LEAD_LIST_SORT]
+        keys = [
+            d async for d in db.leads.find(query, {"_id": 0, "id": 1, **{f: 1 for f in sort_fields}})
+        ]
+        keys.sort(key=lambda d: tuple(_sort_key(d.get(f)) for f in sort_fields), reverse=True)
+        ordered_ids = [d["id"] for d in keys]
+
         processed = 0
-        skip = 0
-        while skip < total:
-            batch = (
-                await db.leads.find(query, EXPORT_LEAD_PROJECTION)
-                .sort(LEAD_LIST_SORT)
-                .skip(skip)
-                .limit(BATCH_SIZE)
-                .to_list(BATCH_SIZE)
-            )
-            if not batch:
-                break
-            for lead in batch:
-                row = [_field_value(lead, key) for key in fields]
-                writer.writerow(row)
-            processed += len(batch)
-            skip += len(batch)
+        for start in range(0, len(ordered_ids), BATCH_SIZE):
+            chunk = ordered_ids[start : start + BATCH_SIZE]
+            by_id = {
+                lead["id"]: lead
+                async for lead in db.leads.find({"id": {"$in": chunk}}, projection)
+            }
+            for lead_id in chunk:
+                lead = by_id.get(lead_id)
+                if lead:
+                    writer.writerow([_field_value(lead, key) for key in fields])
+                    processed += 1
             await db[EXPORT_JOBS].update_one(
                 {"id": job_id},
                 {"$set": {"processed_count": processed}},

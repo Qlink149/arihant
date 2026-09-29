@@ -126,6 +126,9 @@ ZAPIER_WEBHOOK_SECRET = os.environ.get("ZAPIER_WEBHOOK_SECRET", "")
 # Webflow form_submission webhook (enquiry forms → CRM)
 WEBFLOW_WEBHOOK_SECRET = os.environ.get("WEBFLOW_WEBHOOK_SECRET", "")
 
+# Channel Partner lead-submission webhook (cp-leads-r16 / cp-leads-melange / cp-leads-mira)
+CHANNEL_PARTNER_WEBHOOK_SECRET = os.environ.get("CHANNEL_PARTNER_WEBHOOK_SECRET", "")
+
 # MCUBE Classic inbound telephony (On Call / On Hangup push)
 MCUBE_ENABLED = os.environ.get("MCUBE_ENABLED", "false").strip().lower() in ("1", "true", "yes")
 MCUBE_WEBHOOK_SECRET = os.environ.get("MCUBE_WEBHOOK_SECRET", "")

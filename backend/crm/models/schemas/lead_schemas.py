@@ -25,6 +25,7 @@ class LeadBase(BaseModel):
     lead_source: Optional[str] = None
     original_source: Optional[str] = None
     most_recent_source: Optional[str] = None
+    channel_partner: Optional[str] = None
     original_fw_status: Optional[str] = None
     is_rnr: bool = False
     budget: Optional[str] = None
@@ -77,6 +78,7 @@ class LeadUpdatePatch(BaseModel):
     lead_source: Optional[str] = None
     original_source: Optional[str] = None
     most_recent_source: Optional[str] = None
+    channel_partner: Optional[str] = None
     budget: Optional[str] = None
     configuration: Optional[str] = None
     unit_size: Optional[str] = None

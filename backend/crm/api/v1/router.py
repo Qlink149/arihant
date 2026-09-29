@@ -8,6 +8,7 @@ from crm.api.v1.endpoints import (
     auth,
     call_summary,
     campaigns,
+    channel_partner_leads_webhook,
     cron,
     inventory,
     settings,
@@ -60,6 +61,7 @@ for r in [
     meta_capi.router,
     zapier_leads_webhook.router,
     webflow_leads_webhook.router,
+    channel_partner_leads_webhook.router,
     mcube_telephony.router,
     misc.router,
 ]:

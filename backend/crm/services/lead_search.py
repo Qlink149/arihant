@@ -271,6 +271,8 @@ def build_leads_list_query(
     updated_at_to_iso: Optional[str] = None,
     sources: Optional[Sequence[str]] = None,
     source: Optional[str] = None,
+    channel_partners: Optional[Sequence[str]] = None,
+    channel_partner: Optional[str] = None,
     sales_owners: Optional[Sequence[str]] = None,
     sales_owner: Optional[str] = None,
     meta_qualified: Optional[bool] = None,
@@ -286,6 +288,7 @@ def build_leads_list_query(
     location_values = resolve_multi_filter_values(locations, location)
     status_values = resolve_multi_filter_values(statuses, status)
     source_values = resolve_multi_filter_values(sources, source)
+    channel_partner_values = resolve_multi_filter_values(channel_partners, channel_partner)
     sales_owner_values = resolve_multi_filter_values(sales_owners, sales_owner)
 
     if project_id:
@@ -304,6 +307,8 @@ def build_leads_list_query(
         extra.append(case_insensitive_regex_or_filter("location", location_values, exact=True))
     if source_values:
         extra.append(case_insensitive_regex_or_filter("lead_source", source_values))
+    if channel_partner_values:
+        extra.append(case_insensitive_regex_or_filter("channel_partner", channel_partner_values))
     if sales_owner_values:
         owner_clause = build_sales_owners_filter(sales_owner_values)
         if owner_clause:

@@ -7,6 +7,7 @@ import { Button } from '../ui/button';
 import { CrmBadge } from '../ui/CrmBadge';
 import { Input } from '../ui/input';
 import {
+  CANONICAL_CHANNEL_PARTNERS,
   CANONICAL_LOCATIONS,
   CANONICAL_PROJECTS,
   CANONICAL_SOURCES,
@@ -153,6 +154,15 @@ const FIELD_CONFIG = [
     aiKey: null,
     type: 'source',
     display: (lead) => lead.lead_source || 'Not specified',
+  },
+  {
+    id: 'channel_partner',
+    label: 'Channel Partner',
+    icon: Link2,
+    apiKey: 'channel_partner',
+    aiKey: null,
+    type: 'channel_partner',
+    display: (lead) => lead.channel_partner || 'Not specified',
   },
   {
     id: 'original_source',
@@ -390,10 +400,11 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
   const [locations, setLocations] = useState([]);
   const [projects, setProjects] = useState([]);
   const [sources, setSources] = useState([]);
+  const [channelPartners, setChannelPartners] = useState([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
 
   useEffect(() => {
-    if (!editingField || !['location', 'projects', 'source'].includes(editingField.type)) return undefined;
+    if (!editingField || !['location', 'projects', 'source', 'channel_partner'].includes(editingField.type)) return undefined;
     let alive = true;
     setLoadingOptions(true);
     leadsAPI
@@ -403,12 +414,14 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
         setLocations(mergePicklistWithApi(CANONICAL_LOCATIONS, data?.locations || []));
         setProjects(mergePicklistWithApi(CANONICAL_PROJECTS, data?.projects || []));
         setSources(mergePicklistWithApi(CANONICAL_SOURCES, data?.sources || []));
+        setChannelPartners(mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, data?.channel_partners || []));
       })
       .catch(() => {
         if (!alive) return;
         setLocations(mergePicklistWithApi(CANONICAL_LOCATIONS, []));
         setProjects(mergePicklistWithApi(CANONICAL_PROJECTS, []));
         setSources(mergePicklistWithApi(CANONICAL_SOURCES, []));
+        setChannelPartners(mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, []));
       })
       .finally(() => {
         if (!alive) return;
@@ -419,19 +432,21 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
 
   useEffect(() => {
     if (!editingField || loadingOptions) return;
-    if (!['location', 'source'].includes(editingField.type)) return;
+    if (!['location', 'source', 'channel_partner'].includes(editingField.type)) return;
     const current = lead[editingField.apiKey] || '';
     const options =
       editingField.type === 'location'
         ? locations
         : editingField.type === 'project'
           ? projects
-          : sources;
+          : editingField.type === 'channel_partner'
+            ? channelPartners
+            : sources;
     const next = resolveSelectWithOtherState(current, normalizeOptions(options));
     setSelectMode(next.mode);
     setPresetValue(next.presetValue);
     setOtherText(next.otherText);
-  }, [editingField, locations, projects, sources, loadingOptions, lead]);
+  }, [editingField, locations, projects, sources, channelPartners, loadingOptions, lead]);
 
   const openEdit = useCallback((field) => {
     if (field.readonly) return;
@@ -457,7 +472,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
 
     setDraftValue(current);
 
-    if (['budget', 'location', 'project', 'source'].includes(field.type)) {
+    if (['budget', 'location', 'project', 'source', 'channel_partner'].includes(field.type)) {
       const options =
         field.type === 'budget'
           ? BUDGET_RANGES
@@ -465,7 +480,9 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
             ? locations.length ? locations : mergePicklistWithApi(CANONICAL_LOCATIONS, [])
             : field.type === 'project'
               ? projects.length ? projects : mergePicklistWithApi(CANONICAL_PROJECTS, [])
-              : sources.length ? sources : mergePicklistWithApi(CANONICAL_SOURCES, []);
+              : field.type === 'channel_partner'
+                ? channelPartners.length ? channelPartners : mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, [])
+                : sources.length ? sources : mergePicklistWithApi(CANONICAL_SOURCES, []);
       const next = resolveSelectWithOtherState(current, normalizeOptions(options));
       setSelectMode(next.mode);
       setPresetValue(next.presetValue);
@@ -475,7 +492,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
       setPresetValue('');
       setOtherText('');
     }
-  }, [lead, locations, projects, sources]);
+  }, [lead, locations, projects, sources, channelPartners]);
 
   const closeEdit = () => {
     setEditingField(null);
@@ -490,7 +507,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
   const showAiSuggestion = aiSuggestion && aiSuggestion !== crmValue;
 
   const resolveSaveValue = () => {
-    if (editingField && ['budget', 'location', 'project', 'source'].includes(editingField.type)) {
+    if (editingField && ['budget', 'location', 'project', 'source', 'channel_partner'].includes(editingField.type)) {
       const value = resolveSelectWithOtherValue(selectMode, presetValue, otherText);
       return value || null;
     }
@@ -588,6 +605,21 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
             onOtherTextChange={setOtherText}
             placeholder={loadingOptions ? 'Loading sources…' : 'Select source'}
             otherPlaceholder="Enter source"
+            disabled={loadingOptions}
+          />
+        );
+      case 'channel_partner':
+        return (
+          <NativeSelectWithOther
+            optionNames={picklistNames(channelPartners.length ? channelPartners : mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, []))}
+            mode={selectMode}
+            presetValue={presetValue}
+            otherText={otherText}
+            onModeChange={setSelectMode}
+            onPresetChange={setPresetValue}
+            onOtherTextChange={setOtherText}
+            placeholder={loadingOptions ? 'Loading channel partners…' : 'Select channel partner'}
+            otherPlaceholder="Enter channel partner name"
             disabled={loadingOptions}
           />
         );

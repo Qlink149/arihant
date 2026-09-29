@@ -4,7 +4,7 @@
 
 import { addIstDays, formatIstYmd } from './datetime';
 
-const MULTI_FILTER_KEYS = ['budgets', 'locations', 'projects', 'statuses', 'sources', 'sales_owners'];
+const MULTI_FILTER_KEYS = ['budgets', 'locations', 'projects', 'statuses', 'sources', 'channel_partners', 'sales_owners'];
 
 const parseCommaList = (value) => {
   if (!value || !String(value).trim()) return [];
@@ -33,6 +33,7 @@ export const emptyLeadFilters = () => ({
   projects: [],
   statuses: [],
   sources: [],
+  channel_partners: [],
   sales_owners: [],
   intent: '',
   vip: null,
@@ -61,6 +62,9 @@ export const filtersFromSearchParams = (searchParams) => {
   const projects = parseCommaList(searchParams.get('projects') || searchParams.get('project'));
   const statuses = parseCommaList(searchParams.get('statuses') || searchParams.get('status'));
   const sources = parseCommaList(searchParams.get('sources') || searchParams.get('source'));
+  const channel_partners = parseCommaList(
+    searchParams.get('channel_partners') || searchParams.get('channel_partner')
+  );
   const sales_owners = parseCommaList(
     searchParams.get('sales_owners') || searchParams.get('sales_owner')
   );
@@ -100,6 +104,7 @@ export const filtersFromSearchParams = (searchParams) => {
     projects,
     statuses,
     sources,
+    channel_partners,
     sales_owners,
     intent: searchParams.get('intent') || '',
     vip,
@@ -120,6 +125,16 @@ export const filtersFromSearchParams = (searchParams) => {
   };
 };
 
+/** Escalation Queue: always escalated; drop VC chip filters that bleed via URL. */
+export const filtersForEscalationQueue = (searchParams) => {
+  const fromUrl = filtersFromSearchParams(searchParams);
+  fromUrl.escalated = true;
+  fromUrl.vip = null;
+  fromUrl.re_enquiry = null;
+  fromUrl.nudge_pending = null;
+  return fromUrl;
+};
+
 export const filtersToSearchParams = (filters, agentQuery) => {
   const params = new URLSearchParams();
   const dateField = normalizeDateField(filters.date_field);
@@ -129,6 +144,7 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   const projects = encodeCommaList(filters.projects);
   const statuses = encodeCommaList(filters.statuses);
   const sources = encodeCommaList(filters.sources);
+  const channel_partners = encodeCommaList(filters.channel_partners);
   const sales_owners = encodeCommaList(filters.sales_owners);
 
   if (budgets) params.set('budgets', budgets);
@@ -136,6 +152,7 @@ export const filtersToSearchParams = (filters, agentQuery) => {
   if (projects) params.set('projects', projects);
   if (statuses) params.set('statuses', statuses);
   if (sources) params.set('sources', sources);
+  if (channel_partners) params.set('channel_partners', channel_partners);
   if (sales_owners) params.set('sales_owners', sales_owners);
 
   if (filters.intent) params.set('intent', filters.intent);
@@ -178,6 +195,7 @@ export const buildLeadListParams = (filters, search = '') => {
   const projects = encodeCommaList(filters.projects);
   const statuses = encodeCommaList(filters.statuses);
   const sources = encodeCommaList(filters.sources);
+  const channel_partners = encodeCommaList(filters.channel_partners);
   const sales_owners = encodeCommaList(filters.sales_owners);
 
   if (budgets) params.budgets = budgets;
@@ -185,6 +203,7 @@ export const buildLeadListParams = (filters, search = '') => {
   if (projects) params.projects = projects;
   if (statuses) params.statuses = statuses;
   if (sources) params.sources = sources;
+  if (channel_partners) params.channel_partners = channel_partners;
   if (sales_owners) params.sales_owners = sales_owners;
 
   if (filters.intent) params.intent = filters.intent;
@@ -263,6 +282,7 @@ const normalizeFilterSnapshot = (filters = {}) => ({
   projects: [...(filters.projects || [])].map(String).sort(),
   statuses: [...(filters.statuses || [])].map(String).sort(),
   sources: [...(filters.sources || [])].map(String).sort(),
+  channel_partners: [...(filters.channel_partners || [])].map(String).sort(),
   sales_owners: [...(filters.sales_owners || [])].map(String).sort(),
   intent: filters.intent || '',
   vip: filters.vip ?? null,
@@ -315,6 +335,7 @@ export const snapshotFiltersForView = (filters, search) => ({
   projects: [...(filters.projects || [])],
   statuses: [...(filters.statuses || [])],
   sources: [...(filters.sources || [])],
+  channel_partners: [...(filters.channel_partners || [])],
   sales_owners: [...(filters.sales_owners || [])],
   vip: filters.vip ?? null,
   re_enquiry: filters.re_enquiry ?? null,
@@ -347,6 +368,7 @@ export const applyViewFiltersToState = (viewFilters) => {
     projects,
     statuses: [...(viewFilters.statuses || [])],
     sources: [...(viewFilters.sources || [])],
+    channel_partners: [...(viewFilters.channel_partners || [])],
     sales_owners: [...(viewFilters.sales_owners || [])],
     intent: viewFilters.intent || '',
     vip: viewFilters.vip ?? null,

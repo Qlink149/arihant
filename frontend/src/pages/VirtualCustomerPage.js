@@ -15,6 +15,7 @@ import {
   countActiveFilters,
   emptyLeadFilters,
   filtersFromSearchParams,
+  filtersForEscalationQueue,
   filtersToSearchParams,
   snapshotFiltersForView,
 } from '../utils/leadFilters';
@@ -81,6 +82,7 @@ import {
 import { Calendar as CalendarUI } from '../components/ui/calendar';
 import {
   BUDGET_RANGES,
+  CANONICAL_CHANNEL_PARTNERS,
   CANONICAL_LOCATIONS,
   CANONICAL_PROJECTS,
   CANONICAL_SOURCES,
@@ -247,11 +249,11 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
 
   const [newCustomer, setNewCustomer] = useState({ ...EMPTY_NEW_CUSTOMER });
   
-  const [filters, setFilters] = useState(() => {
-    const fromUrl = filtersFromSearchParams(searchParams);
-    if (escalationLocked) fromUrl.escalated = true;
-    return fromUrl;
-  });
+  const [filters, setFilters] = useState(() =>
+    escalationLocked
+      ? filtersForEscalationQueue(searchParams)
+      : filtersFromSearchParams(searchParams)
+  );
   const [customDateRange, setCustomDateRange] = useState(null);
   const [dateMenuMode, setDateMenuMode] = useState('presets');
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
@@ -259,6 +261,7 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
   const [locationOptions, setLocationOptions] = useState([]);
   const [projectOptions, setProjectOptions] = useState([]);
   const [sourceOptions, setSourceOptions] = useState([]);
+  const [channelPartnerOptions, setChannelPartnerOptions] = useState([]);
   const [filterOptionsLoading, setFilterOptionsLoading] = useState(true);
   const [filterViews, setFilterViews] = useState([]);
   const [filterViewsLoading, setFilterViewsLoading] = useState(true);
@@ -295,6 +298,7 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
         setLocationOptions(mergePicklistWithApi(CANONICAL_LOCATIONS, filterData?.locations || []));
         setProjectOptions(mergePicklistWithApi(CANONICAL_PROJECTS, filterData?.projects || []));
         setSourceOptions(mergePicklistWithApi(CANONICAL_SOURCES, filterData?.sources || []));
+        setChannelPartnerOptions(mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, filterData?.channel_partners || []));
         // Sales owner options come from actual presales_agent values in leads (not user accounts)
         // so the filter matches exactly what's stored on leads.
         setSalesOwnerOptions(
@@ -309,6 +313,7 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
           setLocationOptions(mergePicklistWithApi(CANONICAL_LOCATIONS, []));
           setProjectOptions(mergePicklistWithApi(CANONICAL_PROJECTS, []));
           setSourceOptions(mergePicklistWithApi(CANONICAL_SOURCES, []));
+          setChannelPartnerOptions(mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, []));
           setSalesOwnerOptions([]);
           setAssigneeOptions([]);
           setFilterViews([]);
@@ -340,8 +345,9 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
   }, [filters.date_field, filters.created_from, filters.created_to, filters.updated_from, filters.updated_to]);
 
   useEffect(() => {
-    const fromUrl = filtersFromSearchParams(searchParams);
-    if (escalationLocked) fromUrl.escalated = true;
+    const fromUrl = escalationLocked
+      ? filtersForEscalationQueue(searchParams)
+      : filtersFromSearchParams(searchParams);
     setFilters((prev) => {
       const prevKey = JSON.stringify(prev);
       const nextKey = JSON.stringify(fromUrl);
@@ -350,7 +356,7 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
     const agent = searchParams.get('agent') || '';
     setSearchInputValue(agent);
     setDebouncedSearch(agent);
-  }, [searchParams]);
+  }, [searchParams, escalationLocked]);
 
   const handleDebouncedSearchChange = useCallback((value) => {
     setDebouncedSearch(value);
@@ -669,7 +675,9 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
   };
 
   const clearFilters = () => {
-    const empty = emptyLeadFilters();
+    const empty = escalationLocked
+      ? { ...emptyLeadFilters(), escalated: true }
+      : emptyLeadFilters();
     setFilters(empty);
     setActiveFilterViewId(null);
     setCustomDateRange(null);
@@ -678,7 +686,10 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
     setSearchInputValue('');
     setDebouncedSearch('');
     setShowDuplicates(false);
-    setSearchParams(new URLSearchParams(), { replace: true });
+    setSearchParams(
+      escalationLocked ? filtersToSearchParams(empty) : new URLSearchParams(),
+      { replace: true }
+    );
   };
 
   const applyFilterView = useCallback((view) => {
@@ -925,6 +936,11 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
   const handleSourcesChange = useCallback((sources) => {
     setActiveFilterViewId(null);
     setFilters((prev) => ({ ...prev, sources }));
+  }, []);
+
+  const handleChannelPartnersChange = useCallback((channel_partners) => {
+    setActiveFilterViewId(null);
+    setFilters((prev) => ({ ...prev, channel_partners }));
   }, []);
 
   const handleStatusesChange = useCallback((statuses) => {
@@ -1270,6 +1286,17 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
               loading={filterOptionsLoading}
               onChange={handleSourcesChange}
               testId="source-filter"
+            />
+
+            {/* Channel Partner Filter */}
+            <MultiSelectFilterDropdown
+              label="Channel Partner"
+              icon={Filter}
+              options={channelPartnerOptions}
+              selected={filters.channel_partners}
+              loading={filterOptionsLoading}
+              onChange={handleChannelPartnersChange}
+              testId="channel-partner-filter"
             />
 
             {/* Status Filter */}

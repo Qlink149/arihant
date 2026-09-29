@@ -191,6 +191,51 @@ export const CANONICAL_SOURCES = [
   'youtube',
 ];
 
+// Channel Partner submission-form dropdown (cp-leads-r16 / cp-leads-melange / cp-leads-mira).
+// Keep in sync with backend/crm/constants/lead_picklists.py CANONICAL_CHANNEL_PARTNERS.
+export const CANONICAL_CHANNEL_PARTNERS = [
+  'Home Konnect',
+  'Propmart',
+  'PropLeaf',
+  'Kaaviya Homes',
+  'Nobroker',
+  'Chennai Gated Community',
+  'Southzone Realty',
+  'Medsea Properties',
+  'Proptiger',
+  'Thara Properties',
+  'JLL',
+  'Prop Smile',
+  'Reliable Consultancy',
+  'C4 Realty',
+  'Proffiz',
+  'Estates61',
+  'Ground7Realty',
+  'Options Realtors & Tenancy Management',
+  'SRS Properties',
+  'Elite Realtors',
+  'Property Book',
+  'Rare Property',
+  'Meadows Realty',
+  'Zubair Realty',
+  'Tora',
+  'Propjoy',
+  'Housepecker',
+  'Hanu Reddy',
+  'Gopal Realty',
+  'Right Choice',
+  'Avishtra',
+  '24K',
+  '3pin Realty',
+  'F&P Homes',
+  'Connection Point',
+  'Property Pistol',
+  '5star Realestate',
+  'Prop Crest',
+  'Individual',
+  'Others',
+];
+
 const normKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 /** Merge canonical names with API filter-options rows (canonical first). */

@@ -46,6 +46,14 @@ ZAPIER_META_ACTOR_ID = "system-zapier-meta"
 ZAPIER_META_CREATED = "Lead created via Zapier (Meta Instant Form)"
 ZAPIER_META_RESUB = "Meta Instant Form resubmission via Zapier"
 
+CHANNEL_PARTNER_ACTOR_NAME = "Channel Partner Intake"
+CHANNEL_PARTNER_ACTOR_ID = "system-channel-partner"
+CHANNEL_PARTNER_CREATED = "Lead created via Channel Partner form"
+
+
+def _is_channel_partner(api_key: Optional[dict]) -> bool:
+    return str((api_key or {}).get("id") or "").startswith("channel-partner:")
+
 
 def _intake_actor(api_key: Optional[dict]) -> Tuple[str, str, str, str]:
     """Return actor_id, actor_name, created_description, resub_description."""
@@ -56,6 +64,13 @@ def _intake_actor(api_key: Optional[dict]) -> Tuple[str, str, str, str]:
             ZAPIER_META_ACTOR_NAME,
             ZAPIER_META_CREATED,
             ZAPIER_META_RESUB,
+        )
+    if key_id.startswith("channel-partner:"):
+        return (
+            CHANNEL_PARTNER_ACTOR_ID,
+            CHANNEL_PARTNER_ACTOR_NAME,
+            CHANNEL_PARTNER_CREATED,
+            CHANNEL_PARTNER_CREATED,
         )
     return (
         ACTOR_ID,
@@ -84,10 +99,30 @@ def _zapier_timeline_meta(api_key: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
+def _channel_partner_timeline_meta(api_key: Optional[dict]) -> Dict[str, Any]:
+    """Structured project/partner fields for Channel Partner context entries."""
+    out: Dict[str, Any] = {}
+    project_name = str((api_key or {}).get("project_name") or "").strip()
+    project_id = str((api_key or {}).get("project_id") or "").strip()
+    channel_partner = str((api_key or {}).get("channel_partner") or "").strip()
+    if project_name:
+        out["project_name"] = project_name
+    if project_id:
+        out["project_id"] = project_id
+    if channel_partner:
+        out["channel_partner"] = channel_partner
+    return out
+
+
 def _zapier_created_description(api_key: Optional[dict], base: str) -> str:
     project_name = str((api_key or {}).get("project_name") or "").strip()
     if _is_zapier_meta(api_key) and project_name:
         return f"{base} — {project_name}"
+    if _is_channel_partner(api_key):
+        partner = str((api_key or {}).get("channel_partner") or "").strip()
+        bits = [b for b in (partner, project_name) if b]
+        if bits:
+            return f"{base} — {' / '.join(bits)}"
     return base
 
 
@@ -719,6 +754,8 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         "actor_name": actor_name,
     }
     created_entry.update(_zapier_timeline_meta(api_key))
+    if _is_channel_partner(api_key):
+        created_entry.update(_channel_partner_timeline_meta(api_key))
     if _is_zapier_meta(api_key) and api_key.get("project_name"):
         created_entry["changes"] = [
             {
@@ -727,6 +764,22 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
                 "to": str(api_key.get("project_name")).strip(),
             }
         ]
+    context_updates = [created_entry]
+    comment_text = str((api_key or {}).get("comments") or "").strip() if _is_channel_partner(api_key) else ""
+    recent_note = None
+    if comment_text:
+        note_entry: Dict[str, Any] = {
+            "type": "note",
+            "timestamp": now_iso,
+            "timestamp_dt": now_dt,
+            "description": comment_text,
+            "agent": actor_name,
+            "update_type": "general_note",
+            "actor_user_id": actor_id,
+            "actor_name": actor_name,
+        }
+        context_updates.append(note_entry)
+        recent_note = comment_text
     lead_dict: Dict[str, Any] = {
         "id": lead_id,
         "first_name": data["first_name"],
@@ -747,6 +800,7 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         "lead_source": source,
         "original_source": source,
         "most_recent_source": source,
+        "channel_partner": (api_key.get("channel_partner") or None) if _is_channel_partner(api_key) else None,
         "site_visit_count": 0,
         "assigned_to": None,
         "assigned_user_id": None,
@@ -756,12 +810,16 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         "ai_grounded_profile": None,
         "ai_last_generated_at": None,
         "ai_last_generated_at_dt": None,
-        "context_updates": [created_entry],
+        "context_updates": context_updates,
         "created_at": now_iso,
         "created_at_dt": now_dt,
         "updated_at": now_iso,
         "updated_at_dt": now_dt,
     }
+    if recent_note:
+        lead_dict["recent_note"] = recent_note
+    if not lead_dict.get("channel_partner"):
+        lead_dict.pop("channel_partner", None)
     if not lead_dict.get("projects"):
         lead_dict.pop("projects", None)
     if not lead_dict.get("project_ids"):
@@ -807,12 +865,22 @@ async def ingest_lead(
     body: Dict[str, Any],
     api_key: dict,
     ip: Optional[str] = None,
+    duplicate_policy: str = "merge",
 ) -> Tuple[Dict[str, Any], int]:
     """Validate + ingest. Returns (response_dict, http_status).
 
     Raises IntakeValidationError, IntakeRateLimitError.
     Known duplicate-key conflicts return 409 (never raw 500).
     Unexpected errors are logged and re-raised for the endpoint to map to 500.
+
+    ``duplicate_policy``:
+      - "merge" (default, Webflow/Zapier/API-key): an existing lead matched by phone
+        (global) or email (same project) within the last 30 days is treated as a
+        resubmission and merged via ``_update_existing_submission``.
+      - "reject" (Channel Partner intake): ANY existing lead matched by phone,
+        regardless of age/project/status, is treated as a duplicate. Nothing is
+        created or mutated; the caller gets back ``{"duplicate": True, "lead_id": ...}``
+        at HTTP 409. The 10s double-click idempotency check still applies first.
     """
     project_name = api_key.get("project_name") or ""
     project_id = api_key.get("project_id") or ""
@@ -851,8 +919,13 @@ async def ingest_lead(
         )
         return {"success": True, "lead_id": recent["id"], "deduped": True}, 200
 
-    # 30-day merge: phone is global; email-only stays same-project
-    if normalized:
+    if duplicate_policy == "reject":
+        # ANY existing lead with this phone (any age/project/status) is a hard duplicate.
+        existing = None
+        if normalized:
+            existing = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+    elif normalized:
+        # 30-day merge: phone is global; email-only stays same-project
         existing = await _find_recent_lead(
             project_id=project_id,
             email=None,
@@ -869,6 +942,21 @@ async def ingest_lead(
             within_days=DEDUPE_WINDOW_DAYS,
             require_project_id=True,
         )
+    if existing and duplicate_policy == "reject":
+        await write_intake_log(
+            project_name=project_name,
+            project_id=project_id,
+            api_key_id=api_key_id,
+            ip=ip,
+            success=False,
+            reason="duplicate_reject",
+            lead_id=existing["id"],
+            http_status=409,
+            deduped=True,
+            payload_keys=payload_keys,
+            contact_fingerprint=fingerprint,
+        )
+        return {"success": False, "duplicate": True, "lead_id": existing["id"]}, 409
     if existing:
         lead_id = await _update_existing_submission(existing, data, source, api_key=api_key)
         await write_intake_log(
@@ -889,11 +977,48 @@ async def ingest_lead(
     try:
         lead_id = await _create_new_lead(data, api_key=api_key, source=source)
     except DuplicateKeyError as e:
-        # Unique sparse phone index (or race). Soft-dedupe; never re-raise to 500.
+        # Unique sparse phone index (or race). Never re-raise to 500.
         existing_match: Optional[dict] = None
         reason = "deduped_unique_phone"
         if normalized:
             existing_match = await db.leads.find_one({"normalized_phone": normalized}, {"_id": 0})
+        if duplicate_policy == "reject":
+            if existing_match:
+                await write_intake_log(
+                    project_name=project_name,
+                    project_id=project_id,
+                    api_key_id=api_key_id,
+                    ip=ip,
+                    success=False,
+                    reason="duplicate_reject_race",
+                    lead_id=existing_match["id"],
+                    http_status=409,
+                    deduped=True,
+                    payload_keys=payload_keys,
+                    contact_fingerprint=fingerprint,
+                )
+                return {"success": False, "duplicate": True, "lead_id": existing_match["id"]}, 409
+            logger.error(
+                "intake DuplicateKeyError (reject policy) unmerged api_key_id=%s: %s",
+                api_key_id,
+                e,
+                exc_info=True,
+            )
+            await write_intake_log(
+                project_name=project_name,
+                project_id=project_id,
+                api_key_id=api_key_id,
+                ip=ip,
+                success=False,
+                reason="duplicate_key_unmerged",
+                lead_id=None,
+                http_status=409,
+                error_type="DuplicateKeyError",
+                error_message=str(e)[:300],
+                payload_keys=payload_keys,
+                contact_fingerprint=fingerprint,
+            )
+            return {"success": False, "duplicate": True, "lead_id": None}, 409
         if not existing_match and data.get("email"):
             existing_match = await _find_recent_lead(
                 project_id=project_id,
