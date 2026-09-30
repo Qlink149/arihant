@@ -143,11 +143,52 @@ def generate_ai_persona(lead: dict) -> str:
     )
 
 
-def parse_csv_date(date_str: str) -> str:
-    for fmt in ["%d-%m-%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"]:
+_CSV_DATETIME_FORMATS = [
+    "%d-%m-%Y %H:%M:%S",
+    "%d-%m-%Y %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M",
+]
+_CSV_DATE_ONLY_FORMATS = [
+    "%Y-%m-%d",
+    "%d/%m/%Y",
+    "%m/%d/%Y",
+    "%d-%m-%Y",
+]
+
+
+def parse_csv_date(date_str: Optional[str]) -> Optional[str]:
+    """Parse a CSV date/datetime value as Asia/Kolkata (IST) wall-clock time
+    and return the equivalent UTC ISO string.
+
+    batch2 item 4b: previously stamped the parsed wall-clock value AS IF it
+    were already UTC, so an IST timestamp like "2026-09-25 23:30" (a value a
+    human typed meaning IST) was stored 5.5 hours in the future and could
+    land on the wrong calendar day. Also previously returned "now" for any
+    unparseable value, silently making old/bad data look freshly received.
+
+    Returns ``None`` when the value is blank or matches none of the known
+    formats - the caller MUST treat that as a hard failure for the row
+    (reject it and report the raw value), never default to "now".
+
+    A date-only value (no time component) is midnight IST of that day.
+    """
+    text = str(date_str or "").strip()
+    if not text:
+        return None
+    for fmt in _CSV_DATETIME_FORMATS:
         try:
-            dt = datetime.strptime(date_str.strip(), fmt)
-            return dt.replace(tzinfo=timezone.utc).isoformat()
-        except (ValueError, AttributeError):
+            naive = datetime.strptime(text, fmt)
+        except ValueError:
             continue
-    return datetime.now(timezone.utc).isoformat()
+        return naive.replace(tzinfo=IST).astimezone(timezone.utc).isoformat()
+    for fmt in _CSV_DATE_ONLY_FORMATS:
+        try:
+            naive = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        ist_midnight = naive.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=IST)
+        return ist_midnight.astimezone(timezone.utc).isoformat()
+    return None

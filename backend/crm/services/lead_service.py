@@ -1088,7 +1088,7 @@ async def import_csv(
     duplicates = 0
     errors = []
 
-    for row in rows:
+    for row_num, row in enumerate(rows, start=2):  # header is row 1
         try:
             now_iso = iso_utc_now()
             now_dt = utc_now()
@@ -1120,7 +1120,21 @@ async def import_csv(
             )
             meta_qualified = _parse_meta_qualified_raw(_row_get(row, "Meta Qualified", "Meta qualified"))
 
-            created_at = parse_csv_date(created_at_raw) if created_at_raw else now_iso
+            # batch2 item 4b: a date the CSV provides but we cannot parse must
+            # reject the row (with the row number and raw value), never
+            # silently default to "now" - that would make old/bad data look
+            # like it just arrived and inflate "Leads Received" for today.
+            # A blank date is not the same as unparseable - it defaults to
+            # the import time, as before.
+            if created_at_raw:
+                created_at = parse_csv_date(created_at_raw)
+                if created_at is None:
+                    raise ValueError(
+                        f"Row {row_num}: could not parse 'Created at' value "
+                        f"{created_at_raw!r} - row skipped, not imported"
+                    )
+            else:
+                created_at = now_iso
             created_at_dt = coerce_datetime(created_at) or now_dt
 
             lead_dict = {
@@ -1207,14 +1221,22 @@ async def import_csv(
             ]
 
             if recent_note:
+                # batch2 item 4a: this is the CSV's freeform "Recent note"
+                # column, not a real call - storing it as type:"call" fabricated
+                # phone activity that never happened (3,437 exist all-time; the
+                # next import would keep adding fake calls to agents who made
+                # none). Stored as a note instead, tagged so it's identifiable
+                # as imported rather than agent-typed.
                 lead_dict["context_updates"].append(
                     {
-                        "type": "call",
+                        "type": "note",
+                        "update_type": "general_note",
                         "timestamp": now_iso,
                         "timestamp_dt": now_dt,
                         "description": recent_note,
                         "agent": sales_owner or "Agent",
                         "actor_user_id": lead_dict.get("assigned_user_id"),
+                        "source": "csv_import",
                     }
                 )
 
