@@ -92,3 +92,123 @@ def test_resolve_leads_base_filter_always_rep_scope():
     base_filter_rep, is_manager_rep = asyncio.run(resolve_leads_base_filter("r1", "Sales Rep", rep))
     assert is_manager_rep is False
     assert base_filter_rep == rep_lead_filter("r1", "Sales Rep")
+
+
+# batch2 item 1: dashboards must group/filter by assigned_user_id everywhere,
+# then resolve to a display name only for showing to the user.
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_names_resolves_known_ids():
+    from unittest.mock import AsyncMock, MagicMock
+    from crm.services import dashboard_scope
+
+    mock_db = MagicMock()
+
+    class _FakeCursor:
+        def __init__(self, docs):
+            self._docs = docs
+
+        def __aiter__(self):
+            return self._gen()
+
+        async def _gen(self):
+            for d in self._docs:
+                yield d
+
+    mock_db.users.find = MagicMock(
+        return_value=_FakeCursor(
+            [{"id": "uid-1", "full_name": "Alice"}, {"id": "uid-2", "full_name": "Bob"}]
+        )
+    )
+    with patch("crm.services.dashboard_scope.db", mock_db):
+        names = await dashboard_scope.resolve_owner_names(["uid-1", "uid-2", "uid-missing"])
+    assert names == {"uid-1": "Alice", "uid-2": "Bob"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_owner_names_empty_input():
+    from crm.services import dashboard_scope
+
+    assert await dashboard_scope.resolve_owner_names(None) == {}
+    assert await dashboard_scope.resolve_owner_names([]) == {}
+    assert await dashboard_scope.resolve_owner_names(["", "  "]) == {}
+
+
+def test_merge_owner_count_rows_by_name_merges_duplicates():
+    from crm.services.dashboard_scope import merge_owner_count_rows_by_name
+
+    rows = [
+        {"_id": "", "count": 3},
+        {"_id": "uid-deleted", "count": 2},
+        {"_id": "uid-alice", "count": 10},
+    ]
+    names = {"uid-alice": "Alice"}  # "" and uid-deleted both unresolved
+    result = merge_owner_count_rows_by_name(rows, names)
+    assert result == [
+        {"name": "Alice", "count": 10},
+        {"name": "Unassigned", "count": 5},
+    ]
+
+
+def test_merge_owner_count_rows_by_name_empty():
+    from crm.services.dashboard_scope import merge_owner_count_rows_by_name
+
+    assert merge_owner_count_rows_by_name([], {}) == []
+
+
+@pytest.mark.asyncio
+async def test_build_sales_owner_options_active_users_and_inactive_with_leads():
+    from unittest.mock import AsyncMock, MagicMock
+    from crm.services import dashboard_scope
+
+    users = [
+        {"id": "uid-active-1", "full_name": "Alice", "is_active": True},
+        {"id": "uid-active-2", "full_name": "Bob", "is_active": True},
+        {"id": "uid-inactive-with-leads", "full_name": "Gowtham j", "is_active": False},
+        {"id": "uid-inactive-no-leads", "full_name": "Old Rep", "is_active": False},
+    ]
+    counts = [
+        {"_id": "uid-active-1", "count": 10},
+        {"_id": "uid-inactive-with-leads", "count": 4},
+    ]
+    mock_db = MagicMock()
+    mock_users_cursor = MagicMock()
+    mock_users_cursor.to_list = AsyncMock(return_value=users)
+    mock_db.users.find = MagicMock(return_value=mock_users_cursor)
+    mock_counts_cursor = MagicMock()
+    mock_counts_cursor.to_list = AsyncMock(return_value=counts)
+    mock_db.leads.aggregate = MagicMock(return_value=mock_counts_cursor)
+
+    with patch("crm.services.dashboard_scope.db", mock_db):
+        options = await dashboard_scope.build_sales_owner_options()
+
+    by_name = {o["name"]: o for o in options}
+    assert "Alice" in by_name and by_name["Alice"]["is_active"] is True and by_name["Alice"]["count"] == 10
+    assert "Bob" in by_name and by_name["Bob"]["count"] == 0
+    # Inactive but still owns leads - included, labelled inactive.
+    assert "Gowtham j" in by_name
+    assert by_name["Gowtham j"]["is_active"] is False
+    assert by_name["Gowtham j"]["count"] == 4
+    # Inactive with zero leads - excluded (nothing to filter by).
+    assert "Old Rep" not in by_name
+    # A legacy non-user name like "Roshini" can never appear - it's not in `users`.
+    assert "Roshini" not in by_name
+
+
+@pytest.mark.asyncio
+async def test_build_sales_owner_options_no_users():
+    from unittest.mock import AsyncMock, MagicMock
+    from crm.services import dashboard_scope
+
+    mock_db = MagicMock()
+    mock_users_cursor = MagicMock()
+    mock_users_cursor.to_list = AsyncMock(return_value=[])
+    mock_db.users.find = MagicMock(return_value=mock_users_cursor)
+    mock_counts_cursor = MagicMock()
+    mock_counts_cursor.to_list = AsyncMock(return_value=[])
+    mock_db.leads.aggregate = MagicMock(return_value=mock_counts_cursor)
+
+    with patch("crm.services.dashboard_scope.db", mock_db):
+        options = await dashboard_scope.build_sales_owner_options()
+    assert options == []

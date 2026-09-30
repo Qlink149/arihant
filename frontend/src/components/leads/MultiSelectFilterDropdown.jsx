@@ -88,6 +88,9 @@ export const MultiSelectFilterDropdown = memo(function MultiSelectFilterDropdown
               className="text-white hover:bg-[#C5A059]/10 hover:text-[#C5A059] cursor-pointer"
             >
               {item.name}
+              {item.is_active === false ? (
+                <span className="ml-2 text-crm-fg-muted text-[10px] uppercase tracking-wide">inactive</span>
+              ) : null}
               {item.count != null ? (
                 <span className="ml-2 text-crm-fg-muted text-xs">({item.count})</span>
               ) : null}

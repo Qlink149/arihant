@@ -447,30 +447,21 @@ async def fetch_lead_filter_options(
     ]
     channel_partner_rows = await db.leads.aggregate(channel_partner_pipeline).to_list(source_limit)
 
-    sales_owner_match: Dict[str, Any] = {
-        "presales_agent": {"$exists": True, "$nin": [None, ""]},
-    }
-    if base:
-        sales_owner_match = merge_query(base, sales_owner_match)
-    sales_owner_pipeline = [
-        {"$match": sales_owner_match},
-        {
-            "$group": {
-                "_id": {"$trim": {"input": {"$ifNull": ["$presales_agent", ""]}}},
-                "count": {"$sum": 1},
-            }
-        },
-        {"$match": {"_id": {"$ne": ""}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 100},
-    ]
-    sales_owner_rows = await db.leads.aggregate(sales_owner_pipeline).to_list(100)
+    # batch2 item 1: Sales Owner options come from the users collection (the
+    # authoritative id-based owner definition), not the legacy presales_agent
+    # name field - see dashboard_scope.build_sales_owner_options. This scans
+    # all leads for the owner counts, not just those matching `base`, so the
+    # dropdown always lists every real owner regardless of the current view's
+    # scope filter (matching the prior behavior of listing everyone, and
+    # avoiding an extra scoped aggregation per request).
+    from crm.services.dashboard_scope import build_sales_owner_options
+
+    db_sales_owners = await build_sales_owner_options()
 
     db_projects = [{"name": r["_id"], "count": r["count"]} for r in project_rows if r.get("_id")]
     db_locations = [{"name": r["_id"], "count": r["count"]} for r in location_rows if r.get("_id")]
     db_sources = [{"name": r["_id"], "count": r["count"]} for r in source_rows if r.get("_id")]
     db_channel_partners = [{"name": r["_id"], "count": r["count"]} for r in channel_partner_rows if r.get("_id")]
-    db_sales_owners = [r["_id"] for r in sales_owner_rows if r.get("_id")]
 
     return {
         "projects": merge_picklist_with_db(CANONICAL_PROJECTS, db_projects),

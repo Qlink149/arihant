@@ -101,9 +101,11 @@ def test_sales_managers_totals_include_negotiation_no_dormant():
 
 
 async def _sales_managers_totals_include_negotiation_no_dormant():
+    # batch2 item 1: rows are keyed by assigned_user_id now, resolved to a
+    # display name via dashboard_scope.resolve_owner_names.
     main_rows = [
         {
-            "_id": "Alice",
+            "_id": "uid-alice",
             "total": 10,
             "hot": 2,
             "warm": 3,
@@ -118,7 +120,7 @@ async def _sales_managers_totals_include_negotiation_no_dormant():
             "last_active": datetime(2026, 5, 1, tzinfo=timezone.utc),
         },
         {
-            "_id": "Bob",
+            "_id": "uid-bob",
             "total": 5,
             "hot": 1,
             "warm": 0,
@@ -142,7 +144,10 @@ async def _sales_managers_totals_include_negotiation_no_dormant():
     mock_db = MagicMock()
     mock_db.leads.aggregate = MagicMock(return_value=mock_cursor)
 
-    with patch.object(analytics_module, "db", mock_db):
+    names_by_id = {"uid-alice": "Alice", "uid-bob": "Bob"}
+    with patch.object(analytics_module, "db", mock_db), patch(
+        "crm.services.dashboard_scope.resolve_owner_names", AsyncMock(return_value=names_by_id)
+    ):
         managers, totals, by_status, by_project = await analytics_module._sales_managers_from_aggregation()
 
     assert "dormant" not in totals
@@ -168,6 +173,55 @@ async def _sales_managers_totals_include_negotiation_no_dormant():
 
     assert by_status == [{"name": "Negotiation", "count": 4}]
     assert by_project == [{"name": "ECR", "count": 15}]
+    assert alice["id"] == "uid-alice"
+    assert bob["id"] == "uid-bob"
+
+
+def test_sales_metrics_stages_group_by_assigned_user_id_not_name():
+    # batch2 item 1: grouping key is the authoritative assigned_user_id,
+    # never a name field.
+    stages = analytics_module._sales_metrics_stages()
+    add_fields_0 = stages[0]["$addFields"]
+    assert add_fields_0 == {"rep_id": {"$ifNull": ["$assigned_user_id", ""]}}
+
+
+def test_sales_managers_merges_duplicate_unassigned_rows():
+    """Two different owner_ids that both resolve to no real name (missing id,
+    and a deleted user's id) must merge into one "Unassigned" row, not two."""
+    asyncio.run(_sales_managers_merges_duplicate_unassigned_rows())
+
+
+async def _sales_managers_merges_duplicate_unassigned_rows():
+    main_rows = [
+        {
+            "_id": "",
+            "total": 3, "hot": 0, "warm": 0, "cold": 0, "rnr": 0, "site_visits": 0,
+            "deals_won": 1, "deals_lost": 0, "deals_closed": 1, "contacted": 0,
+            "negotiation": 0, "last_active": None,
+        },
+        {
+            "_id": "uid-deleted-user",
+            "total": 2, "hot": 0, "warm": 0, "cold": 0, "rnr": 0, "site_visits": 0,
+            "deals_won": 0, "deals_lost": 0, "deals_closed": 0, "contacted": 0,
+            "negotiation": 0, "last_active": None,
+        },
+    ]
+    mock_cursor = MagicMock()
+    mock_cursor.to_list = AsyncMock(side_effect=[main_rows, [], []])
+    mock_db = MagicMock()
+    mock_db.leads.aggregate = MagicMock(return_value=mock_cursor)
+
+    # uid-deleted-user resolves to nothing (deleted account) - only "" is unresolved too.
+    with patch.object(analytics_module, "db", mock_db), patch(
+        "crm.services.dashboard_scope.resolve_owner_names", AsyncMock(return_value={})
+    ):
+        managers, totals, _, _ = await analytics_module._sales_managers_from_aggregation()
+
+    unassigned_rows = [m for m in managers if m["name"] == "Unassigned"]
+    assert len(unassigned_rows) == 1
+    assert unassigned_rows[0]["total"] == 5
+    assert unassigned_rows[0]["deals_won"] == 1
+    assert totals["total"] == 5
 
 
 def test_resolve_quarter_param_current_and_all():
@@ -210,7 +264,7 @@ def test_sales_dashboard_ranking_sorts_and_filters_unassigned():
 async def _sales_dashboard_ranking_sorts_and_filters_unassigned():
     main_rows = [
         {
-            "_id": "Unassigned",
+            "_id": "",
             "total": 50,
             "hot": 0,
             "warm": 0,
@@ -225,7 +279,7 @@ async def _sales_dashboard_ranking_sorts_and_filters_unassigned():
             "last_active": None,
         },
         {
-            "_id": "Alice",
+            "_id": "uid-alice",
             "total": 10,
             "hot": 2,
             "warm": 3,
@@ -240,7 +294,7 @@ async def _sales_dashboard_ranking_sorts_and_filters_unassigned():
             "last_active": None,
         },
         {
-            "_id": "Bob",
+            "_id": "uid-bob",
             "total": 10,
             "hot": 1,
             "warm": 0,
@@ -265,8 +319,11 @@ async def _sales_dashboard_ranking_sorts_and_filters_unassigned():
     mock_db.leads.aggregate = MagicMock(return_value=mock_cursor)
 
     mock_user = {"role": "admin", "email": "admin@test.com"}
+    names_by_id = {"uid-alice": "Alice", "uid-bob": "Bob"}
 
-    with patch.object(analytics_module, "db", mock_db):
+    with patch.object(analytics_module, "db", mock_db), patch(
+        "crm.services.dashboard_scope.resolve_owner_names", AsyncMock(return_value=names_by_id)
+    ):
         result = await analytics_module.get_sales_dashboard_ranking(
             current_user=mock_user,
             quarter="2026-Q1",
@@ -307,7 +364,9 @@ async def _sales_rep_leads_applies_metric_filter():
 
     mock_user = {"role": "admin", "full_name": "Admin"}
 
-    with patch.object(analytics_module, "db", mock_db):
+    with patch.object(analytics_module, "db", mock_db), patch(
+        "crm.services.dashboard_scope.resolve_sales_owner_ids", AsyncMock(return_value=["uid-gowtham"])
+    ):
         result = await analytics_module.get_sales_rep_leads(
             name="Gowtham j",
             skip=0,
@@ -325,6 +384,49 @@ async def _sales_rep_leads_applies_metric_filter():
     count_filter = mock_db.leads.count_documents.await_args.args[0]
     assert "$or" in str(count_filter)
     assert "is_rnr" in str(count_filter)
+    # batch2 item 1: matched by the resolved assigned_user_id, not the name.
+    assert "uid-gowtham" in str(count_filter)
+
+
+def test_sales_rep_leads_matches_by_resolved_id_not_name():
+    """The core ask: the drill-down must match assigned_user_id, so it never
+    disagrees with the row count it's clicked from."""
+    asyncio.run(_sales_rep_leads_matches_by_resolved_id_not_name())
+
+
+async def _sales_rep_leads_matches_by_resolved_id_not_name():
+    mock_db = MagicMock()
+    mock_db.leads.count_documents = AsyncMock(return_value=0)
+    mock_cursor = MagicMock()
+    mock_cursor.sort.return_value = mock_cursor
+    mock_cursor.skip.return_value = mock_cursor
+    mock_cursor.limit.return_value = mock_cursor
+    mock_cursor.__aiter__ = lambda self: self
+    mock_cursor.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+    mock_db.leads.find.return_value = mock_cursor
+    mock_user = {"role": "admin", "full_name": "Admin"}
+
+    # "Roshini" is not a real user - resolves to nothing.
+    with patch.object(analytics_module, "db", mock_db), patch(
+        "crm.services.dashboard_scope.resolve_sales_owner_ids", AsyncMock(return_value=[])
+    ):
+        await analytics_module.get_sales_rep_leads(
+            name="Roshini", skip=0, limit=50, metric=None, quarter="all",
+            days=None, created_from=None, created_to=None, current_user=mock_user,
+        )
+    count_filter = mock_db.leads.count_documents.await_args.args[0]
+    assert "assigned_user_id" not in str(count_filter)  # no real user matched -> matches nothing
+    assert "__no_such_user__" in str(count_filter)
+
+    mock_db.leads.count_documents.reset_mock()
+    with patch.object(analytics_module, "db", mock_db):
+        await analytics_module.get_sales_rep_leads(
+            name="Unassigned", skip=0, limit=50, metric=None, quarter="all",
+            days=None, created_from=None, created_to=None, current_user=mock_user,
+        )
+    unassigned_filter = mock_db.leads.count_documents.await_args.args[0]
+    assert "assigned_user_id" in str(unassigned_filter)
+    assert "$exists" in str(unassigned_filter)
 
 
 def test_sales_rep_leads_rejects_invalid_metric():

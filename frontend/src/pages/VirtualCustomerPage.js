@@ -299,13 +299,11 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
         setProjectOptions(mergePicklistWithApi(CANONICAL_PROJECTS, filterData?.projects || []));
         setSourceOptions(mergePicklistWithApi(CANONICAL_SOURCES, filterData?.sources || []));
         setChannelPartnerOptions(mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, filterData?.channel_partners || []));
-        // Sales owner options come from actual presales_agent values in leads (not user accounts)
-        // so the filter matches exactly what's stored on leads.
-        setSalesOwnerOptions(
-          Array.isArray(filterData?.sales_owners)
-            ? [...filterData.sales_owners].sort((a, b) => a.localeCompare(b))
-            : []
-        );
+        // batch2 item 1: Sales owner options now come from the users
+        // collection (id-authoritative, see dashboard_scope.
+        // build_sales_owner_options) as {name, count, id, is_active} rows -
+        // already sorted server-side (active first, then by count, then name).
+        setSalesOwnerOptions(Array.isArray(filterData?.sales_owners) ? filterData.sales_owners : []);
         setAssigneeOptions(Array.isArray(assigneeRes?.data) ? assigneeRes.data : []);
         setFilterViews(Array.isArray(viewsRes?.data) ? viewsRes.data : []);
       } catch {

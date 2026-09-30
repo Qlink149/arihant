@@ -71,6 +71,81 @@ async def resolve_sales_owner_ids(names: Optional[Sequence[str]]) -> List[str]:
     return ids
 
 
+async def resolve_owner_names(ids: Optional[Sequence[str]]) -> dict[str, str]:
+    """batch2 item 1: bulk assigned_user_id -> current display name lookup.
+
+    For dashboards/aggregations that must GROUP by the authoritative
+    assigned_user_id (see Batch 1 #55) but still need a human name to show.
+    The id is the grouping key; the returned name is display only and is
+    always the user's CURRENT full_name, so a rename is reflected everywhere
+    immediately rather than being frozen in old lead documents.
+    """
+    id_list = [str(i).strip() for i in (ids or []) if i and str(i).strip()]
+    id_list = list(dict.fromkeys(id_list))
+    if not id_list:
+        return {}
+    out: dict[str, str] = {}
+    async for u in db.users.find({"id": {"$in": id_list}}, {"_id": 0, "id": 1, "full_name": 1}):
+        name = (u.get("full_name") or "").strip()
+        if name:
+            out[u["id"]] = name
+    return out
+
+
+def merge_owner_count_rows_by_name(
+    rows: Sequence[dict], names_by_id: dict[str, str]
+) -> List[dict]:
+    """batch2 item 1: turn ``[{"_id": assigned_user_id_or_empty, "count": n}]``
+    rows into ``[{"name": ..., "count": ...}]`` sorted by count desc, merging
+    any ids that resolve to the same display name (e.g. no owner id at all
+    and a deleted user's id both fall back to "Unassigned") so the result
+    never contains a duplicate name."""
+    by_name: dict[str, int] = {}
+    for row in rows:
+        name = names_by_id.get(row.get("_id") or "") or "Unassigned"
+        by_name[name] = by_name.get(name, 0) + int(row.get("count") or 0)
+    return sorted(
+        ({"name": n, "count": c} for n, c in by_name.items()),
+        key=lambda x: -x["count"],
+    )
+
+
+async def build_sales_owner_options() -> List[dict]:
+    """batch2 item 1: Sales Owner filter dropdown options, sourced from the
+    ``users`` collection (the authoritative id-based owner definition) - not
+    the legacy ``presales_agent`` name field, so a stale/non-user value like
+    "Roshini" can never appear as an option.
+
+    Every active user is included. An inactive user is included only if they
+    still own at least one lead (by assigned_user_id) - otherwise their
+    leads would become unreachable through this filter - and is labelled
+    ``is_active: False`` so the UI can show it's a former user.
+    """
+    users = await db.users.find({}, {"_id": 0, "id": 1, "full_name": 1, "is_active": 1}).to_list(1000)
+    count_rows = await db.leads.aggregate(
+        [
+            {"$match": {"assigned_user_id": {"$nin": [None, ""]}}},
+            {"$group": {"_id": "$assigned_user_id", "count": {"$sum": 1}}},
+        ]
+    ).to_list(None)
+    counts_by_id = {r["_id"]: int(r.get("count") or 0) for r in count_rows}
+
+    options: List[dict] = []
+    for u in users:
+        name = (u.get("full_name") or "").strip()
+        if not name:
+            continue
+        uid = u.get("id")
+        count = counts_by_id.get(uid, 0)
+        is_active = u.get("is_active") is not False
+        if not is_active and count == 0:
+            continue  # former user with no leads - nothing to filter by
+        options.append({"name": name, "count": count, "id": uid, "is_active": is_active})
+
+    options.sort(key=lambda o: (not o["is_active"], -o["count"], o["name"].lower()))
+    return options
+
+
 def role_scope_filter(current_user: dict) -> dict:
     """Mongo filter: {} for admin/manager (org-wide); rep/GM use assignment filter."""
     from crm.constants.roles import is_org_editor

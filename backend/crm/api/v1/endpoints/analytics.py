@@ -103,11 +103,19 @@ def _rep_name_expression() -> Dict[str, Any]:
     }
 
 
+def _rep_id_expression() -> Dict[str, Any]:
+    """batch2 item 1: authoritative grouping key for per-agent dashboards -
+    assigned_user_id (see Batch 1 #55), never a name field. The empty-string
+    bucket is leads with no owner id at all, resolved to the "Unassigned"
+    display name after aggregation (dashboard_scope.resolve_owner_names)."""
+    return {"$ifNull": ["$assigned_user_id", ""]}
+
+
 def _sales_metrics_stages() -> List[Dict[str, Any]]:
-    """$addFields stages: rep, ls, then metric flags (aligned with seeded UI statuses)."""
-    rep_expr = _rep_name_expression()
+    """$addFields stages: rep_id, ls, then metric flags (aligned with seeded UI statuses)."""
+    rep_id_expr = _rep_id_expression()
     return [
-        {"$addFields": {"rep": rep_expr}},
+        {"$addFields": {"rep_id": rep_id_expr}},
         {
             "$addFields": {
                 "ls": {"$toLower": {"$trim": {"input": {"$ifNull": ["$lead_status", ""]}}}},
@@ -242,7 +250,7 @@ async def _sales_managers_from_aggregation(
     prefix: List[Dict[str, Any]] = [{"$match": scope_filter}] if scope_filter else []
     group_stage = {
         "$group": {
-            "_id": "$rep",
+            "_id": "$rep_id",
             "total": {"$sum": 1},
             "hot": {"$sum": "$hot"},
             "warm": {"$sum": "$warm"},
@@ -260,6 +268,14 @@ async def _sales_managers_from_aggregation(
 
     main_rows = await db.leads.aggregate(prefix + metrics_stages + [group_stage]).to_list(None)
 
+    # batch2 item 1: rows are keyed by assigned_user_id; resolve to each
+    # user's CURRENT display name (dashboard_scope.resolve_owner_names) -
+    # the id is authoritative, the name is display only.
+    from crm.services.dashboard_scope import resolve_owner_names
+
+    owner_ids = [r["_id"] for r in main_rows if r.get("_id")]
+    names_by_id = await resolve_owner_names(owner_ids)
+
     managers: List[Dict[str, Any]] = []
     totals = {
         "total": 0,
@@ -275,7 +291,8 @@ async def _sales_managers_from_aggregation(
     }
 
     for r in main_rows:
-        name = r["_id"] or "Unassigned"
+        owner_id = r["_id"] or ""
+        name = names_by_id.get(owner_id) or "Unassigned"
         total = int(r.get("total", 0))
         deals_won = int(r.get("deals_won", 0))
         deals_lost = int(r.get("deals_lost", 0))
@@ -289,6 +306,7 @@ async def _sales_managers_from_aggregation(
         managers.append(
             {
                 "name": name,
+                "id": owner_id or None,
                 "total": total,
                 "hot": int(r.get("hot", 0)),
                 "warm": int(r.get("warm", 0)),
@@ -315,6 +333,31 @@ async def _sales_managers_from_aggregation(
         totals["deals_won"] += deals_won
         totals["deals_lost"] += deals_lost
         totals["deals_closed"] += deals
+
+    # batch2 item 1: two different owner_ids can both resolve to the same
+    # display name (e.g. no owner id at all, and a deleted user's id both
+    # fall back to "Unassigned") - merge those rows so the frontend never
+    # sees two entries with the same name/key.
+    _NUMERIC_KEYS = (
+        "total", "hot", "warm", "cold", "rnr", "site_visits",
+        "deals_won", "deals_lost", "deals_closed", "contacted", "negotiation",
+    )
+    merged_by_name: Dict[str, Dict[str, Any]] = {}
+    for m in managers:
+        existing = merged_by_name.get(m["name"])
+        if not existing:
+            merged_by_name[m["name"]] = m
+            continue
+        for k in _NUMERIC_KEYS:
+            existing[k] += m[k]
+        existing["conversion_rate"] = (
+            round((existing["deals_won"] / existing["total"]) * 100) if existing["total"] > 0 else 0
+        )
+        if not existing.get("last_active") or (m.get("last_active") and m["last_active"] > existing["last_active"]):
+            existing["last_active"] = m["last_active"]
+        if not existing.get("id"):
+            existing["id"] = m.get("id")
+    managers = list(merged_by_name.values())
 
     managers.sort(key=lambda x: x["name"])
 
@@ -404,17 +447,11 @@ async def get_dashboard_analytics(
                     {"$limit": 10},
                 ],
                 "owners": [
-                    {
-                        "$group": {
-                            "_id": {
-                                "$ifNull": [
-                                    "$assigned_to_name",
-                                    {"$ifNull": ["$assigned_to", "$presales_agent"]},
-                                ]
-                            },
-                            "count": {"$sum": 1},
-                        }
-                    },
+                    # batch2 item 1: group by the authoritative assigned_user_id
+                    # (Batch 1 #55), not name fields - resolved to a display
+                    # name after the aggregation (see below), so a phantom
+                    # name-drift row (e.g. "Roshini") can never appear here.
+                    {"$group": {"_id": {"$ifNull": ["$assigned_user_id", ""]}, "count": {"$sum": 1}}},
                     {"$sort": {"count": -1}},
                     {"$limit": 10},
                 ],
@@ -430,6 +467,11 @@ async def get_dashboard_analytics(
     sources = breakdown_doc.get("sources") or []
     locations = [l for l in (breakdown_doc.get("locations") or []) if l.get("_id")]
     owners = breakdown_doc.get("owners") or []
+    # batch2 item 1: resolve assigned_user_id -> current display name.
+    from crm.services.dashboard_scope import merge_owner_count_rows_by_name, resolve_owner_names
+
+    owner_names = await resolve_owner_names([o["_id"] for o in owners if o.get("_id")])
+    sales_owners_out = merge_owner_count_rows_by_name(owners, owner_names)
 
     return {
         "greeting": f"{get_time_greeting()}, {current_user['full_name'].split()[0]}",
@@ -447,7 +489,7 @@ async def get_dashboard_analytics(
         "lead_sources": [{"name": s["_id"] or "Unknown", "count": s["count"]} for s in sources],
         "locations": [{"name": l["_id"] or "Unknown", "count": l["count"]} for l in locations],
         "projects": [{"name": p["_id"] or "Unknown", "count": p["count"]} for p in projects],
-        "sales_owners": [{"name": o["_id"] or "Unassigned", "count": o["count"]} for o in owners],
+        "sales_owners": sales_owners_out,
         "status_breakdown": [
             {"name": (s.get("label") or s["_id"] or "Unknown"), "count": s["count"]} for s in statuses
         ],
@@ -551,11 +593,32 @@ async def get_sales_rep_leads(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     scope = sales_dashboard_scope_filter(current_user)
-    rep_expr = _rep_name_expression()
+    # batch2 item 1: match by the same authoritative assigned_user_id the
+    # dashboard now groups by (Batch 1 #55), not the drifted name fields -
+    # otherwise this drill-down could show a different lead set than the
+    # count on the row the user clicked.
+    from crm.services.dashboard_scope import resolve_sales_owner_ids
+
+    if name.strip().lower() == "unassigned":
+        owner_clause: Dict[str, Any] = {
+            "$or": [
+                {"assigned_user_id": None},
+                {"assigned_user_id": ""},
+                {"assigned_user_id": {"$exists": False}},
+            ]
+        }
+    else:
+        resolved_ids = await resolve_sales_owner_ids([name])
+        if not resolved_ids:
+            # Not a real user (e.g. a stale legacy name) - matches nothing,
+            # same as the dashboard row it would have come from not existing.
+            owner_clause = {"id": "__no_such_user__"}
+        else:
+            owner_clause = {"assigned_user_id": {"$in": resolved_ids}}
     match_expr = merge_query(
         scope,
         period_filter if period_filter else {},
-        {"$expr": {"$eq": [rep_expr, name]}},
+        owner_clause,
         metric_filter if metric_filter else {},
     )
     total = await db.leads.count_documents(match_expr)
