@@ -27,8 +27,10 @@ def can_access_escalations(role: Optional[str]) -> bool:
 
 
 def can_filter_escalated_leads(role: Optional[str]) -> bool:
-    """Virtual Customer ?escalated=true — SOP Manager is general_manager."""
-    return normalize_role(role) in {ROLE_ADMIN, ROLE_GENERAL_MANAGER}
+    """Virtual Customer ?escalated=true — same roles as Escalation Queue access
+    (batch1 #8/#40: was admin+GM only, excluding manager; SOP 3 grants Manager
+    the Escalation Queue too, so this must match ``can_access_escalations``)."""
+    return normalize_role(role) in ESCALATION_ROLES
 
 
 def can_see_rnr_call_panel(role: Optional[str]) -> bool:

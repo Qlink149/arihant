@@ -31,11 +31,16 @@ def test_normalize_role_default():
     assert normalize_role("  ADMIN ") == "admin"
 
 
-def test_escalated_filter_and_sales_dashboard_gm_only():
+def test_escalated_filter_matches_escalation_access():
+    # batch1 #8/#40: manager must be allowed, matching can_access_escalations.
     assert can_filter_escalated_leads("admin")
+    assert can_filter_escalated_leads("manager")
     assert can_filter_escalated_leads("general_manager")
-    assert not can_filter_escalated_leads("manager")
     assert not can_filter_escalated_leads("rep")
+
+
+def test_sales_dashboard_and_rnr_panel_gm_only():
+    # Unchanged by batch1 — separate from Escalation Queue access.
     assert can_access_sales_dashboard("admin")
     assert can_access_sales_dashboard("general_manager")
     assert not can_access_sales_dashboard("rep")
