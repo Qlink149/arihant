@@ -11,7 +11,13 @@ from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdate
 from crm.services import lead_service
 from crm.services.lead_service import normalize_lead_for_response
 from crm.utils.helpers import coerce_datetime, normalize_phone, utc_now
-from crm.services.dashboard_scope import resolve_lead_or_403, resolve_lead_view_or_403, role_scope_filter, user_owns_lead
+from crm.services.dashboard_scope import (
+    resolve_lead_or_403,
+    resolve_lead_view_or_403,
+    resolve_sales_owner_ids,
+    role_scope_filter,
+    user_owns_lead,
+)
 from crm.services.lead_analytics_queries import fetch_lead_filter_options
 from crm.services.lead_search import build_exact_phone_lookup_queries, case_insensitive_regex_filter
 from crm.services.lead_events import log_lead_event
@@ -279,6 +285,10 @@ async def get_leads(
         sales_owners=sales_owners,
         sales_owner=sales_owner,
     )
+    # batch1 #55: resolve Sales Owner display name(s) to the authoritative
+    # assigned_user_id before building the query - see dashboard_scope.
+    # resolve_sales_owner_ids and lead_search.build_leads_list_query.
+    sales_owner_ids = await resolve_sales_owner_ids(multi["sales_owners"])
     snapshot_filter = None
     use_rep_pipeline = bool(mine)
     if metric:
@@ -311,8 +321,8 @@ async def get_leads(
         source=source,
         channel_partners=multi["channel_partners"] or None,
         channel_partner=channel_partner,
-        sales_owners=multi["sales_owners"] or None,
-        sales_owner=sales_owner,
+        sales_owners=sales_owner_ids or None,
+        sales_owner=None,
         intent=intent,
         vip=vip,
         re_enquiry=re_enquiry,
@@ -399,6 +409,9 @@ async def start_leads_export(
         sales_owners=sales_owners,
         sales_owner=sales_owner,
     )
+    # batch1 #55: same resolution as the list endpoint, so exports agree with
+    # Virtual Customer and My Dashboard instead of using name-based matching.
+    export_sales_owner_ids = await resolve_sales_owner_ids(multi["sales_owners"])
     filters = _list_filter_params(
         project=project,
         projects=multi["projects"] or None,
@@ -412,8 +425,8 @@ async def start_leads_export(
         source=source,
         channel_partners=multi["channel_partners"] or None,
         channel_partner=channel_partner,
-        sales_owners=multi["sales_owners"] or None,
-        sales_owner=sales_owner,
+        sales_owners=export_sales_owner_ids or None,
+        sales_owner=None,
         intent=intent,
         vip=vip,
         re_enquiry=re_enquiry,

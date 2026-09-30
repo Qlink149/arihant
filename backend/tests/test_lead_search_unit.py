@@ -1,4 +1,6 @@
 """Unit tests for lead_search query builder (no database)."""
+import pytest
+
 from crm.services.lead_search import (
     build_exact_phone_lookup_queries,
     build_leads_list_query,
@@ -213,10 +215,16 @@ def test_build_sales_owners_filter_matches_owner_fields():
 
 
 def test_build_leads_list_query_sales_owners():
-    q = build_leads_list_query(sales_owners=["Rep A", "Rep B"])
+    # batch1 #55: sales_owners must now be pre-resolved user ids, matched
+    # against the authoritative assigned_user_id - not name fields. Callers
+    # resolve display names via dashboard_scope.resolve_sales_owner_ids
+    # before calling this.
+    q = build_leads_list_query(sales_owners=["user-id-1", "user-id-2"])
     parts = q["$and"] if "$and" in q else [q]
-    owner_part = next(p for p in parts if "$or" in p and "assigned_to" in str(p))
-    assert len(owner_part["$or"]) == 6  # 2 names × 3 fields
+    owner_part = next(p for p in parts if "assigned_user_id" in p)
+    assert owner_part["assigned_user_id"]["$in"] == ["user-id-1", "user-id-2"]
+    assert "assigned_to" not in str(owner_part)
+    assert "presales_agent" not in str(owner_part)
 
 
 def test_build_leads_list_query_project_id_matches_array():
@@ -232,3 +240,38 @@ def test_build_leads_list_query_re_enquiry():
     parts = q["$and"] if "$and" in q else [q]
     flag_part = next(p for p in parts if "re_enquiry" in p)
     assert flag_part["re_enquiry"] is True
+
+
+# batch1 #55: GET /leads must resolve Sales Owner names to ids before querying,
+# so Virtual Customer agrees with My Dashboard (both authoritative on
+# assigned_user_id).
+
+
+@pytest.mark.asyncio
+async def test_get_leads_resolves_sales_owner_names_to_ids(monkeypatch):
+    from unittest.mock import AsyncMock
+    from fastapi import Response
+    from crm.api.v1.endpoints import leads
+
+    monkeypatch.setattr(leads, "resolve_leads_list_query_base", AsyncMock(return_value={}))
+    monkeypatch.setattr(leads, "resolve_sales_owner_ids", AsyncMock(return_value=["uid-admin"]))
+    list_leads = AsyncMock(return_value=([], 0))
+    monkeypatch.setattr(leads.lead_service, "list_leads", list_leads)
+
+    await leads.get_leads(
+        response=Response(),
+        current_user={"id": "u1", "role": "admin", "full_name": "Admin"},
+        projects=None,
+        budgets=None,
+        locations=None,
+        sources=None,
+        channel_partners=None,
+        sales_owners=None,
+        sales_owner="Admin",
+        statuses=None,
+    )
+
+    leads.resolve_sales_owner_ids.assert_awaited_once_with(["Admin"])
+    call_kwargs = list_leads.await_args.kwargs
+    assert call_kwargs["sales_owners"] == ["uid-admin"]
+    assert call_kwargs["sales_owner"] is None

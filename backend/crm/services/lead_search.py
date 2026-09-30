@@ -310,9 +310,14 @@ def build_leads_list_query(
     if channel_partner_values:
         extra.append(case_insensitive_regex_or_filter("channel_partner", channel_partner_values))
     if sales_owner_values:
-        owner_clause = build_sales_owners_filter(sales_owner_values)
-        if owner_clause:
-            extra.append(owner_clause)
+        # batch1 #55: assigned_user_id is authoritative. Callers must resolve
+        # display names to user ids first (crm.services.dashboard_scope.
+        # resolve_sales_owner_ids) - values here are ids, not names. The old
+        # name-based build_sales_owners_filter() is kept for reference/tests
+        # but no longer used here; it caused this filter to disagree with My
+        # Dashboard's rep_lead_filter whenever a lead's name fields drifted
+        # from its real assigned_user_id.
+        extra.append({"assigned_user_id": {"$in": list(dict.fromkeys(sales_owner_values))}})
     if meta_qualified is not None:
         extra.append({"meta_qualified": meta_qualified})
     if intent:

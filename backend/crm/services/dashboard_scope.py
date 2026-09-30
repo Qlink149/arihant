@@ -1,6 +1,6 @@
 """Rep/manager lead scope shared by My Dashboard, Virtual Customer, and lead ACL."""
 
-from typing import Any, Optional
+from typing import Any, List, Optional, Sequence
 
 from fastapi import HTTPException
 
@@ -19,13 +19,56 @@ def _name_field_clause(field: str, full_name: str) -> dict:
 
 
 def rep_lead_filter(user_id: str, full_name: str) -> dict:
-    """Leads assigned to the current user (exact id or case-insensitive name match)."""
-    clauses: list[dict] = [{"assigned_user_id": user_id}]
-    for field in ("assigned_to_name", "assigned_to", "presales_agent"):
-        clause = _name_field_clause(field, full_name)
-        if clause:
-            clauses.append(clause)
-    return {"$or": clauses}
+    """Leads assigned to the current user.
+
+    batch1 #55: assigned_user_id is the single authoritative owner field.
+    The previous id-OR-name-field fallback made this disagree with the
+    Virtual Customer Sales Owner filter (name-based) whenever a lead's
+    assigned_to_name/assigned_to/presales_agent had drifted from its real
+    assigned_user_id - e.g. production has leads with assigned_user_id =
+    Admin's id but assigned_to_name = "Roshini" (My Dashboard "All Leads"
+    counted them for Admin via the name-drift fallback; Virtual Customer's
+    old name-only filter did not - 16,787 vs 13,384). Audited production
+    before this change: every real user account except Admin has zero
+    name-vs-id drift, and only 1 lead in the whole database has no
+    assigned_user_id at all (and it has no name fields either) - so
+    dropping the name fallback causes no visibility loss for any current
+    user; it only removes the mismatch.
+
+    ``full_name`` is kept in the signature for call-site compatibility but
+    is no longer used for matching.
+    """
+    return {"assigned_user_id": user_id}
+
+
+async def resolve_sales_owner_ids(names: Optional[Sequence[str]]) -> List[str]:
+    """batch1 #55: resolve Sales Owner filter display names to the
+    authoritative assigned_user_id of the matching user account, for use in
+    an ``{"assigned_user_id": {"$in": [...]}}`` filter.
+
+    A name that does not match any current user account (e.g. a stale
+    legacy value like "Roshini", which is not itself a registered user) is
+    dropped rather than falling back to name matching - reintroducing that
+    fallback is exactly what caused the Virtual Customer filter to disagree
+    with My Dashboard. This is a deliberate, disclosed side effect: filtering
+    by such a name now returns zero leads instead of a name-matched set.
+    """
+    from crm.core.state import resolve_user_id_by_full_name
+
+    ids: List[str] = []
+    seen: set[str] = set()
+    for raw in names or []:
+        name = str(raw or "").strip()
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        uid = await resolve_user_id_by_full_name(name)
+        if uid:
+            ids.append(uid)
+    return ids
 
 
 def role_scope_filter(current_user: dict) -> dict:

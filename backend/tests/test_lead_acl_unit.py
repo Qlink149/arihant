@@ -17,8 +17,9 @@ from crm.services.dashboard_scope import (
 
 
 def test_rep_lead_filter_includes_user_id():
+    # batch1 #55: assigned_user_id is the sole authoritative owner field now.
     f = rep_lead_filter("uid-1", "Alice Rep")
-    assert {"assigned_user_id": "uid-1"} in f["$or"]
+    assert f == {"assigned_user_id": "uid-1"}
 
 
 def test_role_scope_filter_admin_is_empty():
@@ -27,7 +28,7 @@ def test_role_scope_filter_admin_is_empty():
 
 def test_role_scope_filter_rep_is_scoped():
     scope = role_scope_filter({"role": "rep", "id": "uid-1", "full_name": "Alice"})
-    assert "$or" in scope
+    assert scope == {"assigned_user_id": "uid-1"}
 
 
 def test_user_owns_lead_by_assigned_user_id():

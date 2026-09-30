@@ -1,28 +1,69 @@
 """Unit tests for My Dashboard per-user scope (no database)."""
 import asyncio
+from unittest.mock import patch
 
-from crm.services.dashboard_scope import rep_lead_filter, resolve_leads_base_filter
+import pytest
+
+from crm.services.dashboard_scope import (
+    rep_lead_filter,
+    resolve_leads_base_filter,
+    resolve_sales_owner_ids,
+)
 from crm.services.transfer_queries import is_manager_user
 
 
-def test_rep_lead_filter_includes_user_id():
+def test_rep_lead_filter_is_id_only():
+    # batch1 #55: assigned_user_id is the single authoritative owner field -
+    # no more id-or-name fallback (that fallback is exactly what caused My
+    # Dashboard and Virtual Customer counts to disagree for #55).
     filt = rep_lead_filter("uid-1", "Jane Doe")
-    assert "$or" in filt
-    assert {"assigned_user_id": "uid-1"} in filt["$or"]
+    assert filt == {"assigned_user_id": "uid-1"}
 
 
-def test_rep_lead_filter_name_fields_case_insensitive():
-    filt = rep_lead_filter("uid-1", "Jane Doe")
-    name_clauses = [c for c in filt["$or"] if "assigned_to_name" in c]
-    assert len(name_clauses) == 1
-    assert name_clauses[0]["assigned_to_name"]["$options"] == "i"
-    assert name_clauses[0]["assigned_to_name"]["$regex"] == "^Jane\\ Doe$"
+def test_rep_lead_filter_ignores_full_name():
+    # full_name is kept in the signature for call-site compatibility only.
+    assert rep_lead_filter("uid-1", "Anything At All") == {"assigned_user_id": "uid-1"}
+    assert rep_lead_filter("uid-1", "") == {"assigned_user_id": "uid-1"}
 
 
-def test_rep_lead_filter_never_empty_or_clause():
-    filt = rep_lead_filter("uid-1", "Rep")
-    assert filt != {}
-    assert len(filt["$or"]) >= 1
+@pytest.mark.asyncio
+async def test_resolve_sales_owner_ids_resolves_known_names():
+    async def fake_resolve(name):
+        return {"jigar": "uid-jigar", "admin": "uid-admin"}.get(name.lower())
+
+    with patch("crm.core.state.resolve_user_id_by_full_name", side_effect=fake_resolve):
+        ids = await resolve_sales_owner_ids(["Jigar", "Admin"])
+    assert ids == ["uid-jigar", "uid-admin"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_sales_owner_ids_drops_unresolvable_legacy_name():
+    """A name with no matching user account (e.g. "Roshini", which is not a
+    real registered user) is dropped, not name-matched as a fallback."""
+    async def fake_resolve(name):
+        return {"admin": "uid-admin"}.get(name.lower())
+
+    with patch("crm.core.state.resolve_user_id_by_full_name", side_effect=fake_resolve):
+        ids = await resolve_sales_owner_ids(["Admin", "Roshini"])
+    assert ids == ["uid-admin"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_sales_owner_ids_dedupes_case_insensitive():
+    async def fake_resolve(name):
+        return "uid-admin"
+
+    with patch("crm.core.state.resolve_user_id_by_full_name", side_effect=fake_resolve) as mock_resolve:
+        ids = await resolve_sales_owner_ids(["Admin", "admin", " ADMIN "])
+    assert ids == ["uid-admin"]
+    assert mock_resolve.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_sales_owner_ids_empty_input():
+    assert await resolve_sales_owner_ids(None) == []
+    assert await resolve_sales_owner_ids([]) == []
+    assert await resolve_sales_owner_ids(["", "   "]) == []
 
 
 def test_is_manager_user_rep_with_zero_leads_is_not_manager():

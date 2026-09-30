@@ -22,9 +22,10 @@ async def _auto_notifications_scope_to_rep_leads():
     def fake_find(query, projection):
         m = MagicMock()
         # Rep scope should be present in lead queries.
+        # batch1 #55: assigned_user_id is the sole authoritative owner field.
         assert "$and" in query
         scope_clause = query["$and"][0]
-        assert "$or" in scope_clause
+        assert scope_clause == {"assigned_user_id": "u1"}
         m.to_list = AsyncMock(return_value=[])
         m.limit = MagicMock(return_value=m)
         return m
