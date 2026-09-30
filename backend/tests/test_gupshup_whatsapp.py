@@ -15,6 +15,8 @@ import json
 import time
 from datetime import datetime
 
+pytestmark = pytest.mark.integration
+
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 
 WEBHOOK_TEST_SECRET = os.environ.get("WHATSAPP_WEBHOOK_SECRET", "test-webhook-secret-for-pytest")

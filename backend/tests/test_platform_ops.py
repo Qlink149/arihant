@@ -6,6 +6,8 @@ import os
 import pytest
 import requests
 
+pytestmark = pytest.mark.integration
+
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 TEST_EMAIL = "roshini@arihant.com"
 TEST_PASSWORD = "arihant123"

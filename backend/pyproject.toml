@@ -27,3 +27,7 @@ entrypoint = "crm.main:app"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: hits a live API server at REACT_APP_BACKEND_URL (excluded by default). Run with: REACT_APP_BACKEND_URL=http://localhost:8000 python -m pytest -m integration tests (server must be running; see docs/AI_TESTING_AND_PLANNING.md).",
+]

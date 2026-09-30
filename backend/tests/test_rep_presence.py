@@ -195,6 +195,7 @@ def authenticated_client(api_client, auth_token):
     return api_client
 
 
+@pytest.mark.integration
 class TestRepActivityEndpoint:
     def test_rep_activity_forbidden_for_regular_admin(self, authenticated_client):
         if not BASE_URL:

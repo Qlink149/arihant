@@ -15,6 +15,8 @@ import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://crm-sales-next.preview.emergentagent.com").rstrip("/")
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture(scope="module")
 def tokens():

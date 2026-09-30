@@ -20,6 +20,8 @@ from datetime import datetime, timedelta
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://crm-sales-next.preview.emergentagent.com').rstrip('/')
 
+pytestmark = pytest.mark.integration
+
 
 class TestAuth:
     """Get authentication token for subsequent tests"""
