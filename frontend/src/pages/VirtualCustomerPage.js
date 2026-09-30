@@ -904,6 +904,19 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
     return role === 'admin' || role === 'manager' || role === 'general_manager';
   }, [user?.role]);
 
+  // batch1 #33: bulk select/assign is org-wide for admin/manager, but for
+  // general_manager it's scoped to the Escalation Queue only (SOP 3: GM has
+  // rep-level access elsewhere, plus the Escalation Queue). The backend
+  // (leads.py bulk_update_leads) enforces the escalated-only rule for GM
+  // regardless of this flag; this just avoids showing a control that would
+  // 403 on the ordinary Virtual Customer list.
+  const canBulkSelect = useMemo(() => {
+    const role = (user?.role || '').toLowerCase();
+    if (role === 'admin' || role === 'manager') return true;
+    if (role === 'general_manager') return Boolean(escalationLocked);
+    return false;
+  }, [user?.role, escalationLocked]);
+
   const handleNudge = useCallback(async (id) => {
     try {
       const res = await leadsAPI.nudge(id);
@@ -1647,7 +1660,7 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
           showEscalationColumns={Boolean(escalationLocked || filters.escalated)}
           onOpenLeadTasks={openLeadTasksDrawer}
           loadMoreSentinelRef={loadMoreSentinelRef}
-          bulkSelectEnabled={canNudge}
+          bulkSelectEnabled={canBulkSelect}
           assigneeOptions={assigneeOptions}
           onBulkComplete={fetchLeads}
         />

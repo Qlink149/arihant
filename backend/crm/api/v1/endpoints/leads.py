@@ -675,14 +675,39 @@ async def bulk_update_leads(
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
 ):
-    """Bulk assign and/or status-change leads (admin/manager only). Partial success."""
+    """Bulk assign and/or status-change leads. Admin/manager: org-wide.
+    general_manager (batch1 #33, SOP 3/7): Escalation Queue only - every lead
+    in the request must currently be escalated, or the whole request is
+    rejected (never a silent partial skip). Partial success otherwise."""
     role = (current_user.get("role") or "").lower()
-    if role not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Only admin or manager can bulk-update leads")
+    if role not in ("admin", "manager", "general_manager"):
+        raise HTTPException(
+            status_code=403,
+            detail="Only admin, manager, or general_manager can bulk-update leads",
+        )
 
     lead_ids = list(dict.fromkeys([lid for lid in req.lead_ids if (lid or "").strip()]))
     if not lead_ids:
         raise HTTPException(status_code=400, detail="lead_ids is required")
+
+    if role == "general_manager":
+        escalated_docs = await db.leads.find(
+            {"id": {"$in": lead_ids}}, {"_id": 0, "id": 1, "escalation": 1}
+        ).to_list(len(lead_ids))
+        escalated_ids = {
+            d["id"]
+            for d in escalated_docs
+            if isinstance(d.get("escalation"), dict) and d["escalation"].get("active") is True
+        }
+        not_escalated = [lid for lid in lead_ids if lid not in escalated_ids]
+        if not_escalated:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "general_manager can only bulk-update escalated leads; "
+                    f"not escalated or not found: {', '.join(not_escalated)}"
+                ),
+            )
     if len(lead_ids) > 200:
         raise HTTPException(status_code=400, detail="Maximum 200 leads per bulk update")
 
