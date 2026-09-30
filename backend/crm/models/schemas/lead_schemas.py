@@ -159,12 +159,15 @@ class LeadResponse(LeadBase):
     intake_spam: Optional[bool] = None
     context_updates: List[dict] = []
     escalation: Optional[Dict[str, Any]] = None
-    call_attempt_count_total: Optional[int] = None
-    call_attempt_count_outbound: Optional[int] = None
+    # batch2 item 5: three separate counts, never merged into one "total" -
+    # see crm/services/call_stats.py for why.
+    telephony_inbound: Optional[int] = None
+    telephony_outbound: Optional[int] = None
+    logged_by_agent: Optional[int] = None
     rnr_attempts_by_agent: Optional[Dict[str, int]] = None
-    rnr_telephony_by_agent: Optional[Dict[str, int]] = None
-    rnr_telephony_unattributed: Optional[int] = None
     rnr_attempts_total: Optional[int] = None
-    rnr_telephony_total: Optional[int] = None
+    rnr_telephony_inbound: Optional[int] = None
+    rnr_telephony_outbound: Optional[int] = None
+    rnr_calls_logged_by_agent: Optional[int] = None
     created_at: datetime
     updated_at: datetime

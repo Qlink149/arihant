@@ -1048,7 +1048,9 @@ const DigitalTwinPage = () => {
         <div className="rounded-lg border border-crm-border bg-crm-elevated p-3 text-xs text-crm-fg-secondary" data-testid="rnr-call-panel">
           <div className="font-semibold text-crm-fg mb-1">RNR stay — logged attempts vs telephony</div>
           <div>Logged attempts: {lead.rnr_attempts_total ?? 0}</div>
-          <div>Telephony (identified): {lead.rnr_telephony_total ?? 0}{lead.rnr_telephony_unattributed ? ` (+${lead.rnr_telephony_unattributed} unattributed)` : ''}</div>
+          <div>Inbound calls: {lead.rnr_telephony_inbound ?? 0}</div>
+          <div>Outbound calls (telephony): {lead.rnr_telephony_outbound ?? 0}</div>
+          <div>Calls logged by agent: {lead.rnr_calls_logged_by_agent ?? 0}</div>
           {lead.rnr_attempts_by_agent && Object.keys(lead.rnr_attempts_by_agent).length > 0 && (
             <div className="mt-1">
               {Object.entries(lead.rnr_attempts_by_agent).map(([name, n]) => (
@@ -1205,10 +1207,10 @@ const DigitalTwinPage = () => {
               <Clock className="text-[#C5A059]" size={16} />
               <h2 className="text-base font-semibold text-crm-fg">Context Updates Timeline</h2>
             </div>
-            {lead?.call_attempt_count_total != null && (
+            {lead?.telephony_inbound != null && (
               <p className="text-xs text-crm-fg-muted pl-6" data-testid="call-attempt-counts">
-                Call attempts: {lead.call_attempt_count_outbound ?? 0} outbound ·{' '}
-                {lead.call_attempt_count_total ?? 0} total
+                Inbound calls: {lead.telephony_inbound ?? 0} · Outbound calls (telephony):{' '}
+                {lead.telephony_outbound ?? 0} · Calls logged by agent: {lead.logged_by_agent ?? 0}
               </p>
             )}
           </div>
