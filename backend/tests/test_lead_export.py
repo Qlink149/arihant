@@ -81,6 +81,14 @@ def test_field_value_formats_dates_and_notes():
     assert "Second note" in _format_all_notes(lead)
 
 
+def test_field_value_location_list_and_legacy_scalar():
+    """batch3(item4): #51 - exports join a multi-select location list, and
+    still render a legacy pre-migration scalar string unchanged."""
+    assert _field_value({"location": ["OMR", "Anna Nagar"]}, "location") == "OMR; Anna Nagar"
+    assert _field_value({"location": "Chennai"}, "location") == "Chennai"
+    assert _field_value({}, "location") == ""
+
+
 def test_create_export_job_requires_admin():
     async def _run():
         with pytest.raises(HTTPException) as exc:

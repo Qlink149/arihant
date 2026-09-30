@@ -133,7 +133,12 @@ def is_vip_lead(lead: dict) -> bool:
 def generate_ai_persona(lead: dict) -> str:
     name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
     designation = lead.get("designation", "Professional")
-    location = lead.get("location", "Chennai")
+    # #51: location may be a legacy scalar string or the new multi-select list.
+    location_raw = lead.get("location", "Chennai")
+    if isinstance(location_raw, list):
+        location = ", ".join(str(x).strip() for x in location_raw if str(x).strip()) or "Chennai"
+    else:
+        location = location_raw or "Chennai"
     budget = lead.get("budget", "Not specified")
     intent = lead.get("intent", "Unknown")
     project = lead.get("project", "Not specified")

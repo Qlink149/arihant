@@ -1112,6 +1112,7 @@ async def import_csv(
             created_at_raw = _row_get(row, "Created at", "Created At")
             external_id = _row_get(row, "ID")
             unit_size = _row_get(row, "Unit Size", "Unit size", "Preferred Unit")
+            location_val = _row_get(row, "Location", "Location Interested")
             configuration = _row_get(row, "Configuration", "Apartment Type", "BHK")
             if not configuration and unit_size:
                 configuration = unit_size
@@ -1154,7 +1155,7 @@ async def import_csv(
                 "budget": _row_get(row, "Budget") or None,
                 "configuration": configuration or None,
                 "unit_size": unit_size or None,
-                "location": _row_get(row, "Location", "Location Interested") or None,
+                "location": [location_val] if location_val else None,
                 "ethnicity": _row_get(row, "Ethnicity") or None,
                 "designation": _row_get(row, "Designation") or None,
                 "reason_for_purchase": _row_get(row, "Reason For Purchase") or None,

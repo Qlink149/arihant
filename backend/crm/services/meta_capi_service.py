@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from crm.services.lead_location_fields import first_location
+
 from crm.core.state import (
     META_ACCESS_TOKEN,
     META_API_VERSION,
@@ -79,7 +81,7 @@ def build_payload(lead: dict, *, event_time: Optional[int] = None) -> Dict[str, 
     ph = hash_phone(_lead_phone(lead))
     fn = hash_field(lead.get("first_name"))
     ln = hash_field(lead.get("last_name"))
-    ct = hash_field(lead.get("location"))  # no city field; map city → location
+    ct = hash_field(first_location(lead))  # no city field; map city → location (#51: location may be a list)
 
     if em:
         user_data["em"] = [em]

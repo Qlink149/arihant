@@ -16,6 +16,7 @@ import {
 } from '../../constants/leadPicklists';
 import { formatDateTimeIST } from '../../utils/datetime';
 import { formatLeadProjects, getLeadProjects } from '../../utils/leadProjects';
+import { formatLeadLocations, getLeadLocations } from '../../utils/leadLocations';
 import { MultiSelectWithOther } from '../ui/MultiSelectWithOther';
 import {
   Accordion,
@@ -90,7 +91,7 @@ const FIELD_CONFIG = [
     apiKey: 'location',
     aiKey: null,
     type: 'location',
-    display: (lead) => lead.location || 'Not specified',
+    display: (lead) => formatLeadLocations(lead),
   },
   {
     id: 'purpose',
@@ -396,6 +397,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
   const [presetValue, setPresetValue] = useState('');
   const [otherText, setOtherText] = useState('');
   const [projectDraft, setProjectDraft] = useState([]);
+  const [locationDraft, setLocationDraft] = useState([]);
   const [saving, setSaving] = useState(false);
   const [locations, setLocations] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -432,21 +434,14 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
 
   useEffect(() => {
     if (!editingField || loadingOptions) return;
-    if (!['location', 'source', 'channel_partner'].includes(editingField.type)) return;
+    if (!['source', 'channel_partner'].includes(editingField.type)) return;
     const current = lead[editingField.apiKey] || '';
-    const options =
-      editingField.type === 'location'
-        ? locations
-        : editingField.type === 'project'
-          ? projects
-          : editingField.type === 'channel_partner'
-            ? channelPartners
-            : sources;
+    const options = editingField.type === 'channel_partner' ? channelPartners : sources;
     const next = resolveSelectWithOtherState(current, normalizeOptions(options));
     setSelectMode(next.mode);
     setPresetValue(next.presetValue);
     setOtherText(next.otherText);
-  }, [editingField, locations, projects, sources, channelPartners, loadingOptions, lead]);
+  }, [editingField, sources, channelPartners, loadingOptions, lead]);
 
   const openEdit = useCallback((field) => {
     if (field.readonly) return;
@@ -470,19 +465,22 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
       return;
     }
 
+    if (field.type === 'location') {
+      setLocationDraft(getLeadLocations(lead));
+      return;
+    }
+
     setDraftValue(current);
 
-    if (['budget', 'location', 'project', 'source', 'channel_partner'].includes(field.type)) {
+    if (['budget', 'project', 'source', 'channel_partner'].includes(field.type)) {
       const options =
         field.type === 'budget'
           ? BUDGET_RANGES
-          : field.type === 'location'
-            ? locations.length ? locations : mergePicklistWithApi(CANONICAL_LOCATIONS, [])
-            : field.type === 'project'
-              ? projects.length ? projects : mergePicklistWithApi(CANONICAL_PROJECTS, [])
-              : field.type === 'channel_partner'
-                ? channelPartners.length ? channelPartners : mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, [])
-                : sources.length ? sources : mergePicklistWithApi(CANONICAL_SOURCES, []);
+          : field.type === 'project'
+            ? projects.length ? projects : mergePicklistWithApi(CANONICAL_PROJECTS, [])
+            : field.type === 'channel_partner'
+              ? channelPartners.length ? channelPartners : mergePicklistWithApi(CANONICAL_CHANNEL_PARTNERS, [])
+              : sources.length ? sources : mergePicklistWithApi(CANONICAL_SOURCES, []);
       const next = resolveSelectWithOtherState(current, normalizeOptions(options));
       setSelectMode(next.mode);
       setPresetValue(next.presetValue);
@@ -492,7 +490,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
       setPresetValue('');
       setOtherText('');
     }
-  }, [lead, locations, projects, sources, channelPartners]);
+  }, [lead, projects, sources, channelPartners]);
 
   const closeEdit = () => {
     setEditingField(null);
@@ -507,7 +505,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
   const showAiSuggestion = aiSuggestion && aiSuggestion !== crmValue;
 
   const resolveSaveValue = () => {
-    if (editingField && ['budget', 'location', 'project', 'source', 'channel_partner'].includes(editingField.type)) {
+    if (editingField && ['budget', 'project', 'source', 'channel_partner'].includes(editingField.type)) {
       const value = resolveSelectWithOtherValue(selectMode, presetValue, otherText);
       return value || null;
     }
@@ -534,6 +532,10 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
         return;
       }
       value = next;
+    }
+    if (editingField.type === 'location') {
+      const next = Array.isArray(valueOverride) ? valueOverride : locationDraft;
+      value = next.length ? next : null;
     }
     setSaving(true);
     try {
@@ -568,16 +570,13 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
         );
       case 'location':
         return (
-          <NativeSelectWithOther
-            optionNames={picklistNames(locations)}
-            mode={selectMode}
-            presetValue={presetValue}
-            otherText={otherText}
-            onModeChange={setSelectMode}
-            onPresetChange={setPresetValue}
-            onOtherTextChange={setOtherText}
+          <MultiSelectWithOther
+            value={locationDraft}
+            onChange={setLocationDraft}
+            options={picklistNames(locations.length ? locations : mergePicklistWithApi(CANONICAL_LOCATIONS, []))}
             placeholder={loadingOptions ? 'Loading locations…' : 'Select location'}
             otherPlaceholder="Enter location"
+            loading={loadingOptions}
             disabled={loadingOptions}
           />
         );
@@ -707,7 +706,7 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
       lead?.project,
       lead?.budget,
       lead?.configuration,
-      lead?.location,
+      formatLeadLocations(lead, ''),
     ].filter((v) => v && v !== 'Not specified');
     return parts.slice(0, 3).join(' · ');
   }, [lead]);

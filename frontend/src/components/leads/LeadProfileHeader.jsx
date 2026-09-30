@@ -19,6 +19,7 @@ import { TemperatureBadge } from './TemperatureBadge';
 import { CrmBadge } from '../ui/CrmBadge';
 import { Button } from '../ui/button';
 import { formatLeadProjects } from '../../utils/leadProjects';
+import { formatLeadLocations } from '../../utils/leadLocations';
 import { useAuth } from '../../context/AuthContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
@@ -770,7 +771,7 @@ export function LeadProfileHeader({ lead, leadId, onLeadUpdated, compact = false
         </div>
         <div className="flex items-center gap-2 text-crm-fg-secondary">
           <MapPin size={16} className="text-[#C5A059]" />
-          <span>{lead.location || 'Not specified'}</span>
+          <span>{formatLeadLocations(lead)}</span>
         </div>
         <div className="flex items-center gap-2 text-crm-fg-secondary">
           <Home size={16} className="text-[#C5A059]" />

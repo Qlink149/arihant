@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,7 +31,6 @@ class LeadBase(BaseModel):
     budget: Optional[str] = None
     configuration: Optional[str] = None
     unit_size: Optional[str] = None
-    location: Optional[str] = None
     ethnicity: Optional[str] = None
     designation: Optional[str] = None
     reason_for_purchase: Optional[str] = None
@@ -42,6 +41,10 @@ class LeadBase(BaseModel):
     presales_description: Optional[str] = None
     next_action_date: Optional[str] = None
     assigned_user_id: Optional[str] = None
+    # batch3(item4): #51 multi-select. Accepts either shape so legacy leads
+    # (scalar string, pre-migration) and new leads (list) both validate —
+    # see crm/services/lead_location_fields.coalesce_locations for reads.
+    location: Optional[Union[str, List[str]]] = None
     assigned_to_name: Optional[str] = None
     visit_date_dt: Optional[datetime] = Field(default=None, description="Native BSON datetime for scheduled visits")
     site_visit_count: Optional[int] = 0
@@ -82,7 +85,7 @@ class LeadUpdatePatch(BaseModel):
     budget: Optional[str] = None
     configuration: Optional[str] = None
     unit_size: Optional[str] = None
-    location: Optional[str] = None
+    location: Optional[Union[str, List[str]]] = None
     ethnicity: Optional[str] = None
     designation: Optional[str] = None
     reason_for_purchase: Optional[str] = None

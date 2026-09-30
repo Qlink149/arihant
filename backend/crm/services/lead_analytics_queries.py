@@ -390,20 +390,23 @@ async def fetch_lead_filter_options(
         project_distribution_pipeline(merge_query_with_valid_projects(base), limit=project_limit)
     ).to_list(project_limit)
 
-    location_match: Dict[str, Any] = {
-        "location": {"$exists": True, "$nin": [None, ""], "$not": _INVALID_LOCATION_REGEX},
-    }
+    # #51: location may be a legacy scalar string or the new multi-select
+    # list. $unwind treats a scalar as a one-element array, so this pipeline
+    # produces one dropdown row per distinct location either way.
+    location_match: Dict[str, Any] = {"location": {"$exists": True, "$nin": [None, ""]}}
     if base:
         location_match = merge_query(base, location_match)
     location_pipeline = [
         {"$match": location_match},
+        {"$unwind": {"path": "$location", "preserveNullAndEmptyArrays": True}},
+        {"$addFields": {"location": {"$trim": {"input": {"$ifNull": ["$location", ""]}}}}},
+        {"$match": {"location": {"$ne": "", "$not": _INVALID_LOCATION_REGEX}}},
         {
             "$group": {
-                "_id": {"$trim": {"input": {"$ifNull": ["$location", ""]}}},
+                "_id": "$location",
                 "count": {"$sum": 1},
             }
         },
-        {"$match": {"_id": {"$ne": ""}}},
         {"$sort": {"count": -1}},
         {"$limit": location_limit},
     ]

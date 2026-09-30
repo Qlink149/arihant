@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from crm.core.state import get_current_user
 from crm.services.dashboard_scope import resolve_lead_view_or_403
+from crm.services.lead_location_fields import coalesce_locations
 
 
 router = APIRouter()
@@ -21,7 +22,9 @@ async def get_cross_pitch_suggestions(lead_id: str, current_user: dict = Depends
         "Mélange": {"min_budget": "2cr", "type": "3 & 4 BHK Homes", "location": "Saligramam"},
     }
 
-    loc = str(lead.get("location") or "").strip().lower()
+    # #51: location is a list (or a legacy scalar string) — matching any of
+    # the lead's locations is enough.
+    loc = " ".join(coalesce_locations(lead)).lower()
 
     for project, details in projects.items():
         if project.lower() != current_project.lower():

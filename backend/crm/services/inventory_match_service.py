@@ -6,6 +6,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from crm.core.state import db
+from crm.services.lead_location_fields import coalesce_locations
 
 INCOMPLETE_TAG = "preferences_incomplete"
 
@@ -20,10 +21,12 @@ def evaluate_lead_for_inventory(lead: dict, launch: dict) -> Tuple[bool, str, Li
     launch keys: budget, location, configuration (BHK), title, project
     """
     budget = _norm(lead.get("budget"))
-    location = _norm(lead.get("location") or lead.get("city"))
+    # #51: location is a list (or, pre-migration, a legacy scalar string) —
+    # a lead matches if ANY of its locations matches the launch location.
+    locations = coalesce_locations(lead) or ([_norm(lead.get("city"))] if lead.get("city") else [])
     bhk = _norm(lead.get("configuration") or lead.get("bhk"))
 
-    if not budget and not location and not bhk:
+    if not budget and not locations and not bhk:
         return False, "all_preferences_missing", []
 
     if not budget:
@@ -39,12 +42,12 @@ def evaluate_lead_for_inventory(lead: dict, launch: dict) -> Tuple[bool, str, Li
 
     launch_loc = _norm(launch.get("location"))
     if launch_loc:
-        if not location:
+        if not locations:
             warnings.append("location_missing_city_match_skipped")
             match = False
-        elif not _location_matches(location, launch_loc):
+        elif not any(_location_matches(loc, launch_loc) for loc in locations):
             match = False
-    elif not location:
+    elif not locations:
         warnings.append("location_missing")
 
     launch_bhk = _norm(launch.get("configuration"))

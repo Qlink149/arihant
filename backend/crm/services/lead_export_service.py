@@ -155,6 +155,9 @@ def _field_value(lead: dict, key: str) -> Any:
         if names:
             return format_projects_display(names)
         return lead.get("project") or ""
+    if key == "location":
+        from crm.services.lead_location_fields import coalesce_locations, format_locations_display
+        return format_locations_display(coalesce_locations(lead))
     raw = lead.get(key)
     if raw is None:
         return ""

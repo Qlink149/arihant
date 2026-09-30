@@ -71,6 +71,40 @@ def test_recent_note_imports_as_note_not_call():
     asyncio.run(_run())
 
 
+def test_location_column_imports_as_single_item_list():
+    """batch3(item4): #51 - location is stored as a list everywhere now, so a
+    CSV's single "Location Interested" column becomes a one-item list, not
+    a bare scalar string."""
+    async def _run():
+        db = _DummyDB()
+        csv_text = (
+            "First name,Last Name,Mobile,Status,Location Interested\n"
+            "Csv,Lead,8888888888,New,OMR"
+        )
+        with ExitStack() as stack:
+            _apply_patches(stack, db)
+            result = await import_csv(_Upload(csv_text), {"id": "u1", "full_name": "Admin"})
+
+        assert result["imported"] == 1
+        assert db.leads.inserted[0]["location"] == ["OMR"]
+
+    asyncio.run(_run())
+
+
+def test_blank_location_column_omits_field():
+    async def _run():
+        db = _DummyDB()
+        csv_text = "First name,Last Name,Mobile,Status\nCsv,Lead,8888888888,New"
+        with ExitStack() as stack:
+            _apply_patches(stack, db)
+            result = await import_csv(_Upload(csv_text), {"id": "u1", "full_name": "Admin"})
+
+        assert result["imported"] == 1
+        assert db.leads.inserted[0]["location"] is None
+
+    asyncio.run(_run())
+
+
 def test_unparseable_created_at_rejects_row_with_row_number_and_value():
     async def _run():
         db = _DummyDB()
