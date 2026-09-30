@@ -144,17 +144,14 @@ async def pending_task_due_lead_ids(
 
 
 def _follow_up_eligible_clause() -> dict:
-    """Active pipeline excluding terminal and Gone Cold (inactive bucket)."""
-    from crm.constants.lead_status import CLOSED_LEAD_STATUS_REGEX
+    """Any non-terminal lead (Junk, Unqualified, Closed Won, Closed Lost, Booked,
+    Advance Paid, Dropped remain excluded). batch1 #43: Gone Cold is no longer
+    special-cased out here - a Gone Cold lead's 30-day re-evaluation task now
+    surfaces it in Follow-up Today when due, exactly like any other status,
+    via the same next_action_date / pending-task-due-today mechanism below."""
+    from crm.constants.lead_status import terminal_exclusion_clause
 
-    return {
-        "lead_status": {
-            "$not": {
-                "$regex": rf"(?:{CLOSED_LEAD_STATUS_REGEX.pattern}|gone\s*cold)",
-                "$options": "i",
-            },
-        }
-    }
+    return {"lead_status": terminal_exclusion_clause()}
 
 
 def follow_up_today_clause(

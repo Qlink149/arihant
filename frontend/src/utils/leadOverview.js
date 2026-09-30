@@ -70,7 +70,9 @@ export const METRIC_LABELS = {
 
   leads_transferred: 'Leads transferred',
 
-  dormant: 'Dormant leads',
+  // batch1 #43: "dormant" removed - it was never a live drill-down (no
+  // metric spec ever set filters.metric to "dormant"), just a leftover
+  // label from the removed ?dormant=1 filter (see lead_list_query.py).
 
 };
 

@@ -2,6 +2,8 @@
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from crm.services.lead_analytics_queries import active_pipeline_filter
 from crm.services.lead_follow_up import follow_up_today_clause, missed_follow_up_clause
 from crm.services.lead_overview_service import (
@@ -103,10 +105,102 @@ def test_qualified_leads_alias_resolves_to_active_pipeline():
     assert metric_filter_for_key("qualified_leads", ctx) == metric_filter_for_key("active_pipeline", ctx)
 
 
-def test_follow_up_clauses_exclude_gone_cold():
+def test_follow_up_clauses_no_longer_special_case_gone_cold():
+    """batch1 #43: Gone Cold is not carved out of Follow-up Today/Missed
+    anymore - the 30-day re-evaluation task must be able to resurface it,
+    exactly like any other non-terminal status. Only genuine terminal
+    statuses (Junk, Unqualified, Closed*, Booked, Advance Paid, Dropped)
+    remain excluded."""
     ctx = build_metric_context({}, uid="u1", name="Rep", is_manager=False, now_dt=datetime(2026, 5, 26, 6, 30, 0, tzinfo=timezone.utc))
     today = follow_up_today_clause(ctx, [])
-    assert "gone" in str(today).lower() and "cold" in str(today).lower()
+    assert "gone" not in str(today).lower()
+    # Terminal exclusion (junk/unqualified/closed/booked/advance paid/dropped) still applies.
+    blob = str(today).lower()
+    assert "junk" in blob and "unqualified" in blob and "closed" in blob
+
+
+@pytest.mark.asyncio
+async def test_gone_cold_lead_with_task_due_today_appears_in_follow_up_today(monkeypatch):
+    """Accept criteria: a Gone Cold lead whose re-evaluation task is due
+    TODAY must match follow_up_today_clause; Junk/Closed leads never match
+    regardless of a due task; no lead matches both today and missed."""
+    from crm.services import lead_follow_up as lfu
+
+    ctx = build_metric_context(
+        {}, uid="u1", name="Rep", is_manager=False,
+        now_dt=datetime(2026, 5, 26, 6, 30, 0, tzinfo=timezone.utc),
+    )
+
+    def matches(lead: dict, clause: dict) -> bool:
+        """Minimal in-Python evaluator for the small subset of Mongo
+        operators these clauses use, so we can assert against real
+        lead-shaped dicts without a live Mongo."""
+        import re as _re
+
+        def _status_ok(cond):
+            if "$not" in cond:
+                inner = cond["$not"]
+                return not _re.search(inner["$regex"], lead.get("lead_status") or "", _re.IGNORECASE)
+            raise AssertionError("unexpected status clause shape")
+
+        def _eval(c):
+            if "$and" in c:
+                return all(_eval(p) for p in c["$and"])
+            if "$or" in c:
+                return any(_eval(p) for p in c["$or"])
+            if "$nor" in c:
+                return not any(_eval(p) for p in c["$nor"])
+            if "lead_status" in c:
+                return _status_ok(c["lead_status"])
+            if "next_action_date" in c:
+                cond = c["next_action_date"]
+                nad = lead.get("next_action_date")
+                if isinstance(cond, str):
+                    return nad == cond
+                if "$lt" in cond:
+                    if nad in (None, ""):
+                        return False
+                    return nad < cond["$lt"]
+                raise AssertionError("unexpected next_action_date clause")
+            if "id" in c:
+                return lead.get("id") in c["id"]["$in"]
+            raise AssertionError(f"unhandled clause: {c}")
+
+        return _eval(clause)
+
+    gone_cold_due_today = {"id": "gc-1", "lead_status": "Gone Cold", "next_action_date": None}
+    gone_cold_not_due = {"id": "gc-2", "lead_status": "Gone Cold", "next_action_date": None}
+    junk_with_task = {"id": "junk-1", "lead_status": "Junk", "next_action_date": None}
+    closed_with_task = {"id": "closed-1", "lead_status": "Closed Lost", "next_action_date": None}
+
+    # Realistic caller shape: a lead's task is either due-today or overdue,
+    # never both, so it appears in exactly one of these two id lists - this
+    # is what actually keeps the two queues mutually exclusive.
+    due_today_ids = ["gc-1", "junk-1", "closed-1"]
+    overdue_ids: list[str] = []
+
+    today_clause = lfu.follow_up_today_clause(
+        ctx, task_lead_ids=due_today_ids, missed_task_lead_ids=overdue_ids,
+    )
+    missed_clause = lfu.missed_follow_up_clause(ctx, task_lead_ids=overdue_ids)
+
+    assert matches(gone_cold_due_today, today_clause) is True
+    assert matches(gone_cold_not_due, today_clause) is False
+    assert matches(junk_with_task, today_clause) is False
+    assert matches(closed_with_task, today_clause) is False
+
+    # Mutual exclusivity: gc-1's task is due TODAY (not overdue), so it must
+    # not also show up in Missed Follow-ups.
+    assert matches(gone_cold_due_today, missed_clause) is False
+
+    # And the reverse: an overdue Gone Cold lead appears in Missed, not Today.
+    gone_cold_overdue = {"id": "gc-3", "lead_status": "Gone Cold", "next_action_date": None}
+    today_clause_2 = lfu.follow_up_today_clause(
+        ctx, task_lead_ids=[], missed_task_lead_ids=["gc-3"],
+    )
+    missed_clause_2 = lfu.missed_follow_up_clause(ctx, task_lead_ids=["gc-3"])
+    assert matches(gone_cold_overdue, today_clause_2) is False
+    assert matches(gone_cold_overdue, missed_clause_2) is True
 
 
 def test_follow_up_clauses_union_task_lead_ids():
