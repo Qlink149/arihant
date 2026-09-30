@@ -1482,13 +1482,14 @@ ADMIN_WA_ASSIGNEE_EMAIL = "roshni@arihantspaces.com"
 
 
 async def resolve_admin_wa_assignee() -> Optional[dict]:
-    """Resolve Admin user for WhatsApp unknown-lead assignment (full_name == Admin)."""
-    admin = await db.users.find_one(
-        {"full_name": ADMIN_WA_ASSIGNEE_NAME},
-        {"_id": 0, "id": 1, "full_name": 1, "email": 1},
-    )
-    if admin and admin.get("id"):
-        return admin
+    """Resolve Admin user for WhatsApp unknown-lead assignment.
+
+    batch3(item5): rename-readiness — this used to look up by
+    full_name == "Admin" first, which would silently stop matching if that
+    account's display name changes. Email is the stable identity (same
+    convention as project_assignment_pools.ROSHNI_EMAIL); ADMIN_WA_ASSIGNEE_NAME
+    stays only as a display-text fallback (see below), never as a lookup key.
+    """
     admin = await db.users.find_one(
         {"email": {"$regex": f"^{re.escape(ADMIN_WA_ASSIGNEE_EMAIL)}$", "$options": "i"}},
         {"_id": 0, "id": 1, "full_name": 1, "email": 1},
