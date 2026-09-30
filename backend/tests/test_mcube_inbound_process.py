@@ -316,3 +316,63 @@ async def _connecting_partial_does_not_assign_lead():
 
     assert result.get("timeline_written") is False
     assign_mock.assert_not_awaited()
+
+
+# batch2 item 2 (SOP 2.2): an inbound call must never clear an escalation.
+# T10 already gates crm/services/mcube/process.py's escalation-clear call
+# behind `direction == "outbound"` (verified by reading the code) - this
+# proves it against the real inbound-hangup fixture, which is finalized
+# (ANSWERED) and would otherwise be a prime candidate for clearing.
+
+
+def test_inbound_mcube_call_never_clears_escalation():
+    asyncio.run(_inbound_mcube_call_never_clears_escalation())
+
+
+async def _inbound_mcube_call_never_clears_escalation():
+    payload = _fixture_payload()  # real inbound, ANSWERED, is_finalized fixture
+    lead = {
+        "id": "lead-esc-1",
+        "first_name": "Cust",
+        "last_name": "One",
+        "lead_status": "RNR",
+        "assigned_user_id": "owner-1",
+        "assigned_to": "Owner",
+        "escalation": {"active": True, "reasons": []},
+        "context_updates": [],
+    }
+    user = {
+        "id": "agent-1",
+        "full_name": "Malathy",
+        "email": "malathy@arihants.co.in",
+    }
+
+    mock_db = MagicMock()
+    mock_db.calls.find_one = AsyncMock(return_value=None)
+    mock_db.calls.insert_one = AsyncMock()
+    mock_db.calls.update_one = AsyncMock()
+    mock_db.leads.find_one = AsyncMock(return_value={**lead, "context_updates": []})
+    mock_db.leads.update_one = AsyncMock()
+    mock_db.lead_events.insert_one = AsyncMock()
+    mock_db.notifications.find_one = AsyncMock(return_value=None)
+    mock_db.notifications.insert_one = AsyncMock()
+
+    clear_escalation = AsyncMock()
+
+    with (
+        patch("crm.services.mcube.process.MCUBE_ENABLED", True),
+        patch("crm.services.mcube.process.match_lead_by_customer_phone", AsyncMock(return_value=(lead, "phone_primary", [lead["id"]]))),
+        patch("crm.services.mcube.process.match_user_by_agent", AsyncMock(return_value=user)),
+        patch("crm.services.mcube.process.apply_mcube_inbound_assignment", AsyncMock(return_value=True)),
+        patch("crm.services.mcube.calls.db", mock_db),
+        patch("crm.services.mcube.timeline.db", mock_db),
+        patch("crm.services.mcube.process.db", mock_db),
+        patch("crm.services.lead_events.db", mock_db),
+        patch("crm.services.notification_service.db", mock_db),
+        patch("crm.services.notification_service.notifications_stream.publish", AsyncMock()),
+        patch("crm.services.escalation_queue.clear_escalation_if_active", clear_escalation),
+    ):
+        result = await _process_inbound_payload(payload, event_id="evt-esc-1")
+
+    assert result["ok"] is True
+    clear_escalation.assert_not_awaited()

@@ -134,6 +134,90 @@ def test_activity_counts_note_call_status_outcome():
     assert has_agent_activity_since(_lead_with_updates(outcome), SINCE)
 
 
+# batch2 item 2 (SOP 2.2): inbound customer calls are never agent activity.
+
+
+def _mcube_call_entry(direction, status="ANSWERED", actor_user_id="u-anusha", agent="Anusha Omprakash"):
+    return {
+        "type": "call",
+        "timestamp_dt": LATER,
+        "actor_user_id": actor_user_id,
+        "agent": agent,
+        "mcube_call_id": "call-123",
+        "direction": direction,
+        "call_status": status,
+    }
+
+
+def test_inbound_mcube_call_answered_is_not_activity():
+    entry = _mcube_call_entry("inbound", status="ANSWERED")
+    assert has_agent_activity_since(_lead_with_updates(entry), SINCE) is False
+
+
+def test_inbound_mcube_call_cancelled_is_not_activity():
+    """15 of 43 MCUBE calls in production are CANCELLED - a customer ringing
+    and hanging up must not reset any SLA timer."""
+    entry = _mcube_call_entry("inbound", status="CANCELLED")
+    assert has_agent_activity_since(_lead_with_updates(entry), SINCE) is False
+
+
+def test_inbound_mcube_call_voicemail_is_not_activity():
+    entry = _mcube_call_entry("inbound", status="VOICEMAIL")
+    assert has_agent_activity_since(_lead_with_updates(entry), SINCE) is False
+
+
+def test_mcube_call_missing_or_malformed_direction_fails_safe_as_inbound():
+    """A missing/garbled direction on an MCUBE entry must never accidentally
+    count as agent activity - only an explicit "outbound" counts."""
+    entry = _mcube_call_entry("")
+    assert has_agent_activity_since(_lead_with_updates(entry), SINCE) is False
+    entry2 = dict(_mcube_call_entry("inbound"))
+    del entry2["direction"]
+    assert has_agent_activity_since(_lead_with_updates(entry2), SINCE) is False
+
+
+def test_outbound_mcube_call_is_activity():
+    """Future-proofing: an outbound MCUBE entry (none exist today) must
+    still count, exactly like before this fix."""
+    entry = _mcube_call_entry("outbound")
+    assert has_agent_activity_since(_lead_with_updates(entry), SINCE) is True
+
+
+def test_outbound_mcube_call_direction_case_insensitive():
+    entry = _mcube_call_entry("Outbound")
+    assert has_agent_activity_since(_lead_with_updates(entry), SINCE) is True
+
+
+def test_typed_call_note_unaffected_by_mcube_filter():
+    """A plain agent-typed call note has no mcube_call_id and must still
+    count exactly as before."""
+    note = {
+        "type": "call_note",
+        "update_type": "call_note",
+        "timestamp_dt": LATER,
+        "actor_user_id": "u-anusha",
+        "agent": "Anusha Omprakash",
+    }
+    assert has_agent_activity_since(_lead_with_updates(note), SINCE) is True
+
+
+def test_manual_call_summary_endpoint_entry_unaffected():
+    """crm/api/v1/endpoints/call_summary.py's add_call_summary entry has no
+    mcube_call_id at all - it's an agent explicitly logging a call through
+    the UI, not MCUBE telephony - and must still count as activity."""
+    manual_call_summary_entry = {
+        "type": "call",
+        "timestamp_dt": LATER,
+        "actor_user_id": "u-anusha",
+        "agent": "Anusha Omprakash",
+        "intent_level": "high",
+        "key_points": [],
+        "next_steps": None,
+        "transcript": "",
+    }
+    assert has_agent_activity_since(_lead_with_updates(manual_call_summary_entry), SINCE) is True
+
+
 def test_activity_ignores_system_whatsapp_assign_and_other_agent():
     ack = {
         "type": "whatsapp",

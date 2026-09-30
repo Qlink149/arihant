@@ -54,6 +54,22 @@ def _is_assigned_agent(entry: dict, lead: dict) -> bool:
     return False
 
 
+def _is_inbound_mcube_call(entry: dict) -> bool:
+    """batch2 item 2 (SOP 2.2): an inbound customer call is never agent
+    activity, regardless of call status (answered, cancelled, voicemail) -
+    activity is a call made THROUGH TELEPHONY BY AN AGENT. Any MCUBE entry
+    (identified by mcube_call_id) whose direction is not explicitly
+    "outbound" is treated as inbound/non-activity, so a malformed or missing
+    direction field fails safe (excluded) rather than silently counting.
+    Typed call notes (update_type == "call_note") never carry mcube_call_id
+    and are unaffected. An MCUBE entry with direction == "outbound" (none
+    exist today) counts as activity, same as before."""
+    if not entry.get("mcube_call_id"):
+        return False
+    direction = str(entry.get("direction") or "").strip().lower()
+    return direction != "outbound"
+
+
 def _updated_fields(entry: dict) -> set:
     fields = set()
     for change in entry.get("changes") or []:
@@ -93,6 +109,8 @@ def has_agent_activity_since(lead: dict, since_dt) -> bool:
         if etype == "logged_outcome":
             return True
         if etype == "call" or update_type == "call_note":
+            if _is_inbound_mcube_call(entry):
+                continue
             return True
         if etype == "note" or update_type == "general_note":
             return True
