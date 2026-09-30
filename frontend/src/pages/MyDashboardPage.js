@@ -281,24 +281,37 @@ const MyDashboardPage = () => {
   }, [canSwitchRep]);
 
   useEffect(() => {
-    const init = async () => {
+    // batch2 item 3 (#56 hardening): getData/getReps and fetchOverview run
+    // independently now - a transient failure in one must never prevent the
+    // other from loading. Previously they shared one try/catch, so if
+    // getData/getReps rejected, fetchOverview() was skipped entirely and the
+    // overview stayed empty forever (indistinguishable from "no leads").
+    // Also re-runs when the authenticated user changes, so this doesn't
+    // depend on the auth session being fully resolved on the very first
+    // render.
+    let cancelled = false;
+    const loadDashData = async () => {
       try {
         const [dashRes, repsRes] = await Promise.all([
           myDashboardAPI.getData(),
           myDashboardAPI.getReps(),
         ]);
+        if (cancelled) return;
         setData(dashRes.data);
         setReps(repsRes.data || []);
-        await fetchOverview();
       } catch {
-        toast.error('Failed to load dashboard');
+        if (!cancelled) toast.error('Failed to load dashboard');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-    init();
+    loadDashData();
+    fetchOverview();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (loading) return;
