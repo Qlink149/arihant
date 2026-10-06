@@ -999,6 +999,15 @@ async def _preflight_public_url(url: str) -> tuple:
         return False, f"PDF URL not reachable: {e}"
 
 
+def _wati_contact_name(lead: Optional[dict]) -> str:
+    """Customer name for the WATI contact, or "" when the lead has none (never the agent's name)."""
+    if not lead:
+        return ""
+    first = (lead.get("first_name") or "").strip()
+    last = (lead.get("last_name") or "").strip()
+    return f"{first} {last}".strip() or (lead.get("name") or "").strip()
+
+
 async def _wati_ensure_contact(phone: str, name: str) -> None:
     """
     Create or update a WATI contact before first outbound message.
@@ -1321,7 +1330,7 @@ async def _is_session_open(phone: str) -> bool:
         return False
 
 
-async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
+async def _wati_send(message: WhatsAppMessage, current_user: dict, contact_name: Optional[str] = None) -> dict:
     """
     Core WATI send dispatcher.
     - If template_name provided → template send (works any time)
@@ -1335,8 +1344,10 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict) -> dict:
     if not WATI_API_TOKEN:
         return {"success": False, "error": "WhatsApp not available — WATI token not configured on server"}
 
-    lead_name = current_user.get("full_name", "")  # fallback; send_to_lead passes lead context
-    await _wati_ensure_contact(phone, lead_name or phone)
+    # Only the customer's name may be written to the WATI contact. Without one we skip
+    # addContact entirely — the sender's name (agent / "System Auto-Ack") must never land there.
+    if (contact_name or "").strip():
+        await _wati_ensure_contact(phone, contact_name.strip())
 
     now_dt = utc_now()
     now_iso = iso_utc_now()
@@ -1778,11 +1789,27 @@ async def get_templates() -> dict:
     }
 
 
-async def send_message(message: WhatsAppMessage, current_user: dict) -> dict:
+async def contact_name_for_phone(phone: str) -> str:
+    """Best-effort customer name for a bare phone (no lead_id on the request); "" if no lead matches."""
+    try:
+        normalized = normalize_phone(phone or "")
+        if len(normalized) != 10:
+            return ""
+        lead = await db.leads.find_one(
+            {"normalized_phone": normalized},
+            {"_id": 0, "first_name": 1, "last_name": 1, "name": 1},
+        )
+        return _wati_contact_name(lead)
+    except Exception as e:
+        logger.warning(f"contact_name_for_phone failed for {phone}: {e}")
+        return ""
+
+
+async def send_message(message: WhatsAppMessage, current_user: dict, contact_name: Optional[str] = None) -> dict:
     if WHATSAPP_PROVIDER == "disabled":
         return {"success": False, "error": "WhatsApp is not enabled on this server"}
     if WHATSAPP_PROVIDER == "wati":
-        return await _wati_send(message, current_user)
+        return await _wati_send(message, current_user, contact_name=contact_name)
     return {"success": False, "error": f"Unknown WHATSAPP_PROVIDER: {WHATSAPP_PROVIDER}"}
 
 
@@ -1794,7 +1821,7 @@ async def send_to_lead(lead_id: str, message: WhatsAppMessage, current_user: dic
     if not message.destination:
         message.destination = lead.get("phone", "")
 
-    result = await send_message(message, current_user)
+    result = await send_message(message, current_user, contact_name=_wati_contact_name(lead))
 
     if result.get("success"):
         now_dt = utc_now()
@@ -2578,7 +2605,7 @@ async def send_lead_ack(lead_id: str, lead: dict) -> dict:
             destination=phone,
             template_name="arihant_new_lead_ack_v1",
             template_parameters=[
-                {"name": "1", "value": lead.get("first_name") or lead.get("name", "Customer")},
+                {"name": "1", "value": lead.get("first_name") or lead.get("name") or "Customer"},
                 {"name": "2", "value": primary_project_label(lead) or "Arihant Spaces"},
             ]
         )
@@ -2635,8 +2662,9 @@ async def send_attachment_to_lead(
             ),
         }
 
-    lead_name = lead.get("first_name") or lead.get("name") or phone
-    await _wati_ensure_contact(phone, lead_name)
+    contact_name = _wati_contact_name(lead)
+    if contact_name:
+        await _wati_ensure_contact(phone, contact_name)
 
     caption_clean = (caption or "").strip() or None
     resp = await _wati_send_session_file(
@@ -2762,7 +2790,7 @@ async def send_pricing(lead_id: str, current_user: dict, project: Optional[str] 
         destination=lead.get("phone", ""),
         template_name="arihant_pricing_v1",
         template_parameters=[
-            {"name": "1", "value": lead.get("first_name") or lead.get("name", "Customer")},
+            {"name": "1", "value": lead.get("first_name") or lead.get("name") or "Customer"},
             {"name": "2", "value": project_label or "Arihant Spaces"},
             {"name": "3", "value": price_str},
         ]

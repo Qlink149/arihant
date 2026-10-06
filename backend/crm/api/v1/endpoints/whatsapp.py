@@ -63,7 +63,8 @@ async def get_whatsapp_templates(current_user: dict = Depends(get_current_user))
 
 @router.post("/whatsapp/send")
 async def send_whatsapp_message(message: WhatsAppMessage, current_user: dict = Depends(get_current_user)):
-    return await whatsapp_service.send_message(message, current_user)
+    contact_name = await whatsapp_service.contact_name_for_phone(message.destination)
+    return await whatsapp_service.send_message(message, current_user, contact_name=contact_name)
 
 
 @router.post("/whatsapp/send-to-lead/{lead_id}")

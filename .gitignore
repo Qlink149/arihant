@@ -124,3 +124,6 @@ BASE_CRM_ARCHITECTURE.md
 SCOPE_OF_WORK.md
 WHATSAPP_BOT_DOCS.md
 
+
+# WATI name-restore backups/reports (contain customer names + phones)
+backend/scripts/backups/
