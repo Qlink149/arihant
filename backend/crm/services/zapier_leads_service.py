@@ -31,6 +31,15 @@ _BUDGET_KEYS = ("budget",)
 _VISIT_KEYS = ("site visit preference", "schedule_visit", "site_visit_preference")
 _CREATED_AT_KEYS = ("created at", "created_at", "created_time")
 _FULL_NAME_KEYS = ("full name", "full_name", "fullname")
+# Meta ad attribution - not sent by Zapier's standard "New Lead" trigger
+# today; these cover plausible field names if/once a lookup step is added
+# to the Zap itself (see docs - this cannot be fixed from this side alone).
+_CAMPAIGN_ID_KEYS = ("campaign id", "campaign_id", "ad.campaign.id", "campaignid")
+_CAMPAIGN_NAME_KEYS = ("campaign name", "campaign_name", "ad.campaign.name")
+_ADSET_ID_KEYS = ("adset id", "adset_id", "ad_set_id", "ad.adset.id")
+_ADSET_NAME_KEYS = ("adset name", "adset_name", "ad_set_name", "ad.adset.name")
+_AD_ID_KEYS = ("ad id", "ad_id", "ad.id")
+_AD_NAME_KEYS = ("ad name", "ad_name", "ad.name")
 
 
 def verify_webhook_secret(
@@ -134,6 +143,12 @@ def map_zap_payload_to_intake(
     budget = _lookup(fields, _BUDGET_KEYS)
     visit = _lookup(fields, _VISIT_KEYS)
     created_at = _lookup(fields, _CREATED_AT_KEYS)
+    campaign_id = _lookup(fields, _CAMPAIGN_ID_KEYS)
+    campaign_name = _lookup(fields, _CAMPAIGN_NAME_KEYS)
+    adset_id = _lookup(fields, _ADSET_ID_KEYS)
+    adset_name = _lookup(fields, _ADSET_NAME_KEYS)
+    ad_id = _lookup(fields, _AD_ID_KEYS)
+    ad_name = _lookup(fields, _AD_NAME_KEYS)
 
     meta: Dict[str, Any] = {
         "leadgen_id": leadgen_id,
@@ -142,6 +157,18 @@ def map_zap_payload_to_intake(
     }
     if created_at:
         meta["created_at"] = created_at
+    if campaign_id:
+        meta["campaign_id"] = campaign_id
+    if campaign_name:
+        meta["campaign_name"] = campaign_name
+    if adset_id:
+        meta["adset_id"] = adset_id
+    if adset_name:
+        meta["adset_name"] = adset_name
+    if ad_id:
+        meta["ad_id"] = ad_id
+    if ad_name:
+        meta["ad_name"] = ad_name
 
     body: Dict[str, Any] = {
         "first_name": first or "Unknown",

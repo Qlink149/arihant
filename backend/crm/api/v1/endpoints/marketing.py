@@ -1,13 +1,21 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from crm.core.state import db, get_current_user, iso_utc_now, utc_now
 
 
 router = APIRouter()
+
+
+def _require_admin(user: dict) -> None:
+    """SOP v3.1 §3: Marketing is Admin-only. Was frontend-only (AdminRoute);
+    these endpoints had no server-side check at all until this."""
+    role = (user.get("role") or "").strip().lower()
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
 
 
 class MarketingSpendEntry(BaseModel):
@@ -25,6 +33,7 @@ class MarketingSpendEntry(BaseModel):
 
 @router.post("/marketing/spends")
 async def add_marketing_spend(entry: MarketingSpendEntry, current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
     doc = entry.dict()
     doc["id"] = str(uuid.uuid4())
     now_dt = utc_now()
@@ -43,6 +52,7 @@ async def add_marketing_spend(entry: MarketingSpendEntry, current_user: dict = D
 
 @router.get("/marketing/spends")
 async def get_marketing_spends(project: Optional[str] = None, period: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
     query = {}
     if project:
         query["project"] = project
@@ -54,6 +64,7 @@ async def get_marketing_spends(project: Optional[str] = None, period: Optional[s
 
 @router.get("/marketing/dashboard")
 async def get_marketing_dashboard(current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
     spends = await db.marketing_spends.find({}, {"_id": 0}).to_list(1000)
 
     by_project = {}
@@ -103,6 +114,7 @@ async def get_marketing_dashboard(current_user: dict = Depends(get_current_user)
 
 @router.delete("/marketing/spends/{spend_id}")
 async def delete_marketing_spend(spend_id: str, current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
     await db.marketing_spends.delete_one({"id": spend_id})
     return {"message": "Spend entry deleted"}
 

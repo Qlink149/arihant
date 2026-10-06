@@ -269,6 +269,78 @@ async def test_create_new_lead_zapier_meta_actor(monkeypatch):
     assert inserted["project_id"] == "mira"
 
 
+@pytest.mark.asyncio
+async def test_create_new_lead_promotes_meta_campaign_attribution(monkeypatch):
+    """If the intake payload's meta dict carries campaign/adset/ad ids (once
+    Zapier is configured to forward them), _create_new_lead must promote
+    them to top-level fields - same style as channel_partner."""
+    mock_db = MagicMock()
+    mock_db.leads.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.assignment_router.route_new_lead", new_callable=AsyncMock):
+        with patch("crm.services.whatsapp_service.send_lead_ack", new_callable=AsyncMock):
+            await intake._create_new_lead(
+                {
+                    "first_name": "Lydia",
+                    "last_name": "Robert",
+                    "email": "a@b.com",
+                    "phone": "999",
+                    "budget": None,
+                    "schedule_visit": None,
+                    "consent": True,
+                    "meta": {
+                        "via": "zapier",
+                        "campaign_id": "120250129831400549",
+                        "campaign_name": "Mira Lead Gen",
+                        "adset_id": "120250129831440549",
+                        "adset_name": "Broad Interest-HNI",
+                        "ad_id": "120250130279250549",
+                        "ad_name": "Video-Launch",
+                    },
+                    "intake_spam": False,
+                },
+                api_key={"id": "zapier-meta:mira", "project_name": "Mira", "project_id": "mira"},
+                source="Facebook Lead Form",
+            )
+    inserted = mock_db.leads.insert_one.await_args.args[0]
+    assert inserted["campaign_id"] == "120250129831400549"
+    assert inserted["campaign_name"] == "Mira Lead Gen"
+    assert inserted["adset_id"] == "120250129831440549"
+    assert inserted["adset_name"] == "Broad Interest-HNI"
+    assert inserted["ad_id"] == "120250130279250549"
+    assert inserted["ad_name"] == "Video-Launch"
+
+
+@pytest.mark.asyncio
+async def test_create_new_lead_without_campaign_attribution_unaffected(monkeypatch):
+    """Regression safety: Webflow/API-key/Channel-Partner callers that never
+    send campaign/adset/ad meta keys must not get these fields fabricated."""
+    mock_db = MagicMock()
+    mock_db.leads.insert_one = AsyncMock()
+    monkeypatch.setattr(intake, "db", mock_db)
+
+    with patch("crm.services.assignment_router.route_new_lead", new_callable=AsyncMock):
+        with patch("crm.services.whatsapp_service.send_lead_ack", new_callable=AsyncMock):
+            await intake._create_new_lead(
+                {
+                    "first_name": "Priya",
+                    "last_name": "S",
+                    "email": "priya@example.com",
+                    "phone": "888",
+                    "budget": None,
+                    "schedule_visit": None,
+                    "consent": True,
+                    "meta": {"via": "zapier"},
+                    "intake_spam": False,
+                },
+                api_key={"id": "zapier-meta:mira", "project_name": "Mira", "project_id": "mira"},
+                source="Facebook Lead Form",
+            )
+    inserted = mock_db.leads.insert_one.await_args.args[0]
+    for key in ("campaign_id", "campaign_name", "adset_id", "adset_name", "ad_id", "ad_name"):
+        assert key not in inserted
+
 
 def test_match_query_phone_only_is_global():
     q = intake._match_query("melange", "a@b.com", "9198", phone_only=True, require_project_id=False)

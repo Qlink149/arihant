@@ -91,6 +91,12 @@ META_ACCESS_TOKEN = os.environ.get("META_ACCESS_TOKEN", "")
 META_API_VERSION = os.environ.get("META_API_VERSION", "v21.0")
 META_TEST_EVENT_CODE = os.environ.get("META_TEST_EVENT_CODE", "")
 
+# Meta Marketing API (Ads Insights) — daily Campaign/AdSet/Ad sync. Separate
+# credential from META_ACCESS_TOKEN above (that one is CAPI-only, ads_read
+# is a different permission on a different token).
+META_ADS_ACCESS_TOKEN = os.environ.get("META_ADS_ACCESS_TOKEN", "")
+META_ADS_ACCOUNT_IDS = [a.strip() for a in os.environ.get("META_ADS_ACCOUNT_IDS", "").split(",") if a.strip()]
+
 # Meta Instant Form → Zapier → CRM (inbound). Form ID → project.
 # Outbound CRM → Meta is CAPI above (META_ACCESS_TOKEN / META_DATASET_ID).
 
@@ -505,6 +511,23 @@ async def ensure_db_indexes():
         await db.meta_capi_logs.create_index(
             [("event_id", 1)],
             name="meta_capi_logs_eventId",
+        )
+
+        # meta_ads_daily_metrics — one doc per (account_id, level, entity_id, date)
+        await db.meta_ads_daily_metrics.create_index(
+            [("account_id", 1), ("level", 1), ("entity_id", 1), ("date", 1)],
+            unique=True,
+            name="meta_ads_daily_metrics_entity_date_uq",
+        )
+        await db.meta_ads_daily_metrics.create_index(
+            [("resolved_project", 1), ("date", 1)],
+            name="meta_ads_daily_metrics_project_date",
+        )
+
+        # meta_ads_sync_logs — daily sync job audit (one doc per run)
+        await db.meta_ads_sync_logs.create_index(
+            [("started_at_dt", -1)],
+            name="meta_ads_sync_logs_startedAtDt",
         )
 
         # zapier_leads_logs — inbound Meta→Zapier webhook audit

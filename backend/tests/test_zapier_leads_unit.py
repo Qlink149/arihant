@@ -90,6 +90,43 @@ def test_map_zap_client_field_names():
     assert body["meta"]["created_at"] == "2026-08-13T10:00:00+05:30"
 
 
+def test_map_zap_campaign_attribution_absent_by_default():
+    """Today's standard Zapier Meta trigger doesn't send these - meta must
+    not contain campaign/adset/ad keys unless the payload actually has them."""
+    body = zls.map_zap_payload_to_intake(
+        {"Form ID": "1", "First Name": "A", "Phone Number": "9000000000"},
+        leadgen_id="lg1",
+        form_id="1",
+    )
+    for key in ("campaign_id", "campaign_name", "adset_id", "adset_name", "ad_id", "ad_name"):
+        assert key not in body["meta"]
+
+
+def test_map_zap_campaign_attribution_captured_when_present():
+    """If/once a Zap lookup step adds these fields, they must flow into meta."""
+    body = zls.map_zap_payload_to_intake(
+        {
+            "Form ID": "1",
+            "First Name": "A",
+            "Phone Number": "9000000000",
+            "Campaign ID": "120250129831400549",
+            "Campaign Name": "Mira Lead Gen",
+            "Adset ID": "120250129831440549",
+            "Adset Name": "Broad Interest-HNI",
+            "Ad ID": "120250130279250549",
+            "Ad Name": "Video-Launch",
+        },
+        leadgen_id="lg1",
+        form_id="1",
+    )
+    assert body["meta"]["campaign_id"] == "120250129831400549"
+    assert body["meta"]["campaign_name"] == "Mira Lead Gen"
+    assert body["meta"]["adset_id"] == "120250129831440549"
+    assert body["meta"]["adset_name"] == "Broad Interest-HNI"
+    assert body["meta"]["ad_id"] == "120250130279250549"
+    assert body["meta"]["ad_name"] == "Video-Launch"
+
+
 def test_map_zap_duplicate_full_name_split():
     body = zls.map_zap_payload_to_intake(
         {

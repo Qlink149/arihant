@@ -70,3 +70,12 @@ async def process_mcube_events_cron(authorization: str | None = Header(default=N
     from crm.services.mcube.process import process_pending_mcube_events
 
     return await process_pending_mcube_events()
+
+
+@router.post("/sync-meta-ads")
+async def sync_meta_ads_cron(authorization: str | None = Header(default=None)):
+    """Daily Campaign/AdSet/Ad performance pull from Meta (trailing 30-day window)."""
+    _verify_cron_secret(authorization)
+    from crm.services.meta_ads_sync_service import sync_daily_meta_ads
+
+    return await sync_daily_meta_ads()

@@ -277,6 +277,13 @@ export const marketingAPI = {
   deleteSpend: (id) => api.delete(`/marketing/spends/${id}`),
 };
 
+// Meta Ads API (daily-synced Campaign/AdSet/Ad performance)
+export const metaAdsAPI = {
+  getDashboard: (params) => api.get('/meta-ads/dashboard', { params }),
+  getCampaigns: (params) => api.get('/meta-ads/campaigns', { params }),
+  getLastSync: () => api.get('/meta-ads/last-sync'),
+};
+
 // Reminders API
 export const remindersAPI = {
   getRules: () => api.get('/reminders/rules'),

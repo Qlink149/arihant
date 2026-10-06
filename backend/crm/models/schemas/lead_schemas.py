@@ -37,6 +37,15 @@ class LeadBase(BaseModel):
     possession_requirement: Optional[str] = None
     current_residence_type: Optional[str] = None
     campaign_name: Optional[str] = None
+    # Meta ad attribution - only populated when the intake path receives
+    # these ids (today: Zapier, if/once the Zap forwards them; see
+    # crm/services/zapier_leads_service.py and lead_intake_service.py
+    # _create_new_lead). Never backfilled for historical leads.
+    campaign_id: Optional[str] = None
+    adset_id: Optional[str] = None
+    adset_name: Optional[str] = None
+    ad_id: Optional[str] = None
+    ad_name: Optional[str] = None
     presales_agent: Optional[str] = None
     presales_description: Optional[str] = None
     next_action_date: Optional[str] = None
@@ -92,6 +101,11 @@ class LeadUpdatePatch(BaseModel):
     possession_requirement: Optional[str] = None
     current_residence_type: Optional[str] = None
     campaign_name: Optional[str] = None
+    campaign_id: Optional[str] = None
+    adset_id: Optional[str] = None
+    adset_name: Optional[str] = None
+    ad_id: Optional[str] = None
+    ad_name: Optional[str] = None
     presales_agent: Optional[str] = None
     presales_description: Optional[str] = None
     next_action_date: Optional[str] = None

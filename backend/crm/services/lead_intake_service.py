@@ -828,6 +828,14 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
         lead_dict["recent_note"] = recent_note
     if not lead_dict.get("channel_partner"):
         lead_dict.pop("channel_partner", None)
+    # Meta ad attribution - promoted from intake_meta when the intake path
+    # received it (today: only if the Zap forwards it; see
+    # zapier_leads_service.py's campaign/adset/ad candidate-key lookups).
+    intake_meta = data.get("meta") or {}
+    for field in ("campaign_id", "campaign_name", "adset_id", "adset_name", "ad_id", "ad_name"):
+        value = intake_meta.get(field)
+        if value:
+            lead_dict[field] = value
     if not lead_dict.get("projects"):
         lead_dict.pop("projects", None)
     if not lead_dict.get("project_ids"):
