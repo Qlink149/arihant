@@ -194,6 +194,12 @@ const PROJECT_IMAGES = {
   'Flowers Road - Kilpauk': 'https://cdn.prod.website-files.com/677bb760b33b5fd3ff036767/67e2c0a4dcfb8e9e1b2d5f76_Melange%20-%20Card.webp'
 };
 
+// Lead project names were canonicalized (lead_picklists.py / lead_field_normalize.py),
+// so analytics now return e.g. "Saligramam - Melange"; reuse the legacy images for them.
+PROJECT_IMAGES['Saligramam - Melange'] = PROJECT_IMAGES['Saligramam Melange'];
+PROJECT_IMAGES['Abhiramapuram - Krsna'] = PROJECT_IMAGES['Abhiramapuram - Krishna'];
+PROJECT_IMAGES['Flowers Road - Mehek'] = PROJECT_IMAGES['Flowers Road - Kilpauk'];
+
 const DashboardPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
