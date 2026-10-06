@@ -28,6 +28,9 @@ def test_merge_picklist_dedupes_canonical_case_insensitive():
 
 
 def test_canonical_sources_includes_client_values():
-    assert "facebook_ad" in CANONICAL_SOURCES
-    assert "direct walk-in" in CANONICAL_SOURCES
+    # Canonical source names (see backend/scripts/normalize_project_source_mapping.py
+    # and "Projects & Source list - Arihant (1).xlsx"). Old raw forms like
+    # "facebook_ad" / "direct walk-in" now map onto these, not their own entries.
+    assert "Facebook" in CANONICAL_SOURCES
+    assert "Direct Walk-in" in CANONICAL_SOURCES
     assert len(CANONICAL_SOURCES) >= 60

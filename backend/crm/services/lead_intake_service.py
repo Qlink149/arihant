@@ -16,6 +16,11 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 from pymongo.errors import DuplicateKeyError
 
 from crm.core.state import db, iso_utc_now, logger, utc_now
+from crm.services.lead_field_normalize import (
+    map_project_name,
+    normalize_lead_fields,
+    remap_source_field,
+)
 from crm.services.lead_project_fields import (
     RE_ENGAGED_STATUS,
     append_incoming_project,
@@ -592,7 +597,10 @@ async def _update_existing_submission(
     now_iso = iso_utc_now()
     actor_id, actor_name, _, resub_desc = _intake_actor(api_key)
     incoming_name = (api_key or {}).get("project_name")
+    if incoming_name:
+        incoming_name = map_project_name(incoming_name)
     incoming_id = (api_key or {}).get("project_id")
+    source = remap_source_field(source)
     merged = append_incoming_project(
         existing, incoming_name=incoming_name, incoming_id=incoming_id
     )
@@ -833,6 +841,7 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
     lead_dict["intent"] = determine_lead_intent(lead_dict)
     lead_dict["vip"] = is_vip_lead(lead_dict)
 
+    normalize_lead_fields(lead_dict)
     await db.leads.insert_one(lead_dict)
 
     if not lead_dict.get("intake_spam"):

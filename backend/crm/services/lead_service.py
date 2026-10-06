@@ -31,6 +31,7 @@ from crm.constants.lost_reason import (
 from crm.core.platform_ops import assert_assignee_allowed
 from crm.core.state import db, logger, resolve_project_id, resolve_user_id_by_full_name
 from crm.models.schemas.lead_schemas import LeadCreate, LeadResponse, LeadUpdatePatch
+from crm.services.lead_field_normalize import normalize_lead_fields
 from crm.services.lead_project_fields import (
     EmptyProjectsError,
     TooManyProjectsError,
@@ -301,6 +302,7 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
 
     created_meta_qualified = lead_dict.get("meta_qualified")
 
+    normalize_lead_fields(lead_dict)
     await db.leads.insert_one(lead_dict)
 
     lead_dict["created_at"] = coerce_datetime(lead_dict["created_at"]) or utc_now()
@@ -1241,6 +1243,7 @@ async def import_csv(
                     }
                 )
 
+            normalize_lead_fields(lead_dict)
             await db.leads.insert_one(lead_dict)
             imported += 1
         except Exception as e:

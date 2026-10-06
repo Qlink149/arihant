@@ -16,6 +16,7 @@ from crm.core.state import logger
 
 META_SOURCE_ALIASES = frozenset(
     {
+        "facebook",  # canonical value post-normalization (see lead_field_normalize.py)
         "facebook lead form",
         "facebook_ad",
         "facebook lead ads",

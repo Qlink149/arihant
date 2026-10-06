@@ -263,10 +263,11 @@ async def test_create_new_lead_zapier_meta_actor(monkeypatch):
     assert created["project_name"] == "Mira"
     assert created["project_id"] == "mira"
     assert created["actor_name"] == "Zapier Meta Lead"
-    assert inserted["projects"] == ["Mira"]
+    assert inserted["projects"] == ["Anna Nagar - Mira"]
     assert inserted["project_ids"] == ["mira"]
-    assert inserted["project"] == "Mira"
+    assert inserted["project"] == "Anna Nagar - Mira"
     assert inserted["project_id"] == "mira"
+
 
 
 def test_match_query_phone_only_is_global():
@@ -441,7 +442,7 @@ async def test_update_existing_phone_merge_appends_new_project(monkeypatch):
     main = mock_db.leads.update_one.await_args.args[1]
     assert main["$set"]["re_enquiry"] is True
     assert "ECR - Reserve 16" in main["$set"]["projects"]
-    assert "Vivriti" in main["$set"]["projects"]
+    assert "OMR - Vivriti" in main["$set"]["projects"]
     assert "vivriti" in main["$set"]["project_ids"]
     assert "lead_status" not in main["$set"]
     assert main["$set"]["project"].startswith("ECR - Reserve 16")
@@ -728,10 +729,10 @@ async def test_update_existing_logs_new_project_name_in_changes(monkeypatch):
 
     main = mock_db.leads.update_one.await_args.args[1]
     ctx = _pushed_ctx(main)
-    assert ctx["description"] == "Re-enquiry — added Vivriti"
+    assert ctx["description"] == "Re-enquiry — added OMR - Vivriti"
     proj = next(c for c in ctx["changes"] if c["field"] == "projects")
     assert "ECR - Reserve 16" in proj["from"]
-    assert "Vivriti" in proj["to"]
+    assert "OMR - Vivriti" in proj["to"]
 
 
 @pytest.mark.asyncio
@@ -768,7 +769,7 @@ async def test_update_existing_zapier_meta_resub_description(monkeypatch):
 
     main = mock_db.leads.update_one.await_args.args[1]
     ctx = _pushed_ctx(main)
-    assert ctx["description"] == "Meta Instant Form resubmission via Zapier — Vivriti"
+    assert ctx["description"] == "Meta Instant Form resubmission via Zapier — OMR - Vivriti"
     assert ctx["project_name"] == "Vivriti"
     assert ctx["form_id"] == "1858929181319661"
 
@@ -1244,7 +1245,7 @@ async def test_create_new_lead_channel_partner_sets_field_and_comment_note(monke
 
     assert inserted["id"] == lead_id
     assert inserted["channel_partner"] == "Propmart"
-    assert inserted["lead_source"] == "channel partner"
+    assert inserted["lead_source"] == "Channel Partner"
     assert inserted["recent_note"] == "Wants a 2BHK, prefers evening calls"
     note_entries = [c for c in inserted["context_updates"] if c["type"] == "note"]
     assert len(note_entries) == 1

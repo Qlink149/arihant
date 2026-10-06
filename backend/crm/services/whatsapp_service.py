@@ -47,6 +47,7 @@ from crm.core.state import (
     db,
     logger,
 )
+from crm.services.lead_field_normalize import normalize_lead_fields
 from crm.services.notification_service import create_notification
 from crm.models.schemas.whatsapp_schemas import WhatsAppMessage
 from crm.services.dashboard_scope import (
@@ -1619,6 +1620,7 @@ async def create_whatsapp_unknown_lead(
     lead_dict["intent"] = determine_lead_intent(lead_dict)
     lead_dict["vip"] = is_vip_lead(lead_dict)
 
+    normalize_lead_fields(lead_dict)
     try:
         await db.leads.insert_one(lead_dict)
     except DuplicateKeyError:

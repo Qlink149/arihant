@@ -25,7 +25,7 @@ async def test_create_whatsapp_unknown_lead_assigns_admin(monkeypatch):
 
     assert lead is not None
     assert lead["lead_status"] == "New"
-    assert lead["lead_source"] == "WhatsApp"
+    assert lead["lead_source"] == "Whatsapp"
     assert lead["assigned_to"] == "Admin"
     assert lead["assigned_user_id"] == "admin-1"
     assert lead["first_name"] == "Priya"

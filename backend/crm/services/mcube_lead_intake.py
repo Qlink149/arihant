@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from pymongo.errors import DuplicateKeyError
 
 from crm.core.state import db, iso_utc_now, logger, utc_now
+from crm.services.lead_field_normalize import normalize_lead_fields
 from crm.services.notification_service import create_notification
 from crm.services.nurture_temperature import apply_nurture_temperature_rules
 from crm.services.whatsapp_service import ADMIN_WA_ASSIGNEE_NAME, resolve_admin_wa_assignee
@@ -124,6 +125,7 @@ async def create_mcube_unknown_lead(
     lead_dict["intent"] = determine_lead_intent(lead_dict)
     lead_dict["vip"] = is_vip_lead(lead_dict)
 
+    normalize_lead_fields(lead_dict)
     try:
         await db.leads.insert_one(lead_dict)
     except DuplicateKeyError:
