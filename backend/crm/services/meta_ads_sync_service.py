@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
-from pymongo import ReturnDocument
+from pymongo import ReturnDocument, UpdateOne
 from pymongo.errors import DuplicateKeyError
 
 from crm.core.state import (
@@ -279,6 +279,87 @@ def _row_entity_id(row: dict, id_field: str) -> Optional[str]:
     return row.get(id_field)
 
 
+def build_entity_docs(
+    account_id: str,
+    campaigns: List[dict],
+    adsets: List[dict],
+    ads: List[dict],
+    campaign_project: Dict[str, Optional[str]],
+    seen_at: datetime,
+) -> List[dict]:
+    """One meta_ads_entities doc per campaign/adset/ad (incl. paused and
+    zero-spend ones that have no insights rows) so the dashboard can show
+    status/objective and list entities that did not spend in the window."""
+    docs: List[dict] = []
+    for c in campaigns:
+        docs.append(
+            {
+                "account_id": account_id,
+                "level": "campaign",
+                "entity_id": c["id"],
+                "name": c.get("name"),
+                "effective_status": c.get("effective_status"),
+                "objective": c.get("objective"),
+                "parent_campaign_id": None,
+                "parent_adset_id": None,
+                "creative_id": None,
+                "resolved_project": campaign_project.get(c["id"]),
+                "last_seen_at_dt": seen_at,
+            }
+        )
+    for a in adsets:
+        docs.append(
+            {
+                "account_id": account_id,
+                "level": "adset",
+                "entity_id": a["id"],
+                "name": a.get("name"),
+                "effective_status": a.get("effective_status"),
+                "objective": None,
+                "parent_campaign_id": a.get("campaign_id"),
+                "parent_adset_id": None,
+                "creative_id": None,
+                "resolved_project": campaign_project.get(a.get("campaign_id")),
+                "last_seen_at_dt": seen_at,
+            }
+        )
+    for ad in ads:
+        docs.append(
+            {
+                "account_id": account_id,
+                "level": "ad",
+                "entity_id": ad["id"],
+                "name": ad.get("name"),
+                "effective_status": ad.get("effective_status"),
+                "objective": None,
+                "parent_campaign_id": ad.get("campaign_id"),
+                "parent_adset_id": ad.get("adset_id"),
+                "creative_id": (ad.get("creative") or {}).get("id"),
+                "resolved_project": campaign_project.get(ad.get("campaign_id")),
+                "last_seen_at_dt": seen_at,
+            }
+        )
+    return docs
+
+
+async def _persist_entities(docs: List[dict]) -> None:
+    """Best-effort: a failure here must not lose the metrics sync."""
+    if not docs:
+        return
+    try:
+        ops = [
+            UpdateOne(
+                {"account_id": d["account_id"], "level": d["level"], "entity_id": d["entity_id"]},
+                {"$set": d},
+                upsert=True,
+            )
+            for d in docs
+        ]
+        await db.meta_ads_entities.bulk_write(ops, ordered=False)
+    except Exception as e:
+        logger.error("meta_ads_entities upsert failed: %s", _redact(str(e)))
+
+
 async def _sync_one_account(client: httpx.AsyncClient, account_id: str, since: str, until: str) -> int:
     """Returns rows upserted for this account."""
     campaigns = await _get_paginated(
@@ -297,6 +378,8 @@ async def _sync_one_account(client: httpx.AsyncClient, account_id: str, since: s
         {"fields": "id,name,adset_id,campaign_id,effective_status,creative{id}", "limit": 500},
     )
     ad_by_id = {a["id"]: a for a in ads}
+
+    await _persist_entities(build_entity_docs(account_id, campaigns, adsets, ads, campaign_project, utc_now()))
 
     rows_upserted = 0
     for level, id_field, name_field in (

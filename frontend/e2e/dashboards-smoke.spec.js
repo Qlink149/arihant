@@ -35,10 +35,10 @@ test.describe('Dashboards smoke (admin)', () => {
     await page.getByTestId('meta-ads-date-from').fill('2026-07-09');
     await page.getByTestId('meta-ads-date-to').fill('2026-10-07');
     await expect(page.getByTestId('meta-ads-empty-state')).toHaveCount(0, { timeout: 20000 });
-    await expect(page.getByTestId('meta-ads-section').getByText('Spend', { exact: true })).toBeVisible();
-    await expect(page.getByTestId('meta-ads-section').getByText('CPL', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('meta-kpi-spend')).toBeVisible();
+    await expect(page.getByTestId('meta-kpi-cpl')).toBeVisible();
 
-    // existing manual-entry section is still there
+    // existing manual-entry section is still there (collapsed under "Offline channels")
     await expect(page.getByTestId('add-spend-btn')).toBeVisible();
     await expectNoCrash(page, errors);
   });

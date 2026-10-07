@@ -524,6 +524,18 @@ async def ensure_db_indexes():
             name="meta_ads_daily_metrics_project_date",
         )
 
+        await db.meta_ads_daily_metrics.create_index(
+            [("level", 1), ("date", 1)],
+            name="meta_ads_daily_metrics_level_date",
+        )
+
+        # meta_ads_entities — latest name/status/objective/parents per campaign/adset/ad
+        await db.meta_ads_entities.create_index(
+            [("account_id", 1), ("level", 1), ("entity_id", 1)],
+            unique=True,
+            name="meta_ads_entities_entity_uq",
+        )
+
         # meta_ads_sync_logs — daily sync job audit (one doc per run)
         await db.meta_ads_sync_logs.create_index(
             [("started_at_dt", -1)],

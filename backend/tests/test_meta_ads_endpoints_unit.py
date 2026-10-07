@@ -22,6 +22,7 @@ def _mock_db(metrics_rows=None, last_sync=None):
     cursor.sort = MagicMock(return_value=cursor)
     mock_db.meta_ads_daily_metrics.find = MagicMock(return_value=cursor)
     mock_db.meta_ads_sync_logs.find_one = AsyncMock(return_value=last_sync)
+    mock_db.cron_locks.find_one = AsyncMock(return_value=None)
     return mock_db
 
 
@@ -58,10 +59,10 @@ def test_last_sync_returns_latest_doc(monkeypatch):
     log = {"status": "ok", "started_at": "2026-10-06T00:00:00+00:00", "token_expiring_soon": False}
     monkeypatch.setattr(meta_ads, "db", _mock_db(last_sync=log))
     result = asyncio.run(meta_ads.get_meta_ads_last_sync(current_user=ADMIN))
-    assert result == log
+    assert result == {**log, "running": False}
 
 
 def test_last_sync_empty_when_never_run(monkeypatch):
     monkeypatch.setattr(meta_ads, "db", _mock_db(last_sync=None))
     result = asyncio.run(meta_ads.get_meta_ads_last_sync(current_user=ADMIN))
-    assert result == {}
+    assert result == {"running": False}

@@ -282,6 +282,12 @@ export const metaAdsAPI = {
   getDashboard: (params) => api.get('/meta-ads/dashboard', { params }),
   getCampaigns: (params) => api.get('/meta-ads/campaigns', { params }),
   getLastSync: () => api.get('/meta-ads/last-sync'),
+  getOverview: (params) => api.get('/meta-ads/overview', { params }),
+  getBreakdown: (params) => api.get('/meta-ads/breakdown', { params }),
+  getEntityDaily: (level, entityId, params) =>
+    api.get(`/meta-ads/entity/${level}/${encodeURIComponent(entityId)}/daily`, { params }),
+  getProjectFunnel: (params) => api.get('/meta-ads/project-funnel', { params }),
+  syncNow: () => api.post('/meta-ads/sync'),
 };
 
 // Reminders API

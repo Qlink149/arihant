@@ -1,18 +1,18 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { marketingAPI, metaAdsAPI } from '../services/api';
+import { marketingAPI } from '../services/api';
 import { toast } from 'sonner';
 import {
   DollarSign, TrendingUp, Users, Target, Plus, X, Trash2,
-  BarChart3, PieChart as PieChartIcon, ArrowUpRight, Layers, Filter,
-  AlertTriangle, Clock, Megaphone
+  BarChart3, PieChart as PieChartIcon, Layers, ChevronDown, ChevronRight
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { Button } from '../components/ui/button';
-import { MultiSelectFilterDropdown } from '../components/leads/MultiSelectFilterDropdown';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../components/ui/collapsible';
+import { MetaAdsSection } from '../components/marketing/MetaAdsSection';
 
 const CHANNEL_OPTIONS = [
   { value: 'meta_ads', label: 'Meta Ads (Facebook/Instagram)' },
@@ -55,34 +55,7 @@ const MarketingDashboardPage = () => {
     campaign_name: '', impressions: '', clicks: '', notes: ''
   });
 
-  // Meta Ads (daily-synced) section state
-  const [metaDashData, setMetaDashData] = useState(null);
-  const [metaLoading, setMetaLoading] = useState(true);
-  const [lastSync, setLastSync] = useState(null);
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const [metaDateFrom, setMetaDateFrom] = useState(
-    new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  );
-  const [metaDateTo, setMetaDateTo] = useState(todayStr);
-  const [metaProjectFilter, setMetaProjectFilter] = useState([]);
-
-  const fetchMetaAdsData = useCallback(async () => {
-    setMetaLoading(true);
-    try {
-      const [dashRes, syncRes] = await Promise.all([
-        metaAdsAPI.getDashboard({ date_from: metaDateFrom, date_to: metaDateTo }),
-        metaAdsAPI.getLastSync(),
-      ]);
-      setMetaDashData(dashRes.data);
-      setLastSync(syncRes.data);
-    } catch {
-      toast.error('Failed to load Meta Ads data');
-    } finally {
-      setMetaLoading(false);
-    }
-  }, [metaDateFrom, metaDateTo]);
-
-  useEffect(() => { fetchMetaAdsData(); }, [fetchMetaAdsData]);
+  const [offlineOpen, setOfflineOpen] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -163,31 +136,6 @@ const MarketingDashboardPage = () => {
     }));
   }, [dashData]);
 
-  const metaProjectOptions = useMemo(() => {
-    if (!metaDashData?.by_project) return [];
-    return metaDashData.by_project.map(p => p.project);
-  }, [metaDashData]);
-
-  const metaByProjectFiltered = useMemo(() => {
-    const rows = metaDashData?.by_project || [];
-    if (!metaProjectFilter.length) return rows;
-    return rows.filter(p => metaProjectFilter.includes(p.project));
-  }, [metaDashData, metaProjectFilter]);
-
-  const metaProjectChartData = useMemo(
-    () => metaByProjectFiltered.map(p => ({ name: p.project, spend: p.total_spend, leads: p.total_leads })),
-    [metaByProjectFiltered]
-  );
-
-  const metaTotals = useMemo(() => {
-    const rows = metaByProjectFiltered;
-    const spend = rows.reduce((s, p) => s + (p.total_spend || 0), 0);
-    const leads = rows.reduce((s, p) => s + (p.total_leads || 0), 0);
-    const impressions = rows.reduce((s, p) => s + (p.total_impressions || 0), 0);
-    const clicks = rows.reduce((s, p) => s + (p.total_clicks || 0), 0);
-    return { spend, leads, impressions, clicks, cpl: leads > 0 ? Math.round(spend / leads) : 0 };
-  }, [metaByProjectFiltered]);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -226,10 +174,10 @@ const MarketingDashboardPage = () => {
           <h1 className="text-xl font-semibold text-white tracking-tight" data-testid="marketing-title">
             Marketing <span className="text-[#C5A059]">Dashboard</span>
           </h1>
-          <p className="text-crm-fg-muted mt-1 text-sm">Track spends, leads generated, and ROI across channels</p>
+          <p className="text-crm-fg-muted mt-1 text-sm">Meta Ads performance, CRM outcomes and offline spend</p>
         </div>
         <Button
-          onClick={() => setShowAddForm(true)}
+          onClick={() => { setOfflineOpen(true); setShowAddForm(true); }}
           className="bg-[#C5A059] hover:bg-[#B08D3E] text-black font-medium"
           data-testid="add-spend-btn"
         >
@@ -237,118 +185,25 @@ const MarketingDashboardPage = () => {
         </Button>
       </div>
 
-      {/* Meta Ads (daily-synced) section */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-crm-elevated border border-white/5 rounded-xl p-6 space-y-4"
-        data-testid="meta-ads-section"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h3 className="text-white font-medium flex items-center gap-2">
-            <Megaphone size={18} className="text-[#C5A059]" /> Meta Ads Performance
-          </h3>
-          <div className="flex items-center gap-2 text-xs text-crm-fg-muted" data-testid="meta-ads-last-sync">
-            <Clock size={14} />
-            {lastSync?.started_at
-              ? `Last synced: ${new Date(lastSync.started_at).toLocaleString('en-IN')}`
-              : 'Never synced yet'}
-          </div>
-        </div>
+      {/* Meta Ads (daily-synced) - the primary view */}
+      <MetaAdsSection />
 
-        {lastSync?.token_expiring_soon && (
-          <div
-            className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-amber-400 text-xs"
-            data-testid="meta-ads-token-warning"
+      {/* Offline channels: manual entry, collapsed by default */}
+      <Collapsible open={offlineOpen} onOpenChange={setOfflineOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="w-full flex items-center justify-between bg-crm-elevated border border-white/5 rounded-xl px-5 py-3 text-left hover:bg-white/[0.02] transition-colors"
+            data-testid="offline-channels-toggle"
           >
-            <AlertTriangle size={14} />
-            The Meta Ads access token is expiring soon — it needs to be refreshed to keep this data flowing.
-          </div>
-        )}
-
-        {lastSync?.status === 'error' && (
-          <div
-            className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-400 text-xs"
-            data-testid="meta-ads-sync-error"
-          >
-            <AlertTriangle size={14} />
-            The last sync failed: {lastSync.error_message || 'unknown error'}
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="text-crm-fg-secondary text-xs mb-1.5 block">From</label>
-            <input
-              type="date"
-              value={metaDateFrom}
-              onChange={(e) => setMetaDateFrom(e.target.value)}
-              className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
-              data-testid="meta-ads-date-from"
-            />
-          </div>
-          <div>
-            <label className="text-crm-fg-secondary text-xs mb-1.5 block">To</label>
-            <input
-              type="date"
-              value={metaDateTo}
-              onChange={(e) => setMetaDateTo(e.target.value)}
-              className="bg-crm-muted border border-crm-border rounded-lg px-3 py-2 text-white text-sm focus:border-[#C5A059]/50 focus:outline-none"
-              data-testid="meta-ads-date-to"
-            />
-          </div>
-          <MultiSelectFilterDropdown
-            label="Project"
-            icon={Filter}
-            options={metaProjectOptions}
-            selected={metaProjectFilter}
-            onChange={setMetaProjectFilter}
-            loading={metaLoading}
-            testId="meta-ads-project-filter"
-          />
-        </div>
-
-        {metaLoading ? (
-          <div className="text-crm-fg-muted text-sm py-8 text-center">Loading Meta Ads data…</div>
-        ) : metaByProjectFiltered.length === 0 ? (
-          <div className="text-crm-fg-muted text-sm py-8 text-center" data-testid="meta-ads-empty-state">
-            No Meta Ads data for this range yet. The daily sync job populates this automatically.
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-              {[
-                { label: 'Spend', value: `₹${formatCurrency(metaTotals.spend)}` },
-                { label: 'Leads', value: metaTotals.leads },
-                { label: 'Impressions', value: formatCurrency(metaTotals.impressions) },
-                { label: 'Clicks', value: formatCurrency(metaTotals.clicks) },
-                { label: 'CPL', value: `₹${formatCurrency(metaTotals.cpl)}` },
-              ].map((card) => (
-                <div key={card.label} className="bg-crm-muted/40 border border-white/5 rounded-lg p-3">
-                  <p className="text-white text-lg font-semibold">{card.value}</p>
-                  <p className="text-crm-fg-muted text-xs mt-0.5">{card.label}</p>
-                </div>
-              ))}
-            </div>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={metaProjectChartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="name" stroke="#52525B" interval={0} angle={-20} textAnchor="end" height={60} tick={{ fill: '#A1A1AA', fontSize: 10 }} />
-                <YAxis yAxisId="left" stroke="#52525B" tick={{ fill: '#A1A1AA', fontSize: 11 }} />
-                <YAxis yAxisId="right" orientation="right" stroke="#52525B" tick={{ fill: '#A1A1AA', fontSize: 11 }} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar yAxisId="left" dataKey="spend" name="spend" fill="#1877F2" radius={[4, 4, 0, 0]} />
-                <Bar yAxisId="right" dataKey="leads" name="leads" fill="#10B981" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-            <div className="flex gap-4 justify-center" data-testid="meta-ads-chart-legend">
-              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#1877F2]" /><span className="text-crm-fg-secondary text-xs">Spend (₹)</span></div>
-              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#10B981]" /><span className="text-crm-fg-secondary text-xs">Leads</span></div>
-            </div>
-          </>
-        )}
-      </motion.div>
-
+            <span className="flex items-center gap-2 text-white font-medium">
+              {offlineOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              Offline channels (manual entry)
+            </span>
+            <span className="text-crm-fg-muted text-xs">Newspaper, events, referrals and other spend entered by hand</span>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-3 mt-3" data-testid="offline-channels-panel">
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" data-testid="marketing-metrics">
         {[
@@ -545,6 +400,9 @@ const MarketingDashboardPage = () => {
           </div>
         </motion.div>
       )}
+
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Add Spend Modal */}
       <AnimatePresence>
