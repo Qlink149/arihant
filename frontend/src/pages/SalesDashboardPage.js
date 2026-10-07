@@ -405,8 +405,9 @@ const SalesDashboardPage = () => {
                   { key: 'deals_won', label: 'Deals Won' },
                   { key: 'deals_lost', label: 'Deals Lost' },
                   { key: 'conversion_rate', label: 'Conv %' },
+                  { key: 'missed_pickups', label: 'Missed pickups', title: 'Leads the system had to move on from this agent because they were not actioned in time (1-hour new-lead rule, 7-day Contacted rule, RNR day-4 transfer). Visibility only.' },
                 ].map(col => (
-                  <th key={col.key} onClick={() => col.key !== 'rank' && handleSort(col.key)}
+                  <th key={col.key} title={col.title} onClick={() => col.key !== 'rank' && handleSort(col.key)}
                     className={`py-3 px-3 text-crm-fg-muted text-[10px] uppercase tracking-wider ${col.key === 'name' ? 'text-left' : 'text-center'} ${col.key !== 'rank' ? 'cursor-pointer hover:text-[#C5A059]' : ''}`}>
                     <span className={`flex items-center gap-1 ${col.key === 'name' ? 'justify-start' : 'justify-center'}`}>
                       {col.icon} {col.label} {col.key !== 'rank' && (
@@ -429,6 +430,15 @@ const SalesDashboardPage = () => {
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium" style={{ backgroundColor: `${PERSON_COLORS[idx % PERSON_COLORS.length]}20`, color: PERSON_COLORS[idx % PERSON_COLORS.length] }}>{s.name.charAt(0)}</div>
                       <span className={`text-sm font-medium ${idx === 0 && sortField === 'deals_won' ? 'text-[#C5A059]' : 'text-white'}`}>{s.name}</span>
+                      {s.is_active === false && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide bg-zinc-500/20 text-zinc-300"
+                          title="This agent is inactive but still owns these leads"
+                          data-testid={`sales-inactive-${s.name}`}
+                        >
+                          Inactive
+                        </span>
+                      )}
                     </div>
                   </td>
                   {AGENT_TABLE_DRILL_COLUMNS.map((col) => {
@@ -453,6 +463,7 @@ const SalesDashboardPage = () => {
                     );
                   })}
                   <td className="py-3 px-3 text-center text-crm-fg-secondary text-sm">{s.conversion_rate ?? 0}%</td>
+                  <td className="py-3 px-3 text-center text-crm-fg-secondary text-sm" data-testid={`missed-pickups-${s.name}`}>{s.missed_pickups ?? 0}</td>
                   <td className="py-3 px-3 text-center">
                     <Button size="sm" variant="ghost" onClick={() => {
                       const next = new URLSearchParams(searchParams);
@@ -558,7 +569,10 @@ const SalesDashboardPage = () => {
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-full bg-[#C5A059]/20 flex items-center justify-center text-[#C5A059] text-xl font-serif">{selectedPerson.name.charAt(0)}</div>
                   <div>
-                    <h2 className="font-serif text-2xl text-white">{selectedPerson.name}</h2>
+                    <h2 className="font-serif text-2xl text-white">
+                      {selectedPerson.name}
+                      {selectedPerson.is_active === false && <span className="ml-2 align-middle text-xs uppercase tracking-wide text-zinc-400">(inactive)</span>}
+                    </h2>
                   <p className="text-crm-fg-secondary text-sm">{selectedPerson.total} leads assigned</p>
                   </div>
                 </div>

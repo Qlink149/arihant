@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { CalendarCheck, Building, Users } from 'lucide-react';
 import { analyticsAPI, usersAPI } from '../services/api';
+import { istToday } from '../utils/metaAdsPeriod';
 
 const PRESET_OPTIONS = [
   { value: 'week', label: 'This week' },
@@ -11,7 +12,9 @@ const PRESET_OPTIONS = [
   { value: 'custom', label: 'Custom range' },
 ];
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// IST calendar day (the report's date range is IST); toISOString() is the UTC date,
+// which is a day behind between 00:00 and 05:30 IST.
+const todayISO = () => istToday();
 
 /**
  * #53/#54: Permanent site-visit completion report.

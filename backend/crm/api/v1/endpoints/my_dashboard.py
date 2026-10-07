@@ -52,6 +52,8 @@ def _task_scope_filter(uid: str, name: str) -> dict:
 
 
 COMPLETED_TASK_STATUSES = frozenset({"completed", "done", "cancelled"})
+PENDING_TASKS_CAP = 2000
+FINISHED_TASKS_RECENT = 100
 
 
 @router.get("/my-dashboard")
@@ -110,13 +112,23 @@ async def get_my_dashboard(
     )
 
     task_query = _task_scope_filter(uid, name)
-    my_tasks = await db.tasks.find(task_query, {"_id": 0}).sort("due_date", 1).to_list(100)
-    my_tasks = await enrich_tasks(my_tasks)
+    # Pending tasks are loaded in full (up to PENDING_TASKS_CAP): they drive Follow-up
+    # Today / Missed and the Tasks tab. Loading "the 100 earliest-due tasks of any
+    # status" let old completed tasks push today's pending ones out of the list, so
+    # follow-ups were missing until a lead was opened. Finished tasks are history, so
+    # only the most recent ones are returned.
+    pending_tasks = await db.tasks.find({**task_query, "status": "pending"}, {"_id": 0}).sort("due_date", 1).to_list(PENDING_TASKS_CAP)
+    recent_finished = (
+        await db.tasks.find({**task_query, "status": {"$ne": "pending"}}, {"_id": 0})
+        .sort("due_date", -1)
+        .to_list(FINISHED_TASKS_RECENT)
+    )
+    completed_total = await db.tasks.count_documents({**task_query, "status": {"$in": sorted(COMPLETED_TASK_STATUSES)}})
+    my_tasks = await enrich_tasks(sorted(pending_tasks + recent_finished, key=lambda t: t.get("due_date") or "9999"))
 
     pending_tasks = [t for t in my_tasks if t.get("status") == "pending"]
     today_str, _, _ = ist_day_window(now)
     overdue_tasks = [t for t in pending_tasks if (t.get("due_date") or "9999")[:10] < today_str]
-    completed_tasks = [t for t in my_tasks if t.get("status") in COMPLETED_TASK_STATUSES]
 
     return {
         **dashboard_subject_meta(subject),
@@ -136,7 +148,7 @@ async def get_my_dashboard(
             "conversion_rate": conversion_rate,
             "pending_tasks": len(pending_tasks),
             "overdue_tasks": len(overdue_tasks),
-            "completed_tasks": len(completed_tasks),
+            "completed_tasks": completed_total,
             "leads_received": leads_received,
             "leads_transferred": leads_transferred,
         },

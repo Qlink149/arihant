@@ -6,7 +6,9 @@ import pytest
 
 from crm.services.dashboard_scope import (
     rep_lead_filter,
+    NO_MATCH_OWNER_ID,
     resolve_leads_base_filter,
+    resolve_sales_owner_filter,
     resolve_sales_owner_ids,
 )
 from crm.services.transfer_queries import is_manager_user
@@ -212,3 +214,37 @@ async def test_build_sales_owner_options_no_users():
     with patch("crm.services.dashboard_scope.db", mock_db):
         options = await dashboard_scope.build_sales_owner_options()
     assert options == []
+
+
+# ---- an unresolved Sales Owner must match NOTHING, not drop the filter ----
+@pytest.mark.asyncio
+async def test_sales_owner_filter_none_when_nothing_selected():
+    assert await resolve_sales_owner_filter(None) is None
+    assert await resolve_sales_owner_filter([]) is None
+    assert await resolve_sales_owner_filter(["", "  "]) is None
+
+
+@pytest.mark.asyncio
+async def test_sales_owner_filter_returns_ids_when_resolved():
+    async def fake_resolve(name):
+        return {"admin": "uid-admin"}.get(name.lower())
+
+    with patch("crm.core.state.resolve_user_id_by_full_name", side_effect=fake_resolve):
+        assert await resolve_sales_owner_filter(["Admin"]) == ["uid-admin"]
+        assert await resolve_sales_owner_filter(["Admin", "Roshini"]) == ["uid-admin"]
+
+
+@pytest.mark.asyncio
+async def test_sales_owner_filter_matches_nothing_when_name_unresolved():
+    async def fake_resolve(name):
+        return None
+
+    with patch("crm.core.state.resolve_user_id_by_full_name", side_effect=fake_resolve):
+        assert await resolve_sales_owner_filter(["Roshini"]) == [NO_MATCH_OWNER_ID]
+
+
+def test_no_match_owner_id_produces_an_empty_assigned_user_clause():
+    from crm.services.lead_search import build_leads_list_query
+
+    q = build_leads_list_query(sales_owners=[NO_MATCH_OWNER_ID])
+    assert {"assigned_user_id": {"$in": [NO_MATCH_OWNER_ID]}} in (q.get("$and") or [q])

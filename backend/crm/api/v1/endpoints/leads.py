@@ -14,7 +14,7 @@ from crm.utils.helpers import coerce_datetime, normalize_phone, utc_now
 from crm.services.dashboard_scope import (
     resolve_lead_or_403,
     resolve_lead_view_or_403,
-    resolve_sales_owner_ids,
+    resolve_sales_owner_filter,
     role_scope_filter,
     user_owns_lead,
 )
@@ -288,7 +288,7 @@ async def get_leads(
     # batch1 #55: resolve Sales Owner display name(s) to the authoritative
     # assigned_user_id before building the query - see dashboard_scope.
     # resolve_sales_owner_ids and lead_search.build_leads_list_query.
-    sales_owner_ids = await resolve_sales_owner_ids(multi["sales_owners"])
+    sales_owner_ids = await resolve_sales_owner_filter(multi["sales_owners"])
     snapshot_filter = None
     use_rep_pipeline = bool(mine)
     if metric:
@@ -321,7 +321,7 @@ async def get_leads(
         source=source,
         channel_partners=multi["channel_partners"] or None,
         channel_partner=channel_partner,
-        sales_owners=sales_owner_ids or None,
+        sales_owners=sales_owner_ids,
         sales_owner=None,
         intent=intent,
         vip=vip,
@@ -411,7 +411,7 @@ async def start_leads_export(
     )
     # batch1 #55: same resolution as the list endpoint, so exports agree with
     # Virtual Customer and My Dashboard instead of using name-based matching.
-    export_sales_owner_ids = await resolve_sales_owner_ids(multi["sales_owners"])
+    export_sales_owner_ids = await resolve_sales_owner_filter(multi["sales_owners"])
     filters = _list_filter_params(
         project=project,
         projects=multi["projects"] or None,
@@ -425,7 +425,7 @@ async def start_leads_export(
         source=source,
         channel_partners=multi["channel_partners"] or None,
         channel_partner=channel_partner,
-        sales_owners=export_sales_owner_ids or None,
+        sales_owners=export_sales_owner_ids,
         sales_owner=None,
         intent=intent,
         vip=vip,

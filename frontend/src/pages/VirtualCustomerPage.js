@@ -172,7 +172,7 @@ const EMPTY_NEW_CUSTOMER = {
   projects: [],
   budget: '',
   reason_for_purchase: '',
-  location: '',
+  location: [],
   lead_source: '',
   original_source: '',
   most_recent_source: '',
@@ -1034,7 +1034,6 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
 
     const otherFieldChecks = [
       { key: 'budget', label: 'Budget', mode: addCustomerFieldModes.budget },
-      { key: 'location', label: 'Location', mode: addCustomerFieldModes.location },
       { key: 'lead_source', label: 'Lead Source', mode: addCustomerFieldModes.lead_source },
     ];
     for (const field of otherFieldChecks) {
@@ -1053,6 +1052,12 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
         delete payload.projects;
       }
       delete payload.project;
+      // Location of interest holds one or more locations (SOP F8)
+      if (Array.isArray(payload.location) && payload.location.filter(Boolean).length) {
+        payload.location = payload.location.filter(Boolean);
+      } else {
+        delete payload.location;
+      }
       payload.lead_status = (payload.lead_status || '').trim() || 'New';
       if (payload.meta_qualified === 'yes') payload.meta_qualified = true;
       else if (payload.meta_qualified === 'no') payload.meta_qualified = false;
@@ -1870,17 +1875,14 @@ const VirtualCustomerPage = ({ escalationLocked = false }) => {
               </div>
               <div>
                 <label className="text-crm-fg-secondary text-sm mb-2 block">Location Preference</label>
-                <SelectWithOther
-                  value={newCustomer.location}
-                  onChange={(value) => setNewCustomer({ ...newCustomer, location: value })}
-                  onModeChange={(mode) =>
-                    setAddCustomerFieldModes((prev) => ({ ...prev, location: mode }))
-                  }
+                <MultiSelectWithOther
+                  value={Array.isArray(newCustomer.location) ? newCustomer.location : []}
+                  onChange={(locations) => setNewCustomer({ ...newCustomer, location: locations })}
                   options={picklistNames(locationOptions)}
                   placeholder="Select Location"
                   otherPlaceholder="Enter location"
                   loading={filterOptionsLoading}
-                  loadingLabel="Loading locations…"
+                  testId="add-customer-location"
                   otherInputTestId="add-customer-location-other"
                 />
               </div>

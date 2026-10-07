@@ -157,7 +157,7 @@ def test_create_lead_does_not_set_sla_paused():
     asyncio.run(_run())
 
 
-def test_import_csv_sets_provenance_not_sla_paused():
+def test_import_csv_sets_provenance_and_holds_sla():
     async def _run():
         import crm.services.lead_service as lead_service
         from crm.services.lead_service import import_csv
@@ -192,7 +192,8 @@ def test_import_csv_sets_provenance_not_sla_paused():
 
         assert result["imported"] == 1
         assert inserted.get("import_provenance") == "csv"
-        assert inserted.get("sla_paused") is not True
+        # SOP v3.2 s2.3: imported leads are held until the first status change
+        assert inserted.get("sla_paused") is True
 
     asyncio.run(_run())
 

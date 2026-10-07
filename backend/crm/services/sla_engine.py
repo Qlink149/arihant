@@ -186,6 +186,23 @@ def is_new_lead_intake_window_ist(created_at_dt: datetime) -> bool:
     return is_business_hours_ist(created_at_dt)
 
 
+def outcome_logged_this_stay(lead: dict, entered_field: str = "contacted_at_dt") -> bool:
+    """True when a call outcome was logged during the lead's CURRENT stay.
+
+    `logged_outcome` is never cleared on a stage change, so on a later stay an
+    old outcome must not count. Leads whose outcome predates the
+    `logged_outcome_at_dt` stamp (legacy data) keep the old behaviour: any
+    stored outcome counts.
+    """
+    if not (lead.get("logged_outcome") or "").strip():
+        return False
+    logged_at = coerce_datetime(lead.get("logged_outcome_at_dt"))
+    entered = coerce_datetime(lead.get(entered_field))
+    if logged_at and entered:
+        return logged_at >= entered
+    return True
+
+
 def build_task_doc(
     *,
     lead: dict,
@@ -213,7 +230,9 @@ def build_task_doc(
     if not assigned_user_id:
         return None
 
-    due_date = due_date or now_dt.strftime("%Y-%m-%d")
+    # The queues (Follow-up Today / Missed) compare against the IST calendar day, so
+    # default to the IST date: the UTC date is a day behind between 00:00 and 05:30 IST.
+    due_date = due_date or now_dt.astimezone(IST).strftime("%Y-%m-%d")
     due_at_dt = ist_wall_to_utc_dt(due_date, due_time or "09:00")
     lead_name = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
 
@@ -966,7 +985,7 @@ class SLAEngineService:
                             lead_name=lead_name,
                             dedupe_key=f"contacted_reassign:new:{lead['id']}:{now_dt.date().isoformat()}",
                         )
-                elif result.get("exhausted"):
+                elif result.get("exhausted") or self._contacted_no_agent_for_long(lead, result, now_dt, now_iso):
                     dedupe = f"sla:contacted:reassign_exhausted:{lead['id']}"
                     self._queue_task(
                         lead,
@@ -981,6 +1000,30 @@ class SLAEngineService:
                         sla_rule="contacted",
                         sla_threshold="reassign_exhausted",
                     )
+
+    def _contacted_no_agent_for_long(self, lead: dict, result: dict, now_dt: datetime, now_iso: str) -> bool:
+        """SOP 5.3: "If no other agent is available, the lead is raised to Admin."
+
+        `no_eligible` is also the normal answer outside business hours (nobody is
+        routable), so it only counts during business hours and after several
+        consecutive ticks - the same guard the New-lead rule uses. Returns True when
+        the Admin task should be raised now; otherwise records the tick.
+        """
+        if result.get("reason") != "no_eligible" or not is_business_hours_ist(now_dt):
+            return False
+        flags = ((lead.get("sla_flags") or {}).get("contacted")) or {}
+        ticks = int(flags.get("no_eligible_tick_count") or 0) + 1
+        if ticks >= _NO_ELIGIBLE_MIN_TICKS:
+            return True
+        self._queue_lead_mutation(
+            lead["id"],
+            {"sla_flags.contacted.no_eligible_tick_count": ticks},
+            "sla_flags.contacted.no_eligible_last_tick_at_dt",
+            now_dt,
+            now_iso,
+            "mutation:contacted:no_eligible_tick",
+        )
+        return False
 
     async def _process_rule_contacted(self, now_dt: datetime, now_iso: str, name_to_user_id: Dict[str, str]) -> None:
         for hours, threshold, desc, priority, target in (
@@ -998,7 +1041,9 @@ class SLAEngineService:
             )
             async for batch in _paginate_leads(db.leads, query):
                 for lead in batch:
-                    if threshold == "72h" and (lead.get("logged_outcome") or "").strip():
+                    # SOP 5.3: both the 48h task and the 72h alert are for leads with
+                    # NO outcome logged in this stay.
+                    if outcome_logged_this_stay(lead):
                         continue
                     dedupe = f"sla:contacted:{threshold}:{lead['id']}"
                     self._queue_task(

@@ -254,7 +254,7 @@ async def test_get_leads_resolves_sales_owner_names_to_ids(monkeypatch):
     from crm.api.v1.endpoints import leads
 
     monkeypatch.setattr(leads, "resolve_leads_list_query_base", AsyncMock(return_value={}))
-    monkeypatch.setattr(leads, "resolve_sales_owner_ids", AsyncMock(return_value=["uid-admin"]))
+    monkeypatch.setattr(leads, "resolve_sales_owner_filter", AsyncMock(return_value=["uid-admin"]))
     list_leads = AsyncMock(return_value=([], 0))
     monkeypatch.setattr(leads.lead_service, "list_leads", list_leads)
 
@@ -271,7 +271,7 @@ async def test_get_leads_resolves_sales_owner_names_to_ids(monkeypatch):
         statuses=None,
     )
 
-    leads.resolve_sales_owner_ids.assert_awaited_once_with(["Admin"])
+    leads.resolve_sales_owner_filter.assert_awaited_once_with(["Admin"])
     call_kwargs = list_leads.await_args.kwargs
     assert call_kwargs["sales_owners"] == ["uid-admin"]
     assert call_kwargs["sales_owner"] is None

@@ -12,6 +12,23 @@ from crm.services.sales_dashboard_filters import (
 )
 
 
+
+def _wire_scorecard_extras(mock_db, main_cursor):
+    """The scorecard also runs a missed-pickups aggregation on leads and an
+    is_active lookup on users (SOP v3.2 s8/s10). Give those their own empty
+    result so the existing mocks (one cursor for the main aggregations) still apply."""
+    empty = MagicMock()
+    empty.to_list = AsyncMock(return_value=[])
+
+    def aggregate(pipeline, *_a, **_k):
+        if any(stage.get("$unwind") == "$missed" for stage in pipeline):
+            return empty
+        return main_cursor
+
+    mock_db.leads.aggregate = MagicMock(side_effect=aggregate)
+    mock_db.users.find = MagicMock(return_value=empty)
+
+
 def test_fw_status_to_canonical_migrated_labels():
     # Mirrors the client-approved Freshworks -> canonical mapping table.
     # Interested and Junk are canonical statuses in their own right (UI_LEAD_STATUSES),
@@ -142,6 +159,7 @@ async def _sales_managers_totals_include_negotiation_no_dormant():
 
     mock_db = MagicMock()
     mock_db.leads.aggregate = MagicMock(return_value=mock_cursor)
+    _wire_scorecard_extras(mock_db, mock_cursor)
 
     names_by_id = {"uid-alice": "Alice", "uid-bob": "Bob"}
     with patch.object(analytics_module, "db", mock_db), patch(
@@ -164,7 +182,7 @@ async def _sales_managers_totals_include_negotiation_no_dormant():
     assert bob["negotiation"] == 1
     assert bob["conversion_rate"] == 20
 
-    assert mock_db.leads.aggregate.call_count == 3
+    assert mock_db.leads.aggregate.call_count == 4  # main, missed-pickups, status, project
     first_pipeline = mock_db.leads.aggregate.call_args_list[0][0][0]
     pipeline_str = str(first_pipeline)
     assert "dormant" not in pipeline_str.lower()
@@ -209,6 +227,7 @@ async def _sales_managers_merges_duplicate_unassigned_rows():
     mock_cursor.to_list = AsyncMock(side_effect=[main_rows, [], []])
     mock_db = MagicMock()
     mock_db.leads.aggregate = MagicMock(return_value=mock_cursor)
+    _wire_scorecard_extras(mock_db, mock_cursor)
 
     # uid-deleted-user resolves to nothing (deleted account) - only "" is unresolved too.
     with patch.object(analytics_module, "db", mock_db), patch(
@@ -316,6 +335,7 @@ async def _sales_dashboard_ranking_sorts_and_filters_unassigned():
 
     mock_db = MagicMock()
     mock_db.leads.aggregate = MagicMock(return_value=mock_cursor)
+    _wire_scorecard_extras(mock_db, mock_cursor)
 
     mock_user = {"role": "admin", "email": "admin@test.com"}
     names_by_id = {"uid-alice": "Alice", "uid-bob": "Bob"}

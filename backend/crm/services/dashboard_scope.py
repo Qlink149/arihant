@@ -71,6 +71,28 @@ async def resolve_sales_owner_ids(names: Optional[Sequence[str]]) -> List[str]:
     return ids
 
 
+# An id no user can have: makes an `assigned_user_id $in [...]` clause match nothing.
+NO_MATCH_OWNER_ID = "__no_matching_owner__"
+
+
+async def resolve_sales_owner_filter(names: Optional[Sequence[str]]) -> Optional[List[str]]:
+    """List/export filter ids for a Sales Owner selection.
+
+    None  -> no owner was selected: do not filter.
+    [ids] -> the matching accounts' ids.
+    [NO_MATCH_OWNER_ID] -> owners WERE selected but none matches a current account
+    (a stale/renamed name such as the old "Roshini"): match nothing.
+
+    Passing the empty resolved list straight through made the caller drop the
+    filter entirely, so an unresolved name showed - and exported - ALL leads,
+    contradicting resolve_sales_owner_ids' own "returns zero leads" contract.
+    """
+    if not any(str(n or "").strip() for n in (names or [])):
+        return None
+    ids = await resolve_sales_owner_ids(names)
+    return ids or [NO_MATCH_OWNER_ID]
+
+
 async def resolve_owner_names(ids: Optional[Sequence[str]]) -> dict[str, str]:
     """batch2 item 1: bulk assigned_user_id -> current display name lookup.
 

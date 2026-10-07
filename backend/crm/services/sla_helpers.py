@@ -17,6 +17,34 @@ async def _name_map() -> dict:
     return {u["full_name"]: u["id"] for u in users if u.get("full_name") and u.get("id")}
 
 
+# Notification dedupe keys written by SLA rules (see sla_engine._queue_task /
+# _queue_admin_notification and the RNR D4 / Contacted reassign notices).
+_SLA_NOTIF_DEDUPE_PREFIX = r"^(notif:sla:|rnr_d4:|contacted_reassign:)"
+
+
+async def release_sla_dedupe_keys(lead_id: str) -> None:
+    """Free a lead's SLA dedupe keys when it changes stage.
+
+    SLA tasks/notifications carry a unique, sparse `dedupe_key` such as
+    `sla:negotiation:48h:{lead}` that contains no stage-entry marker. Cancelling
+    a task only flips its status, so on a lead's SECOND stay in the same stage
+    the new task/notification hit the unique index and were silently dropped
+    ("counts restart on re-entry" never happened). On every stage change the old
+    keys are moved to `dedupe_key_retired` (kept for audit) so the next stay can
+    create its own. Within one stay the lead's `sla_flags.*` still prevent repeats.
+    """
+    # An update pipeline copies the key into dedupe_key_retired, then drops it.
+    retire = [{"$set": {"dedupe_key_retired": "$dedupe_key"}}, {"$unset": "dedupe_key"}]
+    await db.tasks.update_many(
+        {"lead_id": lead_id, "source": "sla", "dedupe_key": {"$exists": True}},
+        retire,
+    )
+    await db.notifications.update_many(
+        {"lead_id": lead_id, "dedupe_key": {"$regex": _SLA_NOTIF_DEDUPE_PREFIX}},
+        retire,
+    )
+
+
 async def create_sla_task_for_lead(
     lead: dict,
     *,

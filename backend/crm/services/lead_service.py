@@ -64,7 +64,7 @@ from crm.services.nurture_temperature import (
 from crm.services.escalation_queue import (
     build_clear_state,
 )
-from crm.services.sla_helpers import create_sla_task_for_lead
+from crm.services.sla_helpers import create_sla_task_for_lead, release_sla_dedupe_keys
 from crm.utils.helpers import (
     coerce_datetime,
     determine_lead_intent,
@@ -578,6 +578,9 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
         if outcome == OUTCOME_OTHERS and not (patch.get("logged_outcome_reason") or "").strip():
             raise HTTPException(status_code=400, detail="logged_outcome_reason is required when logged_outcome is Others")
         patch["logged_outcome"] = outcome
+        # When it was logged, so SLA rules can tell "logged in THIS stay" from a
+        # stale outcome left over from an earlier stay (logged_outcome persists).
+        patch["logged_outcome_at_dt"] = now_dt
         logged_outcome_value = outcome
         outcome_entries.append(
             {
@@ -647,6 +650,12 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                 {"lead_id": lead_id, "source": "sla", "status": "pending"},
                 {"$set": {"status": "cancelled", "updated_at": now_iso, "updated_at_dt": now_dt}},
             )
+            # Free the old SLA dedupe keys so a later re-entry into a stage can
+            # create its tasks again (SOP: counts restart on re-entry).
+            try:
+                await release_sla_dedupe_keys(lead_id)
+            except Exception as e:  # noqa: BLE001 - never block the status change
+                logger.warning("release_sla_dedupe_keys failed for %s: %s", lead_id, e)
 
         is_sla_activation = bool(existing.get("sla_paused"))
         if is_sla_activation:
@@ -678,6 +687,8 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
                         "sla_flags.contacted.48h_at_dt": "",
                         "sla_flags.contacted.72h_at_dt": "",
                         "sla_flags.contacted.reassigned_7d_at_dt": "",
+                        "sla_flags.contacted.no_eligible_tick_count": "",
+                        "sla_flags.contacted.no_eligible_last_tick_at_dt": "",
                     }
                 },
             )
@@ -748,7 +759,14 @@ async def update_lead(lead_id: str, lead_update: LeadUpdatePatch, current_user: 
             patch["future_prospect_entered_at_dt"] = now_dt
             await db.leads.update_one(
                 {"id": lead_id},
-                {"$unset": {"sla_flags.future_prospect": ""}},
+                {
+                    "$unset": {
+                        "sla_flags.future_prospect": "",
+                        # review-cycle count restarts on re-entry (SOP 5.12)
+                        "fp_cycle_count": "",
+                        "fp_last_checkin_task_created_at_dt": "",
+                    }
+                },
             )
         if "re-engaged" in next_status.lower() or next_status.lower() == "reengaged":
             patch["reengaged_at_dt"] = now_dt
@@ -1212,6 +1230,11 @@ async def import_csv(
             lead_dict["ai_last_generated_at"] = None
             lead_dict["ai_last_generated_at_dt"] = None
             lead_dict["import_provenance"] = "csv"
+            # SOP v3.2 s2.3 (confirmed by Arihant): imported leads have their timers held
+            # until an agent makes the first status change (released in update_lead), so a
+            # bulk import of historic leads does not flood the queues with overdue
+            # tasks and escalations.
+            lead_dict["sla_paused"] = True
             lead_dict["context_updates"] = [
                 {
                     "type": "imported",

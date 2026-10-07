@@ -241,6 +241,35 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
     ]
 
 
+def missed_pickups_pipeline(scope_filter: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Per-agent "missed pickups" (SOP section 10, Agent Scorecard additional metric).
+
+    `pool_assignment_history` is the ordered list of agents the router has given a
+    lead to; the last entry is the latest router assignment. Every EARLIER entry is
+    an agent the lead was routed away from by the 1-hour (New) or 7-day (Contacted)
+    no-activity rules, or by the RNR day-4 transfer - i.e. leads that agent did not
+    action in time. Visibility only: it never drives an automation.
+    """
+    match: Dict[str, Any] = {"pool_assignment_history.1": {"$exists": True}}
+    if scope_filter:
+        match = {"$and": [scope_filter, match]}
+    return [
+        {"$match": match},
+        {
+            "$project": {
+                "missed": {
+                    "$slice": [
+                        "$pool_assignment_history",
+                        {"$subtract": [{"$size": "$pool_assignment_history"}, 1]},
+                    ]
+                }
+            }
+        },
+        {"$unwind": "$missed"},
+        {"$group": {"_id": "$missed", "missed_pickups": {"$sum": 1}}},
+    ]
+
+
 async def _sales_managers_from_aggregation(
     scope_filter: Optional[Dict[str, Any]] = None,
 ) -> tuple[List[Dict[str, Any]], Dict[str, int], List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -357,6 +386,21 @@ async def _sales_managers_from_aggregation(
         if not existing.get("id"):
             existing["id"] = m.get("id")
     managers = list(merged_by_name.values())
+
+    missed_rows = await db.leads.aggregate(missed_pickups_pipeline(scope_filter)).to_list(None)
+    missed_by_id = {r["_id"]: int(r["missed_pickups"]) for r in missed_rows if r.get("_id")}
+    for m in managers:
+        m["missed_pickups"] = missed_by_id.get(m.get("id"), 0) if m.get("id") else 0
+
+    # SOP section 8: agents who are marked inactive but still own leads stay on the
+    # scorecard, marked as inactive. Owners that are not a registered user get None.
+    owner_ids = [m["id"] for m in managers if m.get("id")]
+    active_by_id: Dict[str, bool] = {}
+    if owner_ids:
+        for u in await db.users.find({"id": {"$in": owner_ids}}, {"_id": 0, "id": 1, "is_active": 1}).to_list(len(owner_ids)):
+            active_by_id[u["id"]] = u.get("is_active", True) is not False
+    for m in managers:
+        m["is_active"] = active_by_id.get(m.get("id")) if m.get("id") else None
 
     managers.sort(key=lambda x: x["name"])
 

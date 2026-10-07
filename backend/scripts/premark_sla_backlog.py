@@ -7,6 +7,13 @@ does not mass-fire the backlog.
 Usage (from backend/):
   python scripts/premark_sla_backlog.py
   python scripts/premark_sla_backlog.py --apply
+
+  # Switch-on of SLA_PHASE3_RULES_ENABLED only (SOP F11: leads already past the
+  # threshold are NOT transferred/escalated retrospectively). Covers just the rules
+  # the Phase 3 flag gates - it leaves Phase 2 rules (live today) untouched, so they
+  # keep firing for leads that have not been processed yet.
+  python scripts/premark_sla_backlog.py --phase3-only
+  python scripts/premark_sla_backlog.py --phase3-only --apply
 """
 from __future__ import annotations
 
@@ -31,6 +38,7 @@ from crm.constants.lead_status import is_terminal_lead_status  # noqa: E402
 RULES = [
     {
         "name": "rnr_transfer_d4",
+        "phase3": True,
         "status": "RNR",
         "field": "rnr_entered_at_dt",
         "delta": timedelta(hours=72),
@@ -38,13 +46,23 @@ RULES = [
     },
     {
         "name": "rnr_escalate_d7",
+        "phase3": True,
         "status": "RNR",
         "field": "rnr_entered_at_dt",
         "delta": timedelta(hours=144),
         "flag": "sla_flags.rnr.escalate_d7_at_dt",
     },
     {
+        "name": "rnr_escalate_15d",
+        "phase3": True,
+        "status": "RNR",
+        "field": "rnr_entered_at_dt",
+        "delta": timedelta(days=15),
+        "flag": "sla_flags.rnr.escalate_15d_at_dt",
+    },
+    {
         "name": "interested_followup_7d",
+        "phase3": True,
         "status": "Interested",
         "field": "interested_entered_at_dt",
         "delta": timedelta(days=7),
@@ -159,6 +177,11 @@ def main() -> None:
         pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument(
+        "--phase3-only",
+        action="store_true",
+        help="Only the rules gated by SLA_PHASE3_RULES_ENABLED (RNR ladder, Interested 7-day task).",
+    )
     args = ap.parse_args()
 
     mongo_url = os.environ.get("MONGO_URL", "")
@@ -171,7 +194,7 @@ def main() -> None:
         sys.exit(2)
 
     print(f"Database: {db_name}")
-    print(f"Mode: {'APPLY' if args.apply else 'DRY-RUN'}")
+    print(f"Mode: {'APPLY' if args.apply else 'DRY-RUN'}{' (Phase 3 rules only)' if args.phase3_only else ''}")
     if db_name == "arihant_crm" and args.apply:
         print("WARNING: applying against production database arihant_crm")
 
@@ -181,6 +204,8 @@ def main() -> None:
 
     all_ops: list = []
     for rule in RULES:
+        if args.phase3_only and not rule.get("phase3"):
+            continue
         n, by_project, ops = _count_and_ops(coll, rule, now, args.apply)
         print(f"\n{rule['name']}: {n}")
         for proj, c in sorted(by_project.items(), key=lambda x: (-x[1], x[0])):
