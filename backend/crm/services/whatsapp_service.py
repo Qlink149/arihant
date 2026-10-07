@@ -1490,7 +1490,9 @@ async def _wati_send(message: WhatsAppMessage, current_user: dict, contact_name:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ADMIN_WA_ASSIGNEE_NAME = "Admin"
-ADMIN_WA_ASSIGNEE_EMAIL = "roshni@arihantspaces.com"
+# Overridable per environment (the e2e database seeds its Admin with a different email); the
+# production default is unchanged.
+ADMIN_WA_ASSIGNEE_EMAIL = (os.environ.get("ADMIN_WA_ASSIGNEE_EMAIL") or "roshni@arihantspaces.com").strip()
 
 
 async def resolve_admin_wa_assignee() -> Optional[dict]:
