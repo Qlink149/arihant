@@ -330,17 +330,21 @@ const MarketingDashboardPage = () => {
                 </div>
               ))}
             </div>
-            <ResponsiveContainer width="100%" height={240}>
+            <ResponsiveContainer width="100%" height={280}>
               <BarChart data={metaProjectChartData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="name" stroke="#52525B" tick={{ fill: '#A1A1AA', fontSize: 11 }} />
+                <XAxis dataKey="name" stroke="#52525B" interval={0} angle={-20} textAnchor="end" height={60} tick={{ fill: '#A1A1AA', fontSize: 10 }} />
                 <YAxis yAxisId="left" stroke="#52525B" tick={{ fill: '#A1A1AA', fontSize: 11 }} />
                 <YAxis yAxisId="right" orientation="right" stroke="#52525B" tick={{ fill: '#A1A1AA', fontSize: 11 }} />
                 <Tooltip content={<CustomTooltip />} />
                 <Bar yAxisId="left" dataKey="spend" name="spend" fill="#1877F2" radius={[4, 4, 0, 0]} />
-                <Bar yAxisId="right" dataKey="leads" name="leads" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                <Bar yAxisId="right" dataKey="leads" name="leads" fill="#10B981" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
+            <div className="flex gap-4 justify-center" data-testid="meta-ads-chart-legend">
+              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#1877F2]" /><span className="text-crm-fg-secondary text-xs">Spend (₹)</span></div>
+              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#10B981]" /><span className="text-crm-fg-secondary text-xs">Leads</span></div>
+            </div>
           </>
         )}
       </motion.div>
