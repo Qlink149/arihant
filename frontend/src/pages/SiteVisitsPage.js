@@ -192,6 +192,12 @@ const SiteVisitsPage = () => {
                 <span className="text-[#C5A059] text-sm font-medium w-10 text-right">{row.count}</span>
               </div>
             ))}
+            {byProject.some((r) => r.project === 'Multiple projects') && (
+              <p className="text-crm-fg-muted text-xs pt-1" data-testid="site-visits-multi-note">
+                “Multiple projects” counts visits by leads interested in more than one project — we can’t tell which
+                project was visited, so they are kept together rather than split.
+              </p>
+            )}
           </div>
         )}
       </motion.div>

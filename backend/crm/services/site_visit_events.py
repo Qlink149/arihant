@@ -14,10 +14,27 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from crm.core.state import db
+from crm.services.lead_field_normalize import remap_projects_from_values
 from crm.services.lead_project_fields import coalesce_projects
 from crm.utils.helpers import iso_utc_now
 
 IST = ZoneInfo("Asia/Kolkata")
+
+UNSPECIFIED_LABEL = "Unspecified"
+# A visit by a lead interested in several projects cannot be attributed to one
+# of them (we do not know which project was visited), so it gets its own bucket.
+MULTIPLE_PROJECTS_LABEL = "Multiple projects"
+
+
+def event_project_bucket(project: Optional[str], projects: Optional[List[str]] = None) -> str:
+    """Report bucket for one event: the canonical project name (same client-approved
+    mapping the leads use), MULTIPLE_PROJECTS_LABEL, or UNSPECIFIED_LABEL."""
+    _, mapped = remap_projects_from_values(project, projects)
+    if not mapped:
+        return UNSPECIFIED_LABEL
+    if len(mapped) > 1:
+        return MULTIPLE_PROJECTS_LABEL
+    return mapped[0]
 
 
 def _lead_name(lead: Dict[str, Any]) -> str:
@@ -36,12 +53,17 @@ async def record_site_visit_event(
     event_id = str(uuid.uuid4())
     try:
         projects = coalesce_projects(lead) or ([lead.get("project")] if lead.get("project") else [])
+        project = lead.get("project") or (projects[0] if projects else None)
+        # Store canonical names so the permanent log never reintroduces old spellings.
+        norm_project, norm_projects = remap_projects_from_values(project, projects)
+        if norm_project is not None:
+            project, projects = norm_project, norm_projects
         event = {
             "id": event_id,
             "lead_id": lead_id,
             "completed_at_dt": completed_at_dt,
             "completed_at": iso_utc_now(),
-            "project": (lead.get("project") or (projects[0] if projects else None)),
+            "project": project,
             "projects": projects,
             "assigned_user_id": lead.get("assigned_user_id"),
             "assigned_to_name": lead.get("assigned_to_name") or lead.get("assigned_to"),
@@ -143,13 +165,24 @@ async def build_site_visit_report(
         {"$match": filt},
         {
             "$group": {
-                "_id": {"$ifNull": ["$project", "Unspecified"]},
+                "_id": {"project": "$project", "projects": "$projects"},
                 "count": {"$sum": 1},
             }
         },
-        {"$sort": {"count": -1}},
     ]
-    rows = await db.site_visit_events.aggregate(pipeline).to_list(500)
-    by_project = [{"project": r["_id"] or "Unspecified", "count": r["count"]} for r in rows]
+    rows = await db.site_visit_events.aggregate(pipeline).to_list(5000)
+
+    # Merge old/short spellings ("Reserve 16", "Vivriti", "Mélange" ...) into the
+    # canonical project, so one project is one bar however its events were stored.
+    merged: Dict[str, int] = {}
+    for r in rows:
+        key = r["_id"] or {}
+        bucket = event_project_bucket(key.get("project"), key.get("projects"))
+        merged[bucket] = merged.get(bucket, 0) + r["count"]
+
+    by_project = [
+        {"project": name, "count": count}
+        for name, count in sorted(merged.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
     total = sum(r["count"] for r in by_project)
     return {"total": total, "by_project": by_project}
