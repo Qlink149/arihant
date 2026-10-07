@@ -58,11 +58,10 @@ def test_resolve_imported_lead_status_prefers_original_fw():
 
 def test_sales_metric_filter_rnr_and_contacted():
     rnr = build_sales_metric_filter("rnr")
-    # Current-status RNR queue: nested $or under $and + terminal exclusion
+    # Current-status RNR queue: lead_status regex under $and + terminal exclusion
     assert "$and" in rnr
-    assert any("$or" in clause for clause in rnr["$and"] if isinstance(clause, dict))
     blob = str(rnr)
-    assert "is_rnr" in blob
+    assert "is_rnr" not in blob  # status-only (the legacy flag is not read)
     assert "original_fw_status" not in blob
     contacted = build_sales_metric_filter("contacted")
     assert contacted["lead_status"]["$regex"] == r"^contacted$"
@@ -382,8 +381,8 @@ async def _sales_rep_leads_applies_metric_filter():
     assert result["metric"] == "rnr"
     assert result["total"] == 3
     count_filter = mock_db.leads.count_documents.await_args.args[0]
-    assert "$or" in str(count_filter)
-    assert "is_rnr" in str(count_filter)
+    assert "is_rnr" not in str(count_filter)
+    assert "lead_status" in str(count_filter)
     # batch2 item 1: matched by the resolved assigned_user_id, not the name.
     assert "uid-gowtham" in str(count_filter)
 

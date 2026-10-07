@@ -133,7 +133,6 @@ def _sales_metrics_stages() -> List[Dict[str, Any]]:
                             "$and": [
                                 {
                                     "$or": [
-                                        {"$eq": ["$is_rnr", True]},
                                         {"$regexMatch": {"input": "$ls", "regex": RNR_STATUS_REGEX}},
                                         {"$eq": ["$ls", "rnr"]},
                                     ]

@@ -296,12 +296,13 @@ def test_sv_conducted_includes_follow_up_stages():
     assert "sv follow-up 1" in clause_str.lower()
 
 
-def test_metric_filter_rnr_includes_is_rnr():
+def test_metric_filter_rnr_is_status_only():
     ctx = build_metric_context({}, uid="u1", name="Rep", is_manager=False)
     filt = metric_filter_for_key("rnr", ctx)
     # merge_query may nest the shared RNR clause under $and with base filters
     blob = str(filt)
-    assert "is_rnr" in blob
+    assert "is_rnr" not in blob  # RNR = lead_status only
+    assert "lead_status" in blob
     assert "original_fw_status" not in blob or blob.count("original_fw_status") == 0
     assert "$not" in blob  # terminal exclusion
 

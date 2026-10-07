@@ -1,7 +1,7 @@
 """
 Shared RNR / site visit / deals-closed KPI patterns for seeding and analytics.
 Extend STATUS_MAP in seed_db_v2 when the client CSV introduces new Freshworks labels;
-keep RNR regex aligned so is_rnr and dashboards stay consistent.
+keep RNR regex aligned so SLA and dashboards stay consistent (RNR = lead_status only).
 """
 
 from __future__ import annotations

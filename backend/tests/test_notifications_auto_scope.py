@@ -63,7 +63,8 @@ async def _rnr_auto_notification_query_uses_broad_status_regex():
         await _build_auto_notifications({"id": "admin", "role": "admin"})
 
     query_blob = str(captured_queries)
-    assert "is_rnr" in query_blob or "__rnr_metric_clause__" in query_blob
+    assert "is_rnr" not in query_blob
+    assert "__rnr_metric_clause__" in query_blob
     assert sentinel_clause in captured_queries[0].get("$and", [])
 
 

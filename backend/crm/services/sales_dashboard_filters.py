@@ -26,19 +26,16 @@ _RNR_LEAD_QUERY = {"$regex": RNR_STATUS_REGEX, "$options": "i"}
 
 def rnr_metric_clause() -> dict:
     """
-    Current RNR queue membership only.
-    Uses live lead_status / is_rnr; excludes terminal/junk/unqualified.
-    Does NOT match historical original_fw_status alone (that pulled closed leads
-    that once were RNR into the queue).
+    Current RNR queue membership: lead_status is RNR (SOP 5.2), excluding
+    terminal/junk/unqualified. This is the same definition the SLA engine acts on
+    (sla_engine._rnr_status_filter) - the legacy import-era `is_rnr` flag is NOT
+    read anywhere (it counted Contacted/Nurturing/Gone Cold leads as RNR on the
+    dashboard while they got no RNR SLA treatment). Does not match historical
+    original_fw_status either.
     """
     return {
         "$and": [
-            {
-                "$or": [
-                    {"is_rnr": True},
-                    {"lead_status": _RNR_LEAD_QUERY},
-                ]
-            },
+            {"lead_status": _RNR_LEAD_QUERY},
             {"lead_status": terminal_exclusion_clause()},
         ]
     }

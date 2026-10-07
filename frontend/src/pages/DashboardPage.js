@@ -90,7 +90,7 @@ const LEAD_CRITERIA = {
   rnr: {
     title: 'RNR queue',
     rules: [
-      'Current lead_status is RNR (or is_rnr). Excludes Junk, Unqualified, and other terminal/closed statuses. Does not include leads that only used to be RNR historically.',
+      'Current lead_status is RNR. Excludes Junk, Unqualified, and other terminal/closed statuses. Does not include leads that only used to be RNR historically.',
       'Snapshot scope: project filter only.',
     ],
   },
