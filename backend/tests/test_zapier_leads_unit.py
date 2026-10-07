@@ -127,6 +127,17 @@ def test_map_zap_campaign_attribution_captured_when_present():
     assert body["meta"]["ad_name"] == "Video-Launch"
 
 
+def test_map_zap_campaign_attribution_accepts_spaced_ad_set_label():
+    """Zapier labels can read "Ad Set ID" / "Ad Set Name" (with a space)."""
+    body = zls.map_zap_payload_to_intake(
+        {"Form ID": "1", "First Name": "A", "Phone Number": "9000000000",
+         "Ad Set ID": "111", "Ad Set Name": "Broad Interest-HNI"},
+        leadgen_id="lg1", form_id="1",
+    )
+    assert body["meta"]["adset_id"] == "111"
+    assert body["meta"]["adset_name"] == "Broad Interest-HNI"
+
+
 def test_map_zap_duplicate_full_name_split():
     body = zls.map_zap_payload_to_intake(
         {

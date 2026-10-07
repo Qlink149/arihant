@@ -36,8 +36,8 @@ _FULL_NAME_KEYS = ("full name", "full_name", "fullname")
 # to the Zap itself (see docs - this cannot be fixed from this side alone).
 _CAMPAIGN_ID_KEYS = ("campaign id", "campaign_id", "ad.campaign.id", "campaignid")
 _CAMPAIGN_NAME_KEYS = ("campaign name", "campaign_name", "ad.campaign.name")
-_ADSET_ID_KEYS = ("adset id", "adset_id", "ad_set_id", "ad.adset.id")
-_ADSET_NAME_KEYS = ("adset name", "adset_name", "ad_set_name", "ad.adset.name")
+_ADSET_ID_KEYS = ("adset id", "adset_id", "ad set id", "ad_set_id", "ad.adset.id")
+_ADSET_NAME_KEYS = ("adset name", "adset_name", "ad set name", "ad_set_name", "ad.adset.name")
 _AD_ID_KEYS = ("ad id", "ad_id", "ad.id")
 _AD_NAME_KEYS = ("ad name", "ad_name", "ad.name")
 
