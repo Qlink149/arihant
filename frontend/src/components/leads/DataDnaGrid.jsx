@@ -660,8 +660,8 @@ export function DataDnaGrid({ lead, leadId, onLeadUpdated, sticky = true, sticky
           </select>
         );
       case 'lost_reason':
-        // Unqualified / Closed Lost enforce the canonical picklist server-side;
-        // other statuses (e.g. Junk, Dropped) accept free text.
+        // Unqualified / Closed Lost / Junk enforce the canonical picklist server-side
+        // (SOP T9); other statuses (e.g. Dropped) accept free text.
         if (isLostReasonStatus(lead?.lead_status)) {
           return (
             <select

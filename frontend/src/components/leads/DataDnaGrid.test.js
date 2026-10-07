@@ -41,10 +41,11 @@ describe('DataDnaGrid #49 Email + Lost Reason field helpers', () => {
     expect(lead.lost_reason || 'Not specified').toBe('Budget');
   });
 
-  it('uses the enum picklist editor only for Unqualified / Closed Lost statuses', () => {
+  it('uses the enum picklist editor for Unqualified / Closed Lost / Junk (SOP T9), free text for Dropped', () => {
     expect(isLostReasonStatus('Unqualified')).toBe(true);
     expect(isLostReasonStatus('Closed Lost')).toBe(true);
-    expect(isLostReasonStatus('Junk')).toBe(false);
+    // Junk joined the enforced picklist in phase1(T9) (c9e3ce3); this used to expect false.
+    expect(isLostReasonStatus('Junk')).toBe(true);
     expect(isLostReasonStatus('Dropped')).toBe(false);
     expect(isLostReasonStatus('New')).toBe(false);
   });
