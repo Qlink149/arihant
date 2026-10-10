@@ -181,6 +181,7 @@ export const analyticsAPI = {
   getSalesRepLeads: (name, params) =>
     api.get('/analytics/sales-dashboard/rep-leads', { params: { name, ...params } }),
   getSiteVisitReport: (params) => api.get('/analytics/site-visits', { params }),
+  getSiteVisitLeads: (params) => api.get('/analytics/site-visits/leads', { params }),
 };
 
 // Assignment Rules API

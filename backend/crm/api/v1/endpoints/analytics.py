@@ -29,7 +29,7 @@ from crm.services.lead_analytics_queries import (
     resolve_sales_period_filter,
 )
 from crm.services.lead_overview_service import count_dashboard_operational_metrics
-from crm.services.site_visit_events import build_site_visit_report, resolve_report_window
+from crm.services.site_visit_events import build_site_visit_leads, build_site_visit_report, resolve_report_window
 
 
 router = APIRouter()
@@ -743,3 +743,26 @@ async def get_site_visit_report(
         "sales_owner_id": effective_owner_id,
         **report,
     }
+
+
+@router.get("/analytics/site-visits/leads")
+async def get_site_visit_leads(
+    preset: Optional[str] = Query(None, description="week | month | quarter — overrides date_from/date_to when set"),
+    date_from: Optional[str] = Query(None, description="YYYY-MM-DD, IST calendar day, inclusive"),
+    date_to: Optional[str] = Query(None, description="YYYY-MM-DD, IST calendar day, inclusive"),
+    sales_owner_id: Optional[str] = Query(None),
+    project: Optional[str] = Query(None, description="Report bucket: a project, 'Multiple projects' or 'Unspecified'"),
+    current_user: dict = Depends(get_current_user),
+):
+    """The individual visits behind /analytics/site-visits, each with the lead's
+    current status, so the report can be cross-checked lead by lead. Same scoping
+    as the report: reps only ever see their own visits."""
+    from crm.constants.roles import is_org_editor
+
+    effective_owner_id = sales_owner_id
+    if not is_org_editor(current_user.get("role")):
+        effective_owner_id = current_user.get("id")
+
+    window = resolve_report_window(preset=preset, date_from=date_from, date_to=date_to)
+    data = await build_site_visit_leads(window=window, sales_owner_id=effective_owner_id, project=project)
+    return {"preset": preset, "date_from": date_from, "date_to": date_to, "sales_owner_id": effective_owner_id, "project": project, **data}

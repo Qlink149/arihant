@@ -312,6 +312,12 @@ async def create_lead(lead: LeadCreate, current_user: dict) -> LeadResponse:
     # Template 1: Auto-ack WhatsApp only for New leads (fire and forget).
     # Blank status is treated as New — same default routing uses.
     status_norm = (lead_dict.get("lead_status") or "New").strip().lower()
+
+    # A walk-in created straight into Visit Completed is a completed site visit too:
+    # log it in the permanent report (update_lead only logs status CHANGES, so these
+    # were missing from the Site Visits report).
+    if status_norm == "visit completed":
+        await record_site_visit_event(lead_id, lead_dict, actor=current_user, completed_at_dt=utc_now())
     if status_norm == "new":
         from crm.services.whatsapp_service import send_lead_ack
 

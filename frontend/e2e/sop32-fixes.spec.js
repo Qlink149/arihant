@@ -87,4 +87,37 @@ test.describe('SOP v3.2 fixes', () => {
     const stale = await apiJson('GET', '/leads?sales_owner=Roshini-no-such-account&limit=5', { token: adminToken });
     expect((stale.leads || stale).length).toBe(0);
   });
+
+  test('Site Visits: a walk-in created as Visit Completed is counted and can be opened lead by lead', async ({ page }) => {
+    const phone = randomE2EPhone();
+    const firstName = e2eFirstName(runId);
+    phones.push(phone);
+
+    ({ tokens: { access_token: adminToken } } = await authenticatePage(page));
+    const created = await apiJson('POST', '/leads', {
+      token: adminToken,
+      body: { first_name: firstName, last_name: 'Walkin', phone, lead_source: 'Direct Walk-in', lead_status: 'Visit Completed', project: 'ECR - Reserve 16' },
+    });
+
+    // the report API and the lead list behind it agree, and the lead is in it
+    const report = await apiJson('GET', '/analytics/site-visits?preset=month', { token: adminToken });
+    const detail = await apiJson('GET', '/analytics/site-visits/leads?preset=month', { token: adminToken });
+    expect(detail.total).toBe(report.total);
+    const mine = detail.visits.find((v) => v.lead_id === created.id);
+    expect(mine, 'walk-in created as Visit Completed is in the log').toBeTruthy();
+    expect(mine.current_status).toBe('Visit Completed');
+
+    await page.goto('/site-visits');
+    await expect(page.getByTestId('site-visits-total-card')).toBeVisible({ timeout: 30000 });
+    await page.getByTestId('site-visits-view-all').click();
+    await expect(page.getByTestId('site-visits-detail-table')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId(`site-visits-lead-${created.id}`)).toBeVisible();
+    await expect(page.getByTestId(`site-visits-status-${created.id}`)).toContainText('Visit Completed');
+    await expect(page.getByTestId('site-visits-detail-count')).toContainText(`${detail.total} visit`);
+
+    // closing a project row filters the list
+    await page.getByTestId('site-visits-detail-close').click();
+    await page.getByTestId('site-visits-row-ECR - Reserve 16').click();
+    await expect(page.getByTestId(`site-visits-lead-${created.id}`)).toBeVisible({ timeout: 20000 });
+  });
 });

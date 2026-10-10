@@ -186,3 +186,50 @@ async def build_site_visit_report(
     ]
     total = sum(r["count"] for r in by_project)
     return {"total": total, "by_project": by_project}
+
+
+async def build_site_visit_leads(
+    *,
+    window: Dict[str, Optional[datetime]],
+    sales_owner_id: Optional[str] = None,
+    project: Optional[str] = None,
+    limit: int = 500,
+) -> Dict[str, Any]:
+    """The visits behind the report, one row per visit, with the lead's CURRENT status.
+
+    Same filter as build_site_visit_report so the list always adds up to its total.
+    `project` is a report bucket (canonical name, "Multiple projects" or "Unspecified").
+    """
+    filt = build_site_visit_report_filter(window=window, sales_owner_id=sales_owner_id)
+    events = await db.site_visit_events.find(filt, {"_id": 0}).sort("completed_at_dt", -1).to_list(5000)
+    if project:
+        events = [e for e in events if event_project_bucket(e.get("project"), e.get("projects")) == project]
+    total = len(events)
+    events = events[: max(1, min(int(limit or 500), 2000))]
+
+    lead_ids = list({e["lead_id"] for e in events if e.get("lead_id")})
+    leads: Dict[str, Dict[str, Any]] = {}
+    if lead_ids:
+        for lead in await db.leads.find(
+            {"id": {"$in": lead_ids}},
+            {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "phone": 1, "lead_status": 1, "assigned_to_name": 1},
+        ).to_list(len(lead_ids)):
+            leads[lead["id"]] = lead
+
+    rows: List[Dict[str, Any]] = []
+    for e in events:
+        lead = leads.get(e.get("lead_id")) or {}
+        name = f"{(lead.get('first_name') or '').strip()} {(lead.get('last_name') or '').strip()}".strip()
+        rows.append(
+            {
+                "event_id": e.get("id"),
+                "lead_id": e.get("lead_id"),
+                "lead_name": name or e.get("lead_name") or "Lead",
+                "phone": lead.get("phone") or e.get("phone"),
+                "project": event_project_bucket(e.get("project"), e.get("projects")),
+                "visit_completed_at": e["completed_at_dt"].astimezone(timezone.utc).isoformat() if e.get("completed_at_dt") else None,
+                "current_status": lead.get("lead_status"),  # None when the lead no longer exists
+                "sales_owner": lead.get("assigned_to_name") or e.get("assigned_to_name"),
+            }
+        )
+    return {"total": total, "distinct_leads": len({r["lead_id"] for r in rows}), "visits": rows}
