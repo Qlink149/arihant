@@ -31,6 +31,13 @@ _DEFAULT_FORM_NAME_PROJECT_MAP = {
     "thoraipakkam enquiry form": "thoraipakkam",
 }
 
+# General enquiry forms are not tied to one project, but they ARE customers: the lead is
+# created with no project (default pool, SOP section 4) instead of being rejected.
+GENERAL_ENQUIRY_FORMS = frozenset({"homepage enquiry form", "contact us form"})
+
+# Website forms that are not enquiries: rejecting them is correct and needs no alert.
+NON_LEAD_FORMS = frozenset({"career form", "newsletter form"})
+
 _PLACEHOLDER_PROJECT_NAMES = frozenset(
     {
         "select one...",
@@ -61,8 +68,17 @@ _PROJECT_NAME_ALIASES = {
 # Defensive aliases for payload.data keys (normalized).
 _FIRST_NAME_KEYS = ("first-name", "first_name", "firstname", "first name")
 _LAST_NAME_KEYS = ("last-name", "last_name", "lastname", "last name")
+# One single "Name" box (Contact Us / Homepage style forms)
+_FULL_NAME_KEYS = ("name", "full-name", "full name", "full_name", "fullname", "your name", "your-name", "customer name", "cust-name", "contact name")
 _EMAIL_KEYS = ("cust-email", "email", "e-mail", "email address", "cust_email")
-_PHONE_KEYS = ("phone", "phone number", "phone-number", "phone_number", "mobile")
+_PHONE_KEYS = (
+    "phone", "phone number", "phone-number", "phone_number", "mobile",
+    # "Upcoming Commercial Project Form" labels its phone box "Contact Number"; other forms
+    # and future ones use similar labels. Without these the number was silently dropped.
+    "contact number", "contact-number", "contact_number", "contact no", "contact no.", "contact",
+    "mobile number", "mobile-number", "mobile_number", "mobile no", "mobile no.",
+    "phone no", "phone no.", "whatsapp number", "whatsapp", "telephone", "tel",
+)
 _MESSAGE_KEYS = ("message", "msg", "comments", "comment")
 _PROJECT_NAME_KEYS = ("project-name", "project_name", "project name", "project")
 
@@ -173,8 +189,14 @@ def map_webflow_data_to_intake(
     """Map Webflow payload.data into lead_intake body shape."""
     fields = data if isinstance(data, dict) else {}
 
-    first = _data_lookup(fields, _FIRST_NAME_KEYS) or "Unknown"
+    first = _data_lookup(fields, _FIRST_NAME_KEYS) or ""
     last = _data_lookup(fields, _LAST_NAME_KEYS) or ""
+    if not first:
+        full = _data_lookup(fields, _FULL_NAME_KEYS)
+        if full:
+            parts = full.strip().split(None, 1)
+            first, last = parts[0], (parts[1] if len(parts) > 1 else last)
+    first = first or "Unknown"
     email = _data_lookup(fields, _EMAIL_KEYS)
     phone = _data_lookup(fields, _PHONE_KEYS)
     message = _data_lookup(fields, _MESSAGE_KEYS)
@@ -197,7 +219,7 @@ def map_webflow_data_to_intake(
         "email": email,
         "phone": phone,
         "consent": True,
-        "source": f"{project['name']} Website",
+        "source": f"{project['name']} Website" if project.get("name") else "Website",
         "meta": meta,
     }
 
@@ -212,6 +234,7 @@ async def _write_log(
     reason: str,
     lead_id: Optional[str] = None,
     project_id: Optional[str] = None,
+    payload: Optional[Dict[str, Any]] = None,
 ) -> None:
     now_iso = iso_utc_now()
     now_dt = utc_now()
@@ -226,6 +249,9 @@ async def _write_log(
         "updated_at": now_iso,
         "updated_at_dt": now_dt,
     }
+    if payload is not None:
+        # Kept ONLY for submissions that did not become a lead, so they can be recovered.
+        set_fields["rejected_payload"] = payload
     try:
         await db.webflow_leads_logs.update_one(
             {"submission_id": str(submission_id)},
@@ -291,6 +317,8 @@ async def process_form_submission(body: dict) -> Dict[str, Any]:
         }
 
     project = resolve_webflow_project(form_name, data)
+    if not project and _norm_form_name(form_name) in GENERAL_ENQUIRY_FORMS:
+        project = {"id": "", "name": ""}  # no project: default pool
 
     if not project:
         await _write_log(
@@ -300,12 +328,17 @@ async def process_form_submission(body: dict) -> Dict[str, Any]:
             site_id=site_id,
             success=False,
             reason="unmapped_form",
+            payload=data if isinstance(data, dict) else None,
         )
         logger.warning(
             "Webflow enquiry unmapped form_name=%s submission_id=%s",
             form_name,
             submission_id,
         )
+        if _norm_form_name(form_name) not in NON_LEAD_FORMS:
+            from crm.services.intake_alerts import alert_admins_unrecognised_form
+
+            await alert_admins_unrecognised_form("Website", form_name)
         return {"success": False, "reason": "unmapped_form", "form_name": form_name}
 
     intake_body = map_webflow_data_to_intake(
@@ -325,14 +358,15 @@ async def process_form_submission(body: dict) -> Dict[str, Any]:
             site_id=site_id,
             success=False,
             reason="missing_email_and_phone",
-            project_id=project["id"],
+            project_id=project["id"] or None,
+            payload=data if isinstance(data, dict) else None,
         )
         return {"success": False, "reason": "missing_email_and_phone"}
 
     api_key = {
-        "id": f"webflow:{project['id']}",
-        "project_id": project["id"],
-        "project_name": project["name"],
+        "id": f"webflow:{project['id'] or 'general'}",
+        "project_id": project["id"] or None,
+        "project_name": project["name"] or None,
         "rate_limit_per_min": 120,
     }
 
@@ -346,7 +380,8 @@ async def process_form_submission(body: dict) -> Dict[str, Any]:
             success=bool(result.get("success")),
             reason="ingested" if result.get("success") else "ingest_failed",
             lead_id=result.get("lead_id"),
-            project_id=project["id"],
+            project_id=project["id"] or None,
+            payload=None if result.get("success") else (data if isinstance(data, dict) else None),
         )
         return {
             "success": bool(result.get("success")),
@@ -354,7 +389,7 @@ async def process_form_submission(body: dict) -> Dict[str, Any]:
             "lead_id": result.get("lead_id"),
             "deduped": result.get("deduped"),
             "http_status": status,
-            "project_id": project["id"],
+            "project_id": project["id"] or None,
         }
     except Exception as e:
         await _write_log(
@@ -364,7 +399,8 @@ async def process_form_submission(body: dict) -> Dict[str, Any]:
             site_id=site_id,
             success=False,
             reason=f"ingest_error: {e}"[:300],
-            project_id=project["id"],
+            project_id=project["id"] or None,
+            payload=data if isinstance(data, dict) else None,
         )
         logger.error(
             "Webflow enquiry ingest failed submission_id=%s: %s",

@@ -334,6 +334,11 @@ def validate_intake_payload(body: Dict[str, Any]) -> Dict[str, Any]:
         errors.append({"loc": ["first_name"], "msg": "Field required", "type": "missing"})
 
     last_name = _strip_str(body.get("last_name"), MAX_NAME_LEN) or ""
+    if first_name:
+        # a form that sends the full name into both boxes would show "Thiru Thiru"
+        from crm.utils.person_names import tidy_person_name
+
+        first_name, last_name = tidy_person_name(first_name, last_name)
 
     email = _strip_str(body.get("email"), MAX_EMAIL_LEN)
     if email:

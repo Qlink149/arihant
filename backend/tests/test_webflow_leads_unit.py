@@ -249,3 +249,39 @@ async def test_process_new_project_name_dropdown(monkeypatch):
     call_kwargs = wls.ingest_lead.await_args.kwargs
     assert call_kwargs["api_key"]["id"] == "webflow:chamiers-road"
     assert call_kwargs["api_key"]["project_name"] == "Chamiers Road - Project"
+
+
+# ---- the "Contact Number" label (Upcoming Commercial Project Form): the number must not be dropped ----
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize(
+    "label",
+    ["Contact Number", "contact-number", "Contact_Number", "Contact No.", "Mobile Number", "Phone No", "WhatsApp Number", "phone", "Phone Number", "mobile"],
+)
+def test_phone_is_read_from_the_usual_label_variants(label):
+    body = wls.map_webflow_data_to_intake(
+        {"First Name": "balaji", "Last Name": "naidu", "Email": "meerabalaji@hotmail.com", label: "9940999970"},
+        project={"id": "flowers-road", "name": "Flowers Road - Mehek"},
+        submission_id="s", form_id="f", site_id="x", form_name="Upcoming Commercial Project Form",
+    )
+    assert body["phone"] == "9940999970"
+
+
+def test_exact_balaji_naidu_payload_keeps_the_contact_number():
+    """The real submission from the 12 Oct website email."""
+    body = wls.map_webflow_data_to_intake(
+        {"First Name": "balaji", "Last Name": "naidu", "Email": "meerabalaji@hotmail.com", "Contact Number": "9940999970"},
+        project={"id": "flowers-road", "name": "Flowers Road - Mehek"},
+        submission_id="6acc8df9b23029db3ad10e03", form_id="6ac83b5d7dd11ffbbf104701", site_id="s", form_name="Upcoming Commercial Project Form",
+    )
+    assert (body["first_name"], body["last_name"], body["email"], body["phone"]) == ("balaji", "naidu", "meerabalaji@hotmail.com", "9940999970")
+
+
+def test_no_phone_label_still_leaves_phone_empty():
+    body = wls.map_webflow_data_to_intake(
+        {"First Name": "a", "Email": "a@b.co", "Message": "hello"},
+        project={"id": "flowers-road", "name": "Flowers Road - Mehek"},
+        submission_id="s", form_id="f", site_id="x", form_name="F",
+    )
+    assert not body.get("phone")
