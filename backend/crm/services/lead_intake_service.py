@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections import defaultdict, deque
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
@@ -527,6 +527,19 @@ async def _apply_reengage_transition(lead_id: str, existing: dict, patch: Dict[s
     return True
 
 
+def _backfill_time(data: Dict[str, Any]) -> Optional[datetime]:
+    """When a RECOVERED submission really happened (meta.backfill + meta.occurred_at, set by
+    scripts/backfill_meta_leads_from_sheet.py). None for every live submission."""
+    meta = data.get("meta") if isinstance(data, dict) else None
+    if not isinstance(meta, dict) or not meta.get("backfill") or not meta.get("occurred_at"):
+        return None
+    try:
+        t = datetime.fromisoformat(str(meta["occurred_at"]).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
 async def _notify_re_enquiry(existing: dict, project_label: str) -> None:
     assignee_id = (existing.get("assigned_user_id") or "").strip()
     if not assignee_id:
@@ -697,10 +710,15 @@ async def _update_existing_submission(
     if patch.get("lead_status") and patch.get("lead_status") != existing.get("lead_status"):
         _append_change(changes, "lead_status", existing.get("lead_status"), patch.get("lead_status"))
 
+    occurred = _backfill_time(data)
+    if occurred:
+        # recovered submission: the re-enquiry happened when the form was filled, not now
+        patch["re_enquired_at"] = occurred
+        timeline_desc = f"{timeline_desc} (recovered - form submitted {occurred:%d %b %Y %H:%M} UTC)"
     context_entry = {
         "type": "intake_resubmission",
-        "timestamp": now_iso,
-        "timestamp_dt": now_dt,
+        "timestamp": occurred.isoformat() if occurred else now_iso,
+        "timestamp_dt": occurred or now_dt,
         "description": timeline_desc,
         "changes": changes,
         "agent": actor_name,
@@ -750,6 +768,9 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
     lead_id = str(uuid.uuid4())
     now_dt = utc_now()
     now_iso = iso_utc_now()
+    occurred = _backfill_time(data)
+    if occurred:
+        now_dt, now_iso = occurred, occurred.isoformat()  # created when the form was filled
     actor_id, actor_name, created_desc, _ = _intake_actor(api_key)
     created_description = _zapier_created_description(api_key, created_desc)
     created_entry: Dict[str, Any] = {
@@ -864,7 +885,9 @@ async def _create_new_lead(data: Dict[str, Any], *, api_key: dict, source: str) 
 
             # Await so ack cannot be dropped if the event loop/process exits
             # right after ingest (CLI backfills, short-lived tasks, etc.).
-            ack = await send_lead_ack(lead_id, lead_dict)
+            # A recovered lead enquired days ago: the automatic "new lead" WhatsApp must not
+            # go out now (the team has usually been in touch already).
+            ack = {"success": True} if occurred else await send_lead_ack(lead_id, lead_dict)
             if not ack.get("success"):
                 logger.warning(
                     "intake send_lead_ack unsuccessful lead=%s: %s",

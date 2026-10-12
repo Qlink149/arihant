@@ -29,7 +29,7 @@ _EMAIL_KEYS = ("email", "email_address", "e-mail")
 _PHONE_KEYS = ("phone number", "phone_number", "phone", "mobile")
 _BUDGET_KEYS = ("budget",)
 _VISIT_KEYS = ("site visit preference", "schedule_visit", "site_visit_preference")
-_CREATED_AT_KEYS = ("created at", "created_at", "created_time")
+_CREATED_AT_KEYS = ("created at", "created_at", "created_time", "created time")
 _FULL_NAME_KEYS = ("full name", "full_name", "fullname")
 # Meta ad attribution - not sent by Zapier's standard "New Lead" trigger
 # today; these cover plausible field names if/once a lookup step is added
@@ -124,6 +124,104 @@ def project_from_form_id(form_id: Optional[str]) -> Optional[Dict[str, str]]:
     return None
 
 
+# When the numeric Form ID is missing from the map, the form/campaign NAME usually still says
+# which project the lead is for (e.g. a Zap that sends "R-16 - Leads" in the form_id field).
+_FORM_NAME_KEYS = ("form name", "form_name", "formname", "form title", "form_title", "form", "project", "project name")
+_PROJECT_NAME_PATTERNS = (
+    (re.compile(r"(?<![a-z0-9])(?:r[\s-]*16|reserve[\s-]*16)(?![a-z0-9])"), "reserve-16"),
+    (re.compile(r"(?<![a-z0-9])melange(?![a-z0-9])"), "melange"),
+    (re.compile(r"(?<![a-z0-9])mira(?![a-z0-9])"), "mira"),
+    (re.compile(r"(?<![a-z0-9])(?:krsna|krishna)(?![a-z0-9])"), "krsna"),
+    (re.compile(r"(?<![a-z0-9])vivriti(?![a-z0-9])"), "vivriti"),
+)
+
+
+def _project_from_texts(texts) -> Optional[Dict[str, str]]:
+    found = set()
+    for text in texts:
+        norm = _norm_key(text)  # lower-cased, accents stripped ("Melange" matches "Melange")
+        for pattern, project_id in _PROJECT_NAME_PATTERNS:
+            if pattern.search(norm):
+                found.add(project_id)
+    if len(found) != 1:
+        return None
+    project_id = next(iter(found))
+    for p in PROJECT_REGISTRY:
+        if p["id"] == project_id:
+            return {"id": p["id"], "name": p["name"]}
+    return None
+
+
+def project_from_form_name(fields: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Project from the form's NAME (e.g. "Reserve - 16 | Oct 26", "Melange - May26").
+
+    Agreed with the client's Zapier owner: a form's numeric ID changes whenever the form is
+    edited, so the project name in the form title is the identifier. Exactly one project must
+    be named; two is ambiguous and is not guessed at."""
+    name = _lookup(fields, _FORM_NAME_KEYS)
+    return _project_from_texts([name]) if name else None
+
+
+def project_from_names(fields: Dict[str, Any], form_id: Optional[str]) -> Optional[Dict[str, str]]:
+    """Project from the form / campaign name, or None.
+
+    Only when EXACTLY ONE project is named across the candidates: a form called for one
+    project inside a campaign for another is ambiguous, and a wrong project is worse than
+    an alert. A purely numeric value is an ID, not a name, and is never guessed at.
+    """
+    candidates = []
+    if form_id and not str(form_id).strip().isdigit():
+        candidates.append(str(form_id))
+    candidates.extend(filter(None, (_lookup(fields, _FORM_NAME_KEYS), _lookup(fields, _CAMPAIGN_NAME_KEYS))))
+    return _project_from_texts(candidates)
+
+
+def _parse_created_time(value: Any):
+    """Meta's "Created Time" as an aware UTC datetime, or None."""
+    from datetime import datetime, timezone
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d"):
+        try:
+            t = datetime.strptime(text.replace("Z", "+0000"), fmt)
+            return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+async def _notify_admins_unmapped(form_id: Optional[str]) -> None:
+    """In-app alert so an unrecognised Meta form can never be dropped silently.
+    One alert per form per day."""
+    try:
+        from crm.services.notification_service import create_notification
+
+        day = utc_now().strftime("%Y-%m-%d")
+        admins = await db.users.find(
+            {"role": {"$regex": r"^\s*admin\s*$", "$options": "i"}, "is_active": {"$ne": False}},
+            {"_id": 0, "id": 1, "full_name": 1},
+        ).to_list(20)
+        for a in admins:
+            await create_notification(
+                recipient_user_id=a["id"],
+                recipient_name=a.get("full_name") or "",
+                title="Meta form not recognised - leads were not created",
+                message=(
+                    f"A Meta lead form submission (form '{form_id or 'unknown'}') could not be matched to a "
+                    "project, so no lead was created. The details are saved. Ask the Zapier owner to send "
+                    "the numeric Form ID, or add this form to the project map."
+                ),
+                notification_type="system_warning",
+                severity="high",
+                urgency="action_needed",
+                dedupe_key=f"zapier_unmapped:{form_id}:{day}:{a['id']}",
+            )
+    except Exception as e:  # noqa: BLE001 - alerting must never break intake
+        logger.error("zapier unmapped-form alert failed: %s", e)
+
+
 def map_zap_payload_to_intake(
     fields: Dict[str, Any],
     *,
@@ -194,6 +292,7 @@ async def _write_log(
     reason: str,
     lead_id: Optional[str] = None,
     project_id: Optional[str] = None,
+    payload: Optional[Dict[str, Any]] = None,
 ) -> None:
     now_iso = iso_utc_now()
     now_dt = utc_now()
@@ -206,6 +305,10 @@ async def _write_log(
         "updated_at": now_iso,
         "updated_at_dt": now_dt,
     }
+    if payload is not None:
+        # Kept ONLY for submissions we could not turn into a lead, so they can be replayed
+        # (scripts/replay_unmapped_zapier_leads.py) instead of being lost.
+        set_fields["rejected_payload"] = payload
     try:
         await db.zapier_leads_logs.update_one(
             {"leadgen_id": str(leadgen_id)},
@@ -224,7 +327,7 @@ async def _write_log(
         logger.error("zapier_leads_logs write failed: %s", e)
 
 
-async def process_zapier_lead(body: dict) -> Dict[str, Any]:
+async def process_zapier_lead(body: dict, *, backfill: bool = False) -> Dict[str, Any]:
     """Process one Zapier Meta lead payload. Never raises to webhook caller."""
     fields = _flatten_payload(body if isinstance(body, dict) else {})
     form_id = _lookup(fields, _FORM_ID_KEYS)
@@ -239,18 +342,47 @@ async def process_zapier_lead(body: dict) -> Dict[str, Any]:
             "deduped": True,
         }
 
-    project = project_from_form_id(form_id)
+    by_name = project_from_form_name(fields)
+    by_id = project_from_form_id(form_id)
+    project = by_name or by_id
+    resolved_by = "form_name" if by_name else "form_id"
+    if by_name and by_id and by_name["id"] != by_id["id"]:
+        logger.warning(
+            "Zapier Meta lead: form name says %s but Form ID %r maps to %s (leadgen_id=%s); using the form name.",
+            by_name["id"], form_id, by_id["id"], leadgen_id,
+        )
+    if not project:
+        project = project_from_names(fields, form_id)
+        resolved_by = "name"
+        if project:
+            logger.warning(
+                "Zapier Meta lead: form_id=%r not in the map; project %s taken from the form/campaign name "
+                "(leadgen_id=%s). Ask the Zapier owner to send the numeric Form ID.",
+                form_id, project["id"], leadgen_id,
+            )
     if not project:
         await _write_log(
             leadgen_id=leadgen_id,
             form_id=form_id,
             success=False,
             reason="unmapped_form",
+            payload=dict(fields),
         )
         logger.warning("Zapier Meta lead unmapped form_id=%s leadgen_id=%s", form_id, leadgen_id)
+        await _notify_admins_unmapped(form_id)
         return {"success": False, "reason": "unmapped_form", "form_id": form_id}
 
     intake_body = map_zap_payload_to_intake(fields, leadgen_id=leadgen_id, form_id=form_id)
+    if backfill and isinstance(intake_body.get("meta"), dict):
+        occurred = _parse_created_time(intake_body["meta"].get("created_at"))
+        if occurred:
+            intake_body["meta"]["backfill"] = True
+            intake_body["meta"]["occurred_at"] = occurred.isoformat()
+    if resolved_by in ("form_name", "name") and isinstance(intake_body.get("meta"), dict):
+        intake_body["meta"]["project_resolved_by"] = "form_name" if resolved_by == "form_name" else "form_or_campaign_name"
+        form_name_value = _lookup(fields, _FORM_NAME_KEYS)
+        if form_name_value:
+            intake_body["meta"]["form_name"] = form_name_value
 
     if not intake_body.get("email") and not intake_body.get("phone"):
         await _write_log(
