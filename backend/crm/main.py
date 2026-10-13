@@ -11,6 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 from crm.api.v1.router import api_router
 from crm.core.rate_limit import limiter
 from crm.core.platform_ops import warn_if_platform_operator_env_missing
+from crm.core.public_webhook_cors import PublicWebhookCORSMiddleware
 from crm.core.secrets import validate_production_secrets
 from crm.core.state import client, db, ensure_db_indexes, logger, seed_default_alert_configs
 
@@ -41,6 +42,9 @@ app.add_middleware(
     expose_headers=["X-Total-Count"],
 )
 app.add_middleware(SlowAPIMiddleware)
+# Outermost, so it answers the landing pages' browser posts before the CRM-only allow-list
+# (and the rate limiter) get a say. Affects only the channel-partner form webhook.
+app.add_middleware(PublicWebhookCORSMiddleware)
 
 # Ensure static directory exists and mount it
 os.makedirs("static", exist_ok=True)
