@@ -17,7 +17,15 @@ import os
 import sys
 
 
+def _is_disposable_local_db() -> bool:
+    """CI starts its own throwaway Mongo and passes its URL in the process environment."""
+    url = os.environ.get("MONGO_URL", "")
+    return os.environ.get("CI") == "true" and ("localhost" in url or "127.0.0.1" in url)
+
+
 def _wants_real_db() -> bool:
+    if _is_disposable_local_db():
+        return True
     if os.environ.get("RUN_REAL_DB_TESTS") == "1":
         return True
     argv = " ".join(sys.argv)

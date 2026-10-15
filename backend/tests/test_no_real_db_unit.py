@@ -8,11 +8,15 @@ import pytest
 
 
 def test_the_database_url_is_the_unreachable_test_one():
+    if os.environ.get("CI") == "true" or os.environ.get("RUN_REAL_DB_TESTS") == "1":
+        pytest.skip("CI uses its own disposable database")
     assert os.environ["MONGO_URL"].startswith("mongodb://127.0.0.1:1")
     assert os.environ["DB_NAME"] == "arihant_crm_unit_tests_no_db"
 
 
 def test_the_state_client_is_not_pointed_at_a_real_cluster():
+    if os.environ.get("CI") == "true" or os.environ.get("RUN_REAL_DB_TESTS") == "1":
+        pytest.skip("CI uses its own disposable database")
     from crm.core.state import db
 
     assert db.name == "arihant_crm_unit_tests_no_db"
